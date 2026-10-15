@@ -1,0 +1,9 @@
+Document Text by Page:
+{page_texts}
+
+Task:
+Extract all relevant action items, deadlines, required documents, channel instructions, fees/penalties, and warnings from the notice text above into the JSON schema format.
+Remember:
+- Every extraction must be backed by exact quotes and page numbers.
+- If not present, return null with status "not_found".
+- Return raw JSON conforming to notice.schema.json v1.0.

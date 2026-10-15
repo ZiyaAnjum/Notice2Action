@@ -1,0 +1,160 @@
+{
+  "notice_id": "notice-sch-2026-001",
+  "schema_version": "1.0",
+  "category": "scholarship",
+  "category_confidence": 0.98,
+  "title": {
+    "value": "Post-Graduate Merit Scholarship 2026-27 Renewal & Verification",
+    "evidence": {
+      "page": 1,
+      "quote": "Sub: Post-Graduate Merit Scholarship 2026-27 Renewal & Verification Notice"
+    },
+    "status": "found"
+  },
+  "issuer": {
+    "value": "State Higher Education Directorate, Scholarship Cell",
+    "evidence": {
+      "page": 1,
+      "quote": "ISSUED BY: State Higher Education Directorate, Scholarship Cell"
+    },
+    "status": "found"
+  },
+  "summary_plain": {
+    "value": "All eligible postgraduate scholars must submit renewal dossiers and verify academic credentials online by November 15, 2026 to ensure continuation of monthly stipends.",
+    "evidence": {
+      "page": 1,
+      "quote": "All eligible scholars are hereby instructed to submit semester renewal dossiers online on or before 15-11-2026 to avoid disbursement suspension."
+    },
+    "status": "found"
+  },
+  "affected_party": {
+    "value": "Postgraduate Scholarship Awardees (Batch 2025-27)",
+    "evidence": {
+      "page": 1,
+      "quote": "Target Beneficiaries: All registered awardees under PG Merit Scheme 2025-27"
+    },
+    "status": "found"
+  },
+  "deadlines": [
+    {
+      "label": "Online Portal Submission Deadline",
+      "original_text": "15-11-2026 up to 5:00 PM IST",
+      "iso_date": "2026-11-15T17:00:00",
+      "evidence": {
+        "page": 1,
+        "quote": "last date for online upload on the state scholarship portal is 15-11-2026 up to 5:00 PM IST"
+      },
+      "status": "found"
+    },
+    {
+      "label": "Institutional Verification Window",
+      "original_text": "within 7 working days from portal closing",
+      "iso_date": null,
+      "evidence": {
+        "page": 2,
+        "quote": "Principals must countersign uploaded forms within 7 working days from portal closing"
+      },
+      "status": "ambiguous"
+    }
+  ],
+  "required_documents": [
+    {
+      "name": "Semester II Official Marksheet",
+      "explicitly_required": true,
+      "evidence": {
+        "page": 1,
+        "quote": "Self-attested copy of Semester II Official Marksheet is mandatory"
+      },
+      "status": "found"
+    },
+    {
+      "name": "Minimum 75% Attendance Certificate",
+      "explicitly_required": true,
+      "evidence": {
+        "page": 1,
+        "quote": "Institution head signed certificate certifying minimum 75% attendance"
+      },
+      "status": "found"
+    },
+    {
+      "name": "Hostel Fee Receipt",
+      "explicitly_required": false,
+      "evidence": {
+        "page": 2,
+        "quote": "Hostel residents may attach fee receipt for consideration of additional accommodation stipend (optional)"
+      },
+      "status": "found"
+    }
+  ],
+  "action_steps": [
+    {
+      "order": 1,
+      "text": "Obtain signed attendance certificate certifying minimum 75% attendance from your Head of Department.",
+      "evidence": {
+        "page": 1,
+        "quote": "Step 1: Obtain signed attendance certificate from Head of Department."
+      },
+      "status": "found"
+    },
+    {
+      "order": 2,
+      "text": "Log in to official portal at https://scholarships.state.gov.in and choose Renewal 2026.",
+      "evidence": {
+        "page": 1,
+        "quote": "Step 2: Log in to portal https://scholarships.state.gov.in and click Renewal 2026."
+      },
+      "status": "found"
+    },
+    {
+      "order": 3,
+      "text": "Upload scanned PDF copies of Semester II marksheets and the attendance certificate.",
+      "evidence": {
+        "page": 2,
+        "quote": "Step 3: Upload PDF copies of Semester II marksheet and attendance certificate."
+      },
+      "status": "found"
+    },
+    {
+      "order": 4,
+      "text": "Print final submission acknowledgment slip and submit copy to College Nodal Officer.",
+      "evidence": {
+        "page": 2,
+        "quote": "Step 4: Submit physical printout of submitted acknowledgment to College Nodal Officer."
+      },
+      "status": "found"
+    }
+  ],
+  "submission_channel": {
+    "value": "https://scholarships.state.gov.in with physical acknowledgment copy to College Nodal Officer",
+    "evidence": {
+      "page": 1,
+      "quote": "Submissions will be accepted exclusively via state portal https://scholarships.state.gov.in"
+    },
+    "status": "found"
+  },
+  "fees_penalties": [
+    {
+      "description": "Forfeiture of monthly scholarship stipend for subsequent quarters",
+      "amount": "Stipend Forfeiture (₹12,400/month)",
+      "evidence": {
+        "page": 2,
+        "quote": "Failure to submit by stipulated date shall result in forfeiture of scholarship for subsequent quarters."
+      },
+      "status": "found"
+    }
+  ],
+  "warnings": [
+    {
+      "code": "AMBIGUOUS_COLLEGE_WINDOW",
+      "message": "College verification deadline depends on institution working days ('within 7 working days from portal closing'). Check directly with your college nodal officer.",
+      "severity": "warning",
+      "evidence": {
+        "page": 2,
+        "quote": "within 7 working days from portal closing"
+      }
+    }
+  ],
+  "document_quality": "good",
+  "page_count": 2,
+  "extracted_at": "2026-10-15T14:30:00Z"
+}
