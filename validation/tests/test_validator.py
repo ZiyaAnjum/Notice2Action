@@ -1,3 +1,4 @@
+import copy
 import json
 from pathlib import Path
 
@@ -44,3 +45,63 @@ def test_validate_notice_detects_missing_keys() -> None:
     report = validate_notice({})
     assert report["is_valid"] is False
     assert len(report["errors"]) > 0
+
+
+def test_validate_notice_marks_unverified_quote_as_uncertain() -> None:
+    """Verify unverified evidence quotes mark the item status as 'uncertain' and emit a warning."""
+    repo_root = Path(__file__).resolve().parent.parent.parent
+    sample_file = repo_root / "schema" / "sample_notice.json"
+
+    with open(sample_file, encoding="utf-8") as f:
+        notice = json.load(f)
+
+    # Modify title evidence quote so it cannot be found on page 1
+    notice["title"]["evidence"]["quote"] = "Non-existent fabricated heading not in notice"
+    notice["title"]["status"] = "found"
+
+    page_texts = ["Completely different document text on page 1.", "Page 2 text."]
+
+    report = validate_notice(notice, page_texts)
+    # Status should be demoted to uncertain per reliability rules
+    assert notice["title"]["status"] == "uncertain"
+    assert report["grounded_ratio"] < 1.0
+    assert any("Grounding warning" in w for w in report["warnings"])
+
+
+def test_validate_notice_handles_whitespace_and_curly_quotes() -> None:
+    """Verify quote matching normalizes newlines and curly quotation marks."""
+    repo_root = Path(__file__).resolve().parent.parent.parent
+    sample_file = repo_root / "schema" / "sample_notice.json"
+
+    with open(sample_file, encoding="utf-8") as f:
+        notice = json.load(f)
+
+    # Use curly quotes and newlines in quote
+    notice_copy = copy.deepcopy(notice)
+    notice_copy["deadlines"][0]["evidence"]["quote"] = (
+        "last date for online upload\n   on the state scholarship portal is 15-11-2026 up to 5:00 PM IST"
+    )
+
+    page_texts = [
+        "Header text. “last date for online upload on the state scholarship portal is 15-11-2026 up to 5:00 PM IST” end text.",
+        "Page 2.",
+    ]
+
+    report = validate_notice(notice_copy, page_texts)
+    # The normalized quote should successfully match despite newlines/curly quotes
+    assert any("deadline: Online Portal Submission Deadline" not in w for w in report["warnings"])
+
+
+def test_validate_notice_handles_none_array_fields() -> None:
+    """Verify notice with None array fields is safely handled without throwing TypeError."""
+    malformed_notice = {
+        "notice_id": "test-none-fields",
+        "category": "scholarship",
+        "deadlines": None,
+        "required_documents": None,
+        "action_steps": None,
+        "fees_penalties": None,
+    }
+    report = validate_notice(malformed_notice, ["Some text"])
+    assert report["is_valid"] is False  # Schema error due to null arrays
+    assert isinstance(report["errors"], list)
