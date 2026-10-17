@@ -13,10 +13,10 @@ import argparse
 import json
 import time
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any
 
 
-def evaluate_test_set(data_dir: Path, annotations_dir: Path) -> Dict[str, Any]:
+def evaluate_test_set(data_dir: Path, annotations_dir: Path) -> dict[str, Any]:
     """Run benchmark evaluation over annotated notices and compute accuracy metrics."""
     print("=" * 60)
     print("Notice to Action - Evaluation Suite (Placeholder)")
@@ -55,15 +55,21 @@ def evaluate_test_set(data_dir: Path, annotations_dir: Path) -> Dict[str, Any]:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Evaluate extraction accuracy against test annotations.")
-    parser.add_argument("--data-dir", type=Path, default=Path("data/masked"), help="Path to masked notices")
+    parser = argparse.ArgumentParser(
+        description="Evaluate extraction accuracy against test annotations."
+    )
+    parser.add_argument(
+        "--data-dir", type=Path, default=Path("data/masked"), help="Path to masked notices"
+    )
     parser.add_argument(
         "--annotations-dir",
         type=Path,
         default=Path("data/annotations"),
         help="Path to ground truth JSON annotations",
     )
-    parser.add_argument("--output", type=Path, default=None, help="Optional path to write evaluation JSON report")
+    parser.add_argument(
+        "--output", type=Path, default=None, help="Optional path to write evaluation JSON report"
+    )
     args = parser.parse_args()
 
     results = evaluate_test_set(args.data_dir, args.annotations_dir)

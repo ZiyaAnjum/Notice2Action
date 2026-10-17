@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { Header } from "../components/Header";
 import { DeadlineCard } from "../components/DeadlineCard";
 import { DocumentChecklist } from "../components/DocumentChecklist";
@@ -55,8 +55,10 @@ export function Home() {
         {/* Banner notification */}
         <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs sm:text-sm text-emerald-900">
           <div className="flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-            <span>{statusMessage}</span>
+            <span
+              className={`w-2 h-2 rounded-full ${isLoading ? "bg-amber-500 animate-spin" : "bg-emerald-500 animate-pulse"}`}
+            ></span>
+            <span>{isLoading ? "Processing PDF notice..." : statusMessage}</span>
           </div>
           <span className="font-mono text-xs text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded">
             Notice ID: {notice.notice_id} (Schema v{notice.schema_version})

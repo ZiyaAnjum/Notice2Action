@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+
 from validation.validator import validate_notice
 
 
@@ -8,7 +9,7 @@ def test_validate_notice_passes_on_sample_notice() -> None:
     repo_root = Path(__file__).resolve().parent.parent.parent
     sample_file = repo_root / "schema" / "sample_notice.json"
 
-    with open(sample_file, "r", encoding="utf-8") as f:
+    with open(sample_file, encoding="utf-8") as f:
         sample = json.load(f)
 
     # Provide synthetic page text containing the exact quotes

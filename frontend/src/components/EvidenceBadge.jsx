@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import { useState } from "react";
 
 export function EvidenceBadge({ evidence, status = "found" }) {
   const [isOpen, setIsOpen] = useState(false);
@@ -41,7 +41,7 @@ export function EvidenceBadge({ evidence, status = "found" }) {
             </button>
           </div>
           <blockquote className="italic bg-slate-50 p-2 rounded border-l-2 border-emerald-500 font-mono text-[11px] text-slate-800">
-            "{evidence.quote}"
+            &ldquo;{evidence.quote}&rdquo;
           </blockquote>
           {isUncertain && (
             <p className="mt-2 text-amber-700 font-medium">

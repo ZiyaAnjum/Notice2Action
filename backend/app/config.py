@@ -1,5 +1,5 @@
 from functools import lru_cache
-from typing import List, Union
+
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -17,14 +17,16 @@ class Settings(BaseSettings):
     PORT: int = 8000
 
     # CORS configuration
-    ALLOWED_ORIGINS: Union[str, List[str]] = [
+    ALLOWED_ORIGINS: str | list[str] = [
         "http://localhost:5173",
         "http://127.0.0.1:5173",
         "http://localhost:3000",
     ]
 
     # Database
-    DATABASE_URL: str = "postgresql://notice_user:notice_password@localhost:5432/notice_to_action_db"
+    DATABASE_URL: str = (
+        "postgresql://notice_user:notice_password@localhost:5432/notice_to_action_db"
+    )
 
     # Security
     SECRET_KEY: str = "development-insecure-secret-key-placeholder"
@@ -39,7 +41,7 @@ class Settings(BaseSettings):
 
     @field_validator("ALLOWED_ORIGINS", mode="before")
     @classmethod
-    def assemble_cors_origins(cls, v: Union[str, List[str]]) -> List[str]:
+    def assemble_cors_origins(cls, v: str | list[str]) -> list[str]:
         if isinstance(v, str):
             return [origin.strip() for origin in v.split(",") if origin.strip()]
         return v
@@ -51,7 +53,7 @@ class Settings(BaseSettings):
     )
 
 
-@lru_cache()
+@lru_cache
 def get_settings() -> Settings:
     """Return cached application settings singleton."""
     return Settings()

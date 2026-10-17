@@ -1,5 +1,3 @@
-import React from "react";
-
 export function Header({ category, onUploadClick }) {
   return (
     <header className="bg-white border-b border-slate-200 sticky top-0 z-20 shadow-xs">

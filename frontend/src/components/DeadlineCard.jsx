@@ -1,4 +1,3 @@
-import React from "react";
 import { EvidenceBadge } from "./EvidenceBadge";
 
 export function DeadlineCard({ deadlines = [] }) {
@@ -45,7 +44,7 @@ export function DeadlineCard({ deadlines = [] }) {
                 : primaryDeadline.original_text}
             </div>
             <div className="mt-1 text-sm font-medium text-slate-600">
-              Notice text: <span className="font-semibold italic">"{primaryDeadline.original_text}"</span>
+              Notice text: <span className="font-semibold italic">&ldquo;{primaryDeadline.original_text}&rdquo;</span>
             </div>
           </div>
           {primaryDeadline.status !== "found" && (

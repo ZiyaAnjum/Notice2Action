@@ -1,9 +1,9 @@
 import json
 from pathlib import Path
-from typing import Any, Dict, Union
+from typing import Any
 
 
-def process_pdf(file_path: Union[str, Path]) -> Dict[str, Any]:
+def process_pdf(file_path: str | Path) -> dict[str, Any]:
     """Stub extractor parsing PDF notice and extracting schema-compliant action plan.
 
     Args:
@@ -28,7 +28,7 @@ def process_pdf(file_path: Union[str, Path]) -> Dict[str, Any]:
     sample_file = repo_root / "schema" / "sample_notice.json"
 
     if sample_file.exists():
-        with open(sample_file, "r", encoding="utf-8") as f:
+        with open(sample_file, encoding="utf-8") as f:
             data = json.load(f)
             # Update notice metadata based on input file name
             data["notice_id"] = f"notice-{path.stem}"

@@ -1,7 +1,7 @@
 import json
 import uuid
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any
 
 
 class NoticeService:
@@ -11,12 +11,12 @@ class NoticeService:
         # Locate sample mock JSON from schema directory
         self.base_dir = Path(__file__).resolve().parent.parent.parent.parent
         self.sample_path = self.base_dir / "schema" / "sample_notice.json"
-        self._in_memory_store: Dict[str, Dict[str, Any]] = {}
+        self._in_memory_store: dict[str, dict[str, Any]] = {}
 
-    def get_sample_notice(self) -> Dict[str, Any]:
+    def get_sample_notice(self) -> dict[str, Any]:
         """Load and return the canonical sample notice contract."""
         if self.sample_path.exists():
-            with open(self.sample_path, "r", encoding="utf-8") as f:
+            with open(self.sample_path, encoding="utf-8") as f:
                 return json.load(f)
 
         # Fallback inline stub matching schema v1.0
@@ -60,7 +60,7 @@ class NoticeService:
             "extracted_at": "2026-10-15T00:00:00Z",
         }
 
-    async def process_uploaded_file(self, filename: str, contents: bytes) -> Dict[str, Any]:
+    async def process_uploaded_file(self, filename: str, contents: bytes) -> dict[str, Any]:
         """Stub processing for uploaded PDF notice.
 
         In production, this delegates to extraction.process_pdf and validation.validate_notice.
@@ -72,7 +72,7 @@ class NoticeService:
         self._in_memory_store[new_id] = notice
         return notice
 
-    def get_notice_by_id(self, notice_id: str) -> Optional[Dict[str, Any]]:
+    def get_notice_by_id(self, notice_id: str) -> dict[str, Any] | None:
         """Fetch notice by ID from memory store or return sample notice if ID matches sample."""
         if notice_id in self._in_memory_store:
             return self._in_memory_store[notice_id]

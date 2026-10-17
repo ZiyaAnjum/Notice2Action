@@ -1,9 +1,7 @@
-import json
-from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 
-def validate_notice(notice: Dict[str, Any], page_texts: Optional[List[str]] = None) -> Dict[str, Any]:
+def validate_notice(notice: dict[str, Any], page_texts: list[str] | None = None) -> dict[str, Any]:
     """Validate extracted notice against schema rules and check evidence grounding.
 
     Args:
@@ -13,8 +11,8 @@ def validate_notice(notice: Dict[str, Any], page_texts: Optional[List[str]] = No
     Returns:
         Validation report dict with compliance status, evidence grounding score, errors, and warnings.
     """
-    errors: List[str] = []
-    warnings: List[str] = []
+    errors: list[str] = []
+    warnings: list[str] = []
     quotes_checked = 0
     quotes_verified = 0
 
@@ -48,6 +46,7 @@ def validate_notice(notice: Dict[str, Any], page_texts: Optional[List[str]] = No
 
     # 3. Evidence Grounding Check (if page_texts provided)
     if page_texts:
+
         def check_evidence(evidence: Any, field_name: str) -> None:
             nonlocal quotes_checked, quotes_verified
             if not isinstance(evidence, dict):

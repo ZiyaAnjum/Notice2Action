@@ -1,4 +1,3 @@
-import React from "react";
 import { EvidenceBadge } from "./EvidenceBadge";
 
 export function WarningsList({ warnings = [], documentQuality }) {

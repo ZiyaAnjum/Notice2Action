@@ -1,4 +1,5 @@
 from fastapi import APIRouter
+
 from backend.app.routers.notices import router as notices_router
 
 api_v1_router = APIRouter(prefix="/api/v1")
