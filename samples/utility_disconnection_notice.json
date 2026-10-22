@@ -1,0 +1,102 @@
+{
+  "notice_id": "utility-disc-2026-042",
+  "schema_version": "1.0",
+  "document_title": "Final Demand Notice Prior to Electricity Disconnection (Consumer Account #8821943)",
+  "issuing_authority": "State Electricity Distribution Company Ltd. (Discom), Central Billing Division",
+  "category": "utility_or_billing",
+  "plain_language_summary": {
+    "summary": "Your domestic power connection has outstanding unpaid billing arrears totaling Rs. 4,850. You must clear the full balance within 15 days of this notice or provide proof of dispute to avoid immediate disconnection and meter removal.",
+    "evidence_quote": "Outstanding billing charges must be liquidated within 15 days hereof to prevent disconnection of supply and removal of energy meter.",
+    "source_page": 1,
+    "status": "found"
+  },
+  "deadlines": [
+    {
+      "date": "2026-11-05",
+      "description": "Final date to deposit arrears before technician disconnection order is issued.",
+      "evidence_quote": "Defaulters list will be forwarded to field engineers on 05-11-2026 for physical disconnection.",
+      "source_page": 1,
+      "confidence": 0.94,
+      "status": "found"
+    },
+    {
+      "date": "uncertain",
+      "description": "Dispute settlement hearing request deadline (relative date 'within 7 days of notice receipt')",
+      "evidence_quote": "Consumer may apply for bill re-metering review within 7 days of notice receipt.",
+      "source_page": 1,
+      "confidence": "uncertain",
+      "status": "uncertain"
+    }
+  ],
+  "required_documents": [
+    {
+      "name": "Latest Electricity Bill & Payment Counterfoil",
+      "evidence_quote": "Attach consumer copy of invoice for billing cycle September 2026.",
+      "source_page": 1,
+      "status": "completed",
+      "mandatory": true
+    },
+    {
+      "name": "Proof of Identity (Aadhaar / Voter ID of Registered Consumer)",
+      "evidence_quote": "Copy of photo identity card of the registered connection holder.",
+      "source_page": 2,
+      "status": "not_completed",
+      "mandatory": true
+    },
+    {
+      "name": "Bank Payment Transaction Statement (if paid via third-party app)",
+      "evidence_quote": "In case of online UPI payment failure, bank debit statement is required.",
+      "source_page": 2,
+      "status": "needs_verification",
+      "mandatory": false
+    }
+  ],
+  "submission_channel": {
+    "channel": "Online payment portal https://discom.energy.gov/pay or Local Sub-divisional Revenue Office Counter",
+    "evidence_quote": "Settlement accepted via quick-pay link at https://discom.energy.gov/pay or at Sub-divisional Cash Counter.",
+    "source_page": 1,
+    "status": "found"
+  },
+  "penalties": [
+    {
+      "description": "Reconnection surcharge fee of Rs. 350 plus line restoration tax",
+      "amount": "Rs. 350",
+      "evidence_quote": "A mandatory reconnection charge of Rs. 350 shall be applicable following service termination.",
+      "source_page": 2,
+      "status": "found"
+    },
+    {
+      "description": "Late payment surcharge of 1.5% compounding per billing cycle",
+      "amount": "1.5%",
+      "evidence_quote": "Delayed surcharge @ 1.5% continues to accrue on unpaid balances.",
+      "source_page": 2,
+      "status": "found"
+    }
+  ],
+  "action_steps": [
+    {
+      "order": 1,
+      "action": "Check live balance using 10-digit Consumer CA Number on the Discom portal.",
+      "evidence_quote": "Step 1: Check live balance using 10-digit Consumer CA Number on the Discom portal.",
+      "source_page": 1,
+      "status": "found"
+    },
+    {
+      "order": 2,
+      "action": "Remit total outstanding amount or file grievance before the due date.",
+      "evidence_quote": "Step 2: Remit total outstanding amount or file grievance before the due date.",
+      "source_page": 2,
+      "status": "found"
+    },
+    {
+      "order": 3,
+      "action": "Keep stamped or digital receipt accessible for field audit.",
+      "evidence_quote": "Step 3: Keep stamped or digital receipt accessible for field audit.",
+      "source_page": 2,
+      "status": "found"
+    }
+  ],
+  "needs_verification": true,
+  "document_quality": "good",
+  "extracted_at": "2026-10-22T20:10:00Z"
+}

@@ -1,0 +1,102 @@
+{
+  "notice_id": "tax-demand-2026-001",
+  "schema_version": "1.0",
+  "document_title": "Municipal Corporation Final Property Tax Assessment & Demand Notice (FY 2026-27)",
+  "issuing_authority": "Directorate of Municipal Revenue, Property Tax Department",
+  "category": "tax_or_revenue",
+  "plain_language_summary": {
+    "summary": "All property owners within municipal boundaries must verify their tax assessment and remit outstanding property tax for FY 2026-27 before November 30, 2026 to avoid penal interest and seizure proceedings.",
+    "evidence_quote": "All assessees are required to clear property tax dues for FY 2026-27 by 30-11-2026 failing which recovery actions shall commence.",
+    "source_page": 1,
+    "status": "found"
+  },
+  "deadlines": [
+    {
+      "date": "2026-11-30",
+      "description": "Final date for payment of property tax without 2% monthly penal interest.",
+      "evidence_quote": "Payment must be completed on or before 30th November 2026 to avoid penal interest.",
+      "source_page": 1,
+      "confidence": 0.98,
+      "status": "found"
+    },
+    {
+      "date": "2026-10-31",
+      "description": "Early-bird rebate deadline eligible for 5% tax concession.",
+      "evidence_quote": "An early payment rebate of 5% is applicable if payment is recorded by 31-10-2026.",
+      "source_page": 1,
+      "confidence": 0.95,
+      "status": "found"
+    }
+  ],
+  "required_documents": [
+    {
+      "name": "Previous Year Tax Paid Receipt (FY 2025-26)",
+      "evidence_quote": "Photocopy of previous financial year tax clearance receipt is compulsory for verification.",
+      "source_page": 2,
+      "status": "not_completed",
+      "mandatory": true
+    },
+    {
+      "name": "Property Unique ID (PID) Card",
+      "evidence_quote": "Original PID smart card or system generated PID slip must be cited.",
+      "source_page": 2,
+      "status": "completed",
+      "mandatory": true
+    },
+    {
+      "name": "Building Completion Certificate",
+      "evidence_quote": "Owners of newly constructed floors may submit completion certificate to claim revised assessment (optional).",
+      "source_page": 2,
+      "status": "needs_verification",
+      "mandatory": false
+    }
+  ],
+  "submission_channel": {
+    "channel": "https://propertytax.citygov.in/portal or Citizen Service Centers (Civic Centers Room 104)",
+    "evidence_quote": "Tax may be remitted online at https://propertytax.citygov.in/portal or in-person at Citizen Service Centers.",
+    "source_page": 1,
+    "status": "found"
+  },
+  "penalties": [
+    {
+      "description": "Penal interest of 2% per month on overdue tax amount",
+      "amount": "2% per month",
+      "evidence_quote": "A simple interest penalty of 2% per month on defaulted tax will be added after 30-11-2026.",
+      "source_page": 2,
+      "status": "found"
+    },
+    {
+      "description": "Warrant of attachment and disconnection of municipal civic services",
+      "amount": null,
+      "evidence_quote": "Non-payment exceeding 90 days may result in attachment of movable property and disconnection of water connection.",
+      "source_page": 2,
+      "status": "found"
+    }
+  ],
+  "action_steps": [
+    {
+      "order": 1,
+      "action": "Locate Property Identification Number (PID) and inspect current dues breakdown on municipal portal.",
+      "evidence_quote": "Step 1: Assessees should log in with their 10-digit PID to inspect tax liability details.",
+      "source_page": 1,
+      "status": "found"
+    },
+    {
+      "order": 2,
+      "action": "Gather previous year receipt and upload self-assessment form online or submit at Civic Center counter.",
+      "evidence_quote": "Step 2: Submit self-assessment declaration with previous receipt attached.",
+      "source_page": 2,
+      "status": "found"
+    },
+    {
+      "order": 3,
+      "action": "Complete payment through authorized payment gateway or generate bank challan.",
+      "evidence_quote": "Step 3: Complete payment through authorized payment gateway or generate bank challan.",
+      "source_page": 2,
+      "status": "found"
+    }
+  ],
+  "needs_verification": false,
+  "document_quality": "good",
+  "extracted_at": "2026-10-22T20:00:00Z"
+}

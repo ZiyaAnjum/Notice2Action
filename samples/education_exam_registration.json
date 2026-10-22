@@ -1,0 +1,95 @@
+{
+  "notice_id": "edu-exam-2026-108",
+  "schema_version": "1.0",
+  "document_title": "State Board of Secondary & Higher Secondary Education - Circular No. 44/2026: March 2027 Final Examination Enrollment",
+  "issuing_authority": "State Board Examination Controller, Enrollment Wing",
+  "category": "education_or_exam",
+  "plain_language_summary": {
+    "summary": "All eligible regular and private candidates for the Class XII Final Examination 2027 must complete online enrollment, verify biometric data, and upload academic credentials before December 10, 2026.",
+    "evidence_quote": "Online enrollment and submission of e-dossiers for March 2027 examinations shall close on 10-12-2026.",
+    "source_page": 1,
+    "status": "found"
+  },
+  "deadlines": [
+    {
+      "date": "2026-12-10",
+      "description": "Final date for candidates to complete online registration form and pay standard exam fees.",
+      "evidence_quote": "The last date for student enrollment without late fees is 10th December 2026.",
+      "source_page": 1,
+      "confidence": 0.99,
+      "status": "found"
+    },
+    {
+      "date": "2026-12-20",
+      "description": "Extended late registration window with statutory late fine.",
+      "evidence_quote": "Portal will re-open from 11-12-2026 to 20-12-2026 with late registration fee.",
+      "source_page": 1,
+      "confidence": 0.97,
+      "status": "found"
+    }
+  ],
+  "required_documents": [
+    {
+      "name": "Class X Passing Certificate & Marksheet",
+      "evidence_quote": "Original scanned copy of Class 10 board marksheet must be uploaded.",
+      "source_page": 1,
+      "status": "completed",
+      "mandatory": true
+    },
+    {
+      "name": "Passport Size Color Photograph (White Background, < 100 KB)",
+      "evidence_quote": "Recent passport photograph with white background in JPEG format not exceeding 100 KB.",
+      "source_page": 1,
+      "status": "not_completed",
+      "mandatory": true
+    },
+    {
+      "name": "Disability / PwD Certificate from District Medical Board (if claiming scribe/extra time)",
+      "evidence_quote": "Candidates requiring compensatory time must attach valid medical certificate issued by competent authority.",
+      "source_page": 2,
+      "status": "needs_verification",
+      "mandatory": false
+    }
+  ],
+  "submission_channel": {
+    "channel": "Official Board Online Examination Portal: https://boardexam.state.edu/reg2027",
+    "evidence_quote": "Candidate applications must be registered exclusively through https://boardexam.state.edu/reg2027",
+    "source_page": 1,
+    "status": "found"
+  },
+  "penalties": [
+    {
+      "description": "Late fee of Rs. 250 for registration during extended window",
+      "amount": "Rs. 250",
+      "evidence_quote": "A late fine of Rs. 250 shall be levied per candidate registering after 10-12-2026.",
+      "source_page": 2,
+      "status": "found"
+    }
+  ],
+  "action_steps": [
+    {
+      "order": 1,
+      "action": "Enter unique Student ID to populate academic records and verify personal details.",
+      "evidence_quote": "Step 1: Enter unique Student ID to populate academic records and verify personal details.",
+      "source_page": 1,
+      "status": "found"
+    },
+    {
+      "order": 2,
+      "action": "Upload digital copies of mandatory documents as per portal specifications.",
+      "evidence_quote": "Step 2: Upload digital copies of mandatory documents as per portal specifications.",
+      "source_page": 2,
+      "status": "found"
+    },
+    {
+      "order": 3,
+      "action": "Remit fee through payment gateway and generate barcoded acknowledgment receipt.",
+      "evidence_quote": "Step 3: Remit fee through payment gateway and generate barcoded acknowledgment receipt.",
+      "source_page": 2,
+      "status": "found"
+    }
+  ],
+  "needs_verification": false,
+  "document_quality": "good",
+  "extracted_at": "2026-10-22T20:20:00Z"
+}

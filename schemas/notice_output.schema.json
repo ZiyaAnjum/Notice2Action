@@ -1,0 +1,278 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://notice2action.action4ai.internal/schemas/notice_output.schema.json",
+  "title": "NoticeOutputSchema",
+  "description": "Standardized schema contract for structured, evidence-linked extraction of official notices in Notice to Action.",
+  "type": "object",
+  "required": [
+    "category",
+    "plain_language_summary",
+    "deadlines",
+    "required_documents",
+    "submission_channel",
+    "penalties",
+    "action_steps",
+    "needs_verification"
+  ],
+  "properties": {
+    "notice_id": {
+      "type": "string",
+      "description": "Unique identifier for the notice record or processing job."
+    },
+    "schema_version": {
+      "type": "string",
+      "default": "1.0",
+      "description": "Version of this output schema contract."
+    },
+    "document_title": {
+      "type": "string",
+      "description": "Subject line or official heading of the notice."
+    },
+    "issuing_authority": {
+      "type": "string",
+      "description": "Issuing agency, government department, court, or utility provider."
+    },
+    "category": {
+      "type": "string",
+      "enum": [
+        "tax_or_revenue",
+        "utility_or_billing",
+        "legal_or_court",
+        "education_or_exam",
+        "government_benefit_or_welfare",
+        "other_out_of_scope"
+      ],
+      "description": "Confirmed high-level classification category of the notice."
+    },
+    "plain_language_summary": {
+      "type": "object",
+      "required": ["summary", "evidence_quote", "source_page"],
+      "properties": {
+        "summary": {
+          "type": ["string", "null"],
+          "description": "Plain language summary of the notice requirements or 'not_found' / 'uncertain'."
+        },
+        "evidence_quote": {
+          "type": ["string", "null"],
+          "description": "Verbatim quote backing the summary, or 'not_found' / 'uncertain'."
+        },
+        "source_page": {
+          "oneOf": [
+            { "type": "integer", "minimum": 1 },
+            { "type": "string", "enum": ["not_found", "uncertain"] },
+            { "type": "null" }
+          ],
+          "description": "1-indexed page number where quote appears, or 'not_found' / 'uncertain' / null."
+        },
+        "status": {
+          "type": "string",
+          "enum": ["found", "uncertain", "not_found"],
+          "description": "Grounding verification status."
+        }
+      },
+      "additionalProperties": false
+    },
+    "deadlines": {
+      "type": "array",
+      "description": "List of explicit or relative deadlines identified in the notice.",
+      "items": {
+        "type": "object",
+        "required": [
+          "date",
+          "description",
+          "evidence_quote",
+          "source_page",
+          "confidence"
+        ],
+        "properties": {
+          "date": {
+            "type": ["string", "null"],
+            "description": "Date or deadline string (e.g. ISO date, raw text), or 'not_found' / 'uncertain'."
+          },
+          "description": {
+            "type": "string",
+            "description": "Explanation of what must be submitted or performed by this deadline, or 'not_found' / 'uncertain'."
+          },
+          "evidence_quote": {
+            "type": ["string", "null"],
+            "description": "Verbatim quotation from the source text, or 'not_found' / 'uncertain'."
+          },
+          "source_page": {
+            "oneOf": [
+              { "type": "integer", "minimum": 1 },
+              { "type": "string", "enum": ["not_found", "uncertain"] },
+              { "type": "null" }
+            ],
+            "description": "1-indexed page number containing the deadline, or 'not_found' / 'uncertain' / null."
+          },
+          "confidence": {
+            "oneOf": [
+              { "type": "number", "minimum": 0.0, "maximum": 1.0 },
+              { "type": "string", "enum": ["not_found", "uncertain"] }
+            ],
+            "description": "Extraction confidence score between 0.0 and 1.0, or 'not_found' / 'uncertain'."
+          },
+          "status": {
+            "type": "string",
+            "enum": ["found", "uncertain", "ambiguous", "conflicting", "not_found"],
+            "description": "Deadline status indicator."
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "required_documents": {
+      "type": "array",
+      "description": "Checklist of documents, certificates, or identity proofs required by the notice.",
+      "items": {
+        "type": "object",
+        "required": ["name", "evidence_quote", "source_page", "status"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Document name or specification, or 'not_found' / 'uncertain'."
+          },
+          "evidence_quote": {
+            "type": ["string", "null"],
+            "description": "Verbatim quote where this document is mentioned, or 'not_found' / 'uncertain'."
+          },
+          "source_page": {
+            "oneOf": [
+              { "type": "integer", "minimum": 1 },
+              { "type": "string", "enum": ["not_found", "uncertain"] },
+              { "type": "null" }
+            ],
+            "description": "1-indexed page number where document requirement appears, or 'not_found' / 'uncertain' / null."
+          },
+          "status": {
+            "type": "string",
+            "enum": ["not_completed", "completed", "needs_verification"],
+            "description": "Current checklist status for the document."
+          },
+          "mandatory": {
+            "type": "boolean",
+            "description": "Whether document is legally/procedurally required vs optional."
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "submission_channel": {
+      "type": "object",
+      "required": ["channel", "evidence_quote", "source_page"],
+      "description": "Primary submission mode, portal URL, physical counter, or postal address.",
+      "properties": {
+        "channel": {
+          "type": ["string", "null"],
+          "description": "Submission portal URL, counter address, or email, or 'not_found' / 'uncertain'."
+        },
+        "evidence_quote": {
+          "type": ["string", "null"],
+          "description": "Verbatim quote indicating submission channel, or 'not_found' / 'uncertain'."
+        },
+        "source_page": {
+          "oneOf": [
+            { "type": "integer", "minimum": 1 },
+            { "type": "string", "enum": ["not_found", "uncertain"] },
+            { "type": "null" }
+          ],
+          "description": "1-indexed page number specifying the submission channel, or 'not_found' / 'uncertain' / null."
+        },
+        "status": {
+          "type": "string",
+          "enum": ["found", "uncertain", "not_found"],
+          "description": "Verification status."
+        }
+      },
+      "additionalProperties": false
+    },
+    "penalties": {
+      "type": "array",
+      "description": "Financial penalties, late fees, interest, or consequences specified in notice.",
+      "items": {
+        "type": "object",
+        "required": ["description", "evidence_quote", "source_page"],
+        "properties": {
+          "description": {
+            "type": "string",
+            "description": "Description of penalty or consequence, or 'not_found' / 'uncertain'."
+          },
+          "amount": {
+            "type": ["string", "number", "null"],
+            "description": "Stated penalty amount or rate, or null / 'not_found' / 'uncertain'."
+          },
+          "evidence_quote": {
+            "type": ["string", "null"],
+            "description": "Verbatim quote describing the penalty, or 'not_found' / 'uncertain'."
+          },
+          "source_page": {
+            "oneOf": [
+              { "type": "integer", "minimum": 1 },
+              { "type": "string", "enum": ["not_found", "uncertain"] },
+              { "type": "null" }
+            ],
+            "description": "1-indexed page number describing penalty, or 'not_found' / 'uncertain' / null."
+          },
+          "status": {
+            "type": "string",
+            "enum": ["found", "uncertain", "not_found"],
+            "description": "Verification status."
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "action_steps": {
+      "type": "array",
+      "description": "Chronological ordered sequence of action steps for the recipient.",
+      "items": {
+        "type": "object",
+        "required": ["order", "action", "evidence_quote", "source_page"],
+        "properties": {
+          "order": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Sequential step number (1, 2, 3...)."
+          },
+          "action": {
+            "type": "string",
+            "description": "Direct, actionable instruction strictly derived from notice text, or 'not_found' / 'uncertain'."
+          },
+          "evidence_quote": {
+            "type": ["string", "null"],
+            "description": "Verbatim quote instructing this action, or 'not_found' / 'uncertain'."
+          },
+          "source_page": {
+            "oneOf": [
+              { "type": "integer", "minimum": 1 },
+              { "type": "string", "enum": ["not_found", "uncertain"] },
+              { "type": "null" }
+            ],
+            "description": "1-indexed page number containing the instruction, or 'not_found' / 'uncertain' / null."
+          },
+          "status": {
+            "type": "string",
+            "enum": ["found", "uncertain", "not_found"],
+            "description": "Verification status."
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "needs_verification": {
+      "type": "boolean",
+      "description": "Overall flag set to true if any extracted item is uncertain, ambiguous, conflicting, or unverified."
+    },
+    "document_quality": {
+      "type": "string",
+      "enum": ["good", "poor_scan", "incomplete"],
+      "description": "Assessment of input document readability."
+    },
+    "extracted_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp of extraction."
+    }
+  },
+  "additionalProperties": false
+}
