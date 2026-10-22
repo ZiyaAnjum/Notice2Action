@@ -10,6 +10,25 @@ import jsonschema
 SCHEMA_PATH = Path(__file__).resolve().parent.parent / "schemas" / "notice_output.schema.json"
 LEGACY_SCHEMA_PATH = Path(__file__).resolve().parent.parent / "schema" / "notice.schema.json"
 
+# PRD-aligned valid categories defined in single canonical location
+VALID_CATEGORIES = (
+    "scholarship_or_college",
+    "bank",
+    "utility",
+    "tax_or_payment",
+    "government_scheme",
+    "other_out_of_scope",
+)
+
+LEGACY_CATEGORIES = (
+    "scholarship",
+    "bank",
+    "utility",
+    "tax",
+    "govt_scheme",
+    "unsupported",
+)
+
 
 def normalize_text(text: str) -> str:
     """Normalize whitespace and quotation marks for robust evidence grounding.
@@ -74,34 +93,17 @@ def validate_notice(
         errors.append(f"Failed to load schema contract from '{target_schema_path}': {e}")
 
     # Category validation based on active schema contract
-    new_categories = {
-        "tax_or_revenue",
-        "utility_or_billing",
-        "legal_or_court",
-        "education_or_exam",
-        "government_benefit_or_welfare",
-        "other_out_of_scope",
-    }
-    legacy_categories = {
-        "scholarship",
-        "bank",
-        "utility",
-        "tax",
-        "govt_scheme",
-        "unsupported",
-    }
-
     category = notice_copy.get("category")
     if category:
         if target_schema_path == LEGACY_SCHEMA_PATH:
-            if category not in legacy_categories:
+            if category not in LEGACY_CATEGORIES:
                 errors.append(
-                    f"Invalid category '{category}'. Must be one of {sorted(legacy_categories)}"
+                    f"Invalid category '{category}'. Must be one of {sorted(LEGACY_CATEGORIES)}"
                 )
         else:
-            if category not in new_categories:
+            if category not in VALID_CATEGORIES:
                 errors.append(
-                    f"Invalid category '{category}'. Must be one of {sorted(new_categories)}"
+                    f"Invalid category '{category}'. Must be one of {sorted(VALID_CATEGORIES)}"
                 )
 
     # Prepare normalized page texts if provided
@@ -181,16 +183,35 @@ def validate_notice(
                     f"Grounding error: Quote for '{field_name}' references page {page}, but notice has only {total_pages} page(s)."
                 )
 
-    # Inspect top-level plain language summary
-    plain_summary = notice_copy.get("plain_language_summary")
-    if isinstance(plain_summary, dict):
-        check_item_evidence(plain_summary, "plain_language_summary", is_critical=True)
-
-    # Inspect legacy top-level evidence fields
-    for field in ["title", "issuer", "summary_plain", "affected_party"]:
+    # Inspect top-level evidence fields
+    for field in [
+        "notice_title",
+        "issuing_organisation",
+        "affected_party",
+        "main_purpose",
+        "title",
+        "issuer",
+        "summary_plain",
+    ]:
         field_data = notice_copy.get(field)
         if isinstance(field_data, dict):
             check_item_evidence(field_data, field, is_critical=False)
+
+    # Inspect plain language summary sections
+    plain_summary = notice_copy.get("plain_language_summary")
+    if isinstance(plain_summary, dict):
+        if "summary" in plain_summary:
+            check_item_evidence(plain_summary, "plain_language_summary", is_critical=True)
+        for part in [
+            "what_is_this",
+            "why_it_matters",
+            "what_to_do",
+            "where_to_do_it",
+            "if_deadline_missed",
+        ]:
+            part_data = plain_summary.get(part)
+            if isinstance(part_data, dict):
+                check_item_evidence(part_data, f"plain_language_summary.{part}", is_critical=False)
 
     # Inspect critical fields
     sub_channel = notice_copy.get("submission_channel")
@@ -201,6 +222,10 @@ def validate_notice(
         if isinstance(item, dict):
             label = item.get("description") or item.get("label", "unnamed")
             check_item_evidence(item, f"deadline: {label}", is_critical=True)
+            # Propagate ambiguous/conflicting deadline status to needs_verification
+            if item.get("is_ambiguous_or_conflicting"):
+                if "needs_verification" in notice_copy:
+                    notice_copy["needs_verification"] = True
 
     for item in notice_copy.get("required_documents") or []:
         if isinstance(item, dict):
@@ -226,9 +251,10 @@ def validate_notice(
 
     for item in notice_copy.get("warnings") or []:
         if isinstance(item, dict):
-            check_item_evidence(item, f"warning: {item.get('code', 'unnamed')}", is_critical=False)
+            w_label = item.get("warning_text") or item.get("message") or item.get("code", "unnamed")
+            check_item_evidence(item, f"warning: {w_label}", is_critical=False)
 
-    # Update needs_verification flag if present on notice
+    # Update needs_verification flag if present on notice and warnings were generated
     if "needs_verification" in notice_copy and notice_copy["needs_verification"] is False:
         if len(warnings) > 0:
             notice_copy["needs_verification"] = True

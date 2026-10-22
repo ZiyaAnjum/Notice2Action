@@ -1,14 +1,37 @@
 {
   "notice_id": "utility-disc-2026-042",
   "schema_version": "1.0",
-  "document_title": "Final Demand Notice Prior to Electricity Disconnection (Consumer Account #8821943)",
-  "issuing_authority": "State Electricity Distribution Company Ltd. (Discom), Central Billing Division",
-  "category": "utility_or_billing",
-  "plain_language_summary": {
-    "summary": "Your domestic power connection has outstanding unpaid billing arrears totaling Rs. 4,850. You must clear the full balance within 15 days of this notice or provide proof of dispute to avoid immediate disconnection and meter removal.",
+  "category": "utility",
+  "notice_title": {
+    "text": "Final Demand Notice Prior to Electricity Disconnection (Consumer Account #8821943)",
+    "evidence_quote": "Final Demand Notice Prior to Electricity Disconnection (Consumer Account #8821943)",
+    "source_page": 1,
+    "status": "found"
+  },
+  "issuing_organisation": {
+    "text": "State Electricity Distribution Company Ltd. (Discom), Central Billing Division",
+    "evidence_quote": "State Electricity Distribution Company Ltd. (Discom), Central Billing Division",
+    "source_page": 1,
+    "status": "found"
+  },
+  "affected_party": {
+    "text": "Domestic electricity consumer Account #8821943",
+    "evidence_quote": "Consumer Account #8821943",
+    "source_page": 1,
+    "status": "found"
+  },
+  "main_purpose": {
+    "text": "Liquidate outstanding billing arrears totaling Rs. 4,850 to prevent physical power disconnection",
     "evidence_quote": "Outstanding billing charges must be liquidated within 15 days hereof to prevent disconnection of supply and removal of energy meter.",
     "source_page": 1,
     "status": "found"
+  },
+  "plain_language_summary": {
+    "what_is_this": "This is an urgent disconnection notice for unpaid electricity arrears totaling Rs. 4,850.",
+    "why_it_matters": "If not resolved within 15 days, power supply will be cut off and the electric meter physically removed.",
+    "what_to_do": "Pay the outstanding balance of Rs. 4,850 online or submit formal dispute papers at the sub-divisional office.",
+    "where_to_do_it": "Pay at https://discom.energy.gov/pay or in person at the local Sub-divisional Revenue Office.",
+    "if_deadline_missed": "Electricity supply will be disconnected on 05-11-2026 with a Rs. 350 reconnection surcharge plus 1.5% late fee."
   },
   "deadlines": [
     {
@@ -17,6 +40,8 @@
       "evidence_quote": "Defaulters list will be forwarded to field engineers on 05-11-2026 for physical disconnection.",
       "source_page": 1,
       "confidence": 0.94,
+      "is_ambiguous_or_conflicting": false,
+      "ambiguity_reason": null,
       "status": "found"
     },
     {
@@ -25,30 +50,32 @@
       "evidence_quote": "Consumer may apply for bill re-metering review within 7 days of notice receipt.",
       "source_page": 1,
       "confidence": "uncertain",
+      "is_ambiguous_or_conflicting": true,
+      "ambiguity_reason": "Relative deadline 'within 7 days of notice receipt' without an identifiable delivery or postal receipt date.",
       "status": "uncertain"
     }
   ],
   "required_documents": [
     {
       "name": "Latest Electricity Bill & Payment Counterfoil",
+      "is_required": true,
       "evidence_quote": "Attach consumer copy of invoice for billing cycle September 2026.",
       "source_page": 1,
-      "status": "completed",
-      "mandatory": true
+      "status": "completed"
     },
     {
       "name": "Proof of Identity (Aadhaar / Voter ID of Registered Consumer)",
+      "is_required": true,
       "evidence_quote": "Copy of photo identity card of the registered connection holder.",
       "source_page": 2,
-      "status": "not_completed",
-      "mandatory": true
+      "status": "not_completed"
     },
     {
       "name": "Bank Payment Transaction Statement (if paid via third-party app)",
+      "is_required": false,
       "evidence_quote": "In case of online UPI payment failure, bank debit statement is required.",
       "source_page": 2,
-      "status": "needs_verification",
-      "mandatory": false
+      "status": "needs_verification"
     }
   ],
   "submission_channel": {
@@ -94,6 +121,15 @@
       "evidence_quote": "Step 3: Keep stamped or digital receipt accessible for field audit.",
       "source_page": 2,
       "status": "found"
+    }
+  ],
+  "warnings": [
+    {
+      "warning_text": "Dispute filing window date is relative ('within 7 days of notice receipt') and requires delivery proof verification.",
+      "severity": "warning",
+      "code": "AMBIGUOUS_DEADLINE_NOTICE",
+      "evidence_quote": "Consumer may apply for bill re-metering review within 7 days of notice receipt.",
+      "source_page": 1
     }
   ],
   "needs_verification": true,

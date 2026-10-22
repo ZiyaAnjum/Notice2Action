@@ -2,16 +2,21 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://notice2action.action4ai.internal/schemas/notice_output.schema.json",
   "title": "NoticeOutputSchema",
-  "description": "Standardized schema contract for structured, evidence-linked extraction of official notices in Notice to Action.",
+  "description": "Standardized schema contract for structured, evidence-linked extraction of official notices aligned with the Notice to Action PRD.",
   "type": "object",
   "required": [
     "category",
+    "notice_title",
+    "issuing_organisation",
+    "affected_party",
+    "main_purpose",
     "plain_language_summary",
     "deadlines",
     "required_documents",
     "submission_channel",
     "penalties",
     "action_steps",
+    "warnings",
     "needs_verification"
   ],
   "properties": {
@@ -24,50 +29,70 @@
       "default": "1.0",
       "description": "Version of this output schema contract."
     },
-    "document_title": {
-      "type": "string",
-      "description": "Subject line or official heading of the notice."
-    },
-    "issuing_authority": {
-      "type": "string",
-      "description": "Issuing agency, government department, court, or utility provider."
-    },
     "category": {
-      "type": "string",
-      "enum": [
-        "tax_or_revenue",
-        "utility_or_billing",
-        "legal_or_court",
-        "education_or_exam",
-        "government_benefit_or_welfare",
-        "other_out_of_scope"
-      ],
-      "description": "Confirmed high-level classification category of the notice."
+      "$ref": "#/$defs/CategoryEnum"
+    },
+    "notice_title": {
+      "$ref": "#/$defs/EvidenceTextField",
+      "description": "Official title or subject line of the notice."
+    },
+    "issuing_organisation": {
+      "$ref": "#/$defs/EvidenceTextField",
+      "description": "Issuing government department, municipal authority, university, or bank."
+    },
+    "affected_party": {
+      "$ref": "#/$defs/EvidenceTextField",
+      "description": "Designated audience, beneficiary group, or consumer affected by the notice."
+    },
+    "main_purpose": {
+      "$ref": "#/$defs/EvidenceTextField",
+      "description": "Primary goal or objective of the notice as stated in the text."
     },
     "plain_language_summary": {
       "type": "object",
-      "required": ["summary", "evidence_quote", "source_page"],
+      "description": "Deconstructed non-technical summary broken down into 5 key dimensions.",
+      "required": [
+        "what_is_this",
+        "why_it_matters",
+        "what_to_do",
+        "where_to_do_it",
+        "if_deadline_missed"
+      ],
       "properties": {
-        "summary": {
-          "type": ["string", "null"],
-          "description": "Plain language summary of the notice requirements or 'not_found' / 'uncertain'."
-        },
-        "evidence_quote": {
-          "type": ["string", "null"],
-          "description": "Verbatim quote backing the summary, or 'not_found' / 'uncertain'."
-        },
-        "source_page": {
+        "what_is_this": {
           "oneOf": [
-            { "type": "integer", "minimum": 1 },
-            { "type": "string", "enum": ["not_found", "uncertain"] },
-            { "type": "null" }
+            { "$ref": "#/$defs/SummarySection" },
+            { "type": "string" }
           ],
-          "description": "1-indexed page number where quote appears, or 'not_found' / 'uncertain' / null."
+          "description": "Clear explanation of what document this is, or 'not_found'."
         },
-        "status": {
-          "type": "string",
-          "enum": ["found", "uncertain", "not_found"],
-          "description": "Grounding verification status."
+        "why_it_matters": {
+          "oneOf": [
+            { "$ref": "#/$defs/SummarySection" },
+            { "type": "string" }
+          ],
+          "description": "Why this notice is important to the recipient, or 'not_found'."
+        },
+        "what_to_do": {
+          "oneOf": [
+            { "$ref": "#/$defs/SummarySection" },
+            { "type": "string" }
+          ],
+          "description": "Required actionable response, or 'not_found'."
+        },
+        "where_to_do_it": {
+          "oneOf": [
+            { "$ref": "#/$defs/SummarySection" },
+            { "type": "string" }
+          ],
+          "description": "Location, portal, or counter to take action, or 'not_found'."
+        },
+        "if_deadline_missed": {
+          "oneOf": [
+            { "$ref": "#/$defs/SummarySection" },
+            { "type": "string" }
+          ],
+          "description": "Consequences if deadline is missed, or 'not_found'."
         }
       },
       "additionalProperties": false
@@ -82,12 +107,13 @@
           "description",
           "evidence_quote",
           "source_page",
-          "confidence"
+          "confidence",
+          "is_ambiguous_or_conflicting"
         ],
         "properties": {
           "date": {
             "type": ["string", "null"],
-            "description": "Date or deadline string (e.g. ISO date, raw text), or 'not_found' / 'uncertain'."
+            "description": "Explicit due date (ISO string or raw date text) or 'not_found' / 'uncertain'."
           },
           "description": {
             "type": "string",
@@ -112,6 +138,14 @@
             ],
             "description": "Extraction confidence score between 0.0 and 1.0, or 'not_found' / 'uncertain'."
           },
+          "is_ambiguous_or_conflicting": {
+            "type": "boolean",
+            "description": "Flag set to true if date is ambiguous (e.g. relative without base date) or contradictory across sections (FR-04)."
+          },
+          "ambiguity_reason": {
+            "type": ["string", "null"],
+            "description": "Short explanation for why the deadline is marked ambiguous or conflicting."
+          },
           "status": {
             "type": "string",
             "enum": ["found", "uncertain", "ambiguous", "conflicting", "not_found"],
@@ -123,14 +157,24 @@
     },
     "required_documents": {
       "type": "array",
-      "description": "Checklist of documents, certificates, or identity proofs required by the notice.",
+      "description": "Checklist of documents, certificates, or identity proofs mentioned in the notice.",
       "items": {
         "type": "object",
-        "required": ["name", "evidence_quote", "source_page", "status"],
+        "required": [
+          "name",
+          "is_required",
+          "evidence_quote",
+          "source_page",
+          "status"
+        ],
         "properties": {
           "name": {
             "type": "string",
             "description": "Document name or specification, or 'not_found' / 'uncertain'."
+          },
+          "is_required": {
+            "type": "boolean",
+            "description": "True if document is legally or procedurally mandatory; false if optional, recommended, or conditional."
           },
           "evidence_quote": {
             "type": ["string", "null"],
@@ -148,10 +192,6 @@
             "type": "string",
             "enum": ["not_completed", "completed", "needs_verification"],
             "description": "Current checklist status for the document."
-          },
-          "mandatory": {
-            "type": "boolean",
-            "description": "Whether document is legally/procedurally required vs optional."
           }
         },
         "additionalProperties": false
@@ -259,6 +299,45 @@
         "additionalProperties": false
       }
     },
+    "warnings": {
+      "type": "array",
+      "description": "Important conditions, cautions, or uncertainties noted in the notice.",
+      "items": {
+        "type": "object",
+        "required": ["warning_text", "evidence_quote", "source_page"],
+        "properties": {
+          "warning_text": {
+            "type": "string",
+            "description": "Description of the warning, caution, or uncertainty condition."
+          },
+          "message": {
+            "type": "string",
+            "description": "Optional alias for warning_text."
+          },
+          "code": {
+            "type": "string",
+            "description": "Machine-readable warning code."
+          },
+          "severity": {
+            "type": "string",
+            "enum": ["info", "warning", "critical"]
+          },
+          "evidence_quote": {
+            "type": ["string", "null"],
+            "description": "Verbatim quote supporting the warning, or 'not_found' / 'uncertain' / null."
+          },
+          "source_page": {
+            "oneOf": [
+              { "type": "integer", "minimum": 1 },
+              { "type": "string", "enum": ["not_found", "uncertain"] },
+              { "type": "null" }
+            ],
+            "description": "1-indexed page number or null."
+          }
+        },
+        "additionalProperties": false
+      }
+    },
     "needs_verification": {
       "type": "boolean",
       "description": "Overall flag set to true if any extracted item is uncertain, ambiguous, conflicting, or unverified."
@@ -274,5 +353,73 @@
       "description": "ISO 8601 timestamp of extraction."
     }
   },
-  "additionalProperties": false
+  "additionalProperties": false,
+  "$defs": {
+    "CategoryEnum": {
+      "type": "string",
+      "enum": [
+        "scholarship_or_college",
+        "bank",
+        "utility",
+        "tax_or_payment",
+        "government_scheme",
+        "other_out_of_scope"
+      ],
+      "description": "Canonical classification categories for official notices."
+    },
+    "EvidenceTextField": {
+      "type": "object",
+      "required": ["text", "evidence_quote", "source_page"],
+      "properties": {
+        "text": {
+          "type": ["string", "null"],
+          "description": "Extracted string content or 'not_found' / 'uncertain'."
+        },
+        "value": {
+          "type": ["string", "null"],
+          "description": "Optional alias for text."
+        },
+        "evidence_quote": {
+          "type": ["string", "null"],
+          "description": "Verbatim quote backing this field, or 'not_found' / 'uncertain'."
+        },
+        "source_page": {
+          "oneOf": [
+            { "type": "integer", "minimum": 1 },
+            { "type": "string", "enum": ["not_found", "uncertain"] },
+            { "type": "null" }
+          ],
+          "description": "1-indexed page number, or 'not_found' / 'uncertain' / null."
+        },
+        "status": {
+          "type": "string",
+          "enum": ["found", "uncertain", "not_found"]
+        }
+      },
+      "additionalProperties": false
+    },
+    "SummarySection": {
+      "type": "object",
+      "required": ["text", "evidence_quote", "source_page"],
+      "properties": {
+        "text": {
+          "type": ["string", "null"],
+          "description": "Summary section text, or 'not_found' / 'uncertain'."
+        },
+        "evidence_quote": {
+          "type": ["string", "null"],
+          "description": "Verbatim quote or 'not_found' / 'uncertain'."
+        },
+        "source_page": {
+          "oneOf": [
+            { "type": "integer", "minimum": 1 },
+            { "type": "string", "enum": ["not_found", "uncertain"] },
+            { "type": "null" }
+          ],
+          "description": "1-indexed page number or 'not_found' / 'uncertain' / null."
+        }
+      },
+      "additionalProperties": false
+    }
+  }
 }

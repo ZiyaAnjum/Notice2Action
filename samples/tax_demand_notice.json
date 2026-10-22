@@ -1,14 +1,37 @@
 {
   "notice_id": "tax-demand-2026-001",
   "schema_version": "1.0",
-  "document_title": "Municipal Corporation Final Property Tax Assessment & Demand Notice (FY 2026-27)",
-  "issuing_authority": "Directorate of Municipal Revenue, Property Tax Department",
-  "category": "tax_or_revenue",
-  "plain_language_summary": {
-    "summary": "All property owners within municipal boundaries must verify their tax assessment and remit outstanding property tax for FY 2026-27 before November 30, 2026 to avoid penal interest and seizure proceedings.",
-    "evidence_quote": "All assessees are required to clear property tax dues for FY 2026-27 by 30-11-2026 failing which recovery actions shall commence.",
+  "category": "tax_or_payment",
+  "notice_title": {
+    "text": "Municipal Corporation Final Property Tax Assessment & Demand Notice (FY 2026-27)",
+    "evidence_quote": "Municipal Corporation Final Property Tax Assessment & Demand Notice (FY 2026-27)",
     "source_page": 1,
     "status": "found"
+  },
+  "issuing_organisation": {
+    "text": "Directorate of Municipal Revenue, Property Tax Department",
+    "evidence_quote": "Directorate of Municipal Revenue, Property Tax Department",
+    "source_page": 1,
+    "status": "found"
+  },
+  "affected_party": {
+    "text": "All municipal property owners and rate-payers",
+    "evidence_quote": "All assessees are required to clear property tax dues",
+    "source_page": 1,
+    "status": "found"
+  },
+  "main_purpose": {
+    "text": "Demand settlement of property tax dues for FY 2026-27 prior to recovery enforcement",
+    "evidence_quote": "clear property tax dues for FY 2026-27 by 30-11-2026 failing which recovery actions shall commence",
+    "source_page": 1,
+    "status": "found"
+  },
+  "plain_language_summary": {
+    "what_is_this": "This is an official final property tax assessment and demand order for the financial year 2026-27.",
+    "why_it_matters": "Failure to remit payment will trigger an additional 2% monthly penal surcharge and potential civic service disconnection.",
+    "what_to_do": "Verify your property dues using your 10-digit PID and pay the assessed tax in full.",
+    "where_to_do_it": "Pay online at https://propertytax.citygov.in/portal or in-person at municipal Citizen Service Centers.",
+    "if_deadline_missed": "A 2% monthly penal interest is added after November 30, followed by attachment of property after 90 days."
   },
   "deadlines": [
     {
@@ -17,6 +40,8 @@
       "evidence_quote": "Payment must be completed on or before 30th November 2026 to avoid penal interest.",
       "source_page": 1,
       "confidence": 0.98,
+      "is_ambiguous_or_conflicting": false,
+      "ambiguity_reason": null,
       "status": "found"
     },
     {
@@ -25,30 +50,32 @@
       "evidence_quote": "An early payment rebate of 5% is applicable if payment is recorded by 31-10-2026.",
       "source_page": 1,
       "confidence": 0.95,
+      "is_ambiguous_or_conflicting": false,
+      "ambiguity_reason": null,
       "status": "found"
     }
   ],
   "required_documents": [
     {
       "name": "Previous Year Tax Paid Receipt (FY 2025-26)",
+      "is_required": true,
       "evidence_quote": "Photocopy of previous financial year tax clearance receipt is compulsory for verification.",
       "source_page": 2,
-      "status": "not_completed",
-      "mandatory": true
+      "status": "not_completed"
     },
     {
       "name": "Property Unique ID (PID) Card",
+      "is_required": true,
       "evidence_quote": "Original PID smart card or system generated PID slip must be cited.",
       "source_page": 2,
-      "status": "completed",
-      "mandatory": true
+      "status": "completed"
     },
     {
       "name": "Building Completion Certificate",
+      "is_required": false,
       "evidence_quote": "Owners of newly constructed floors may submit completion certificate to claim revised assessment (optional).",
       "source_page": 2,
-      "status": "needs_verification",
-      "mandatory": false
+      "status": "needs_verification"
     }
   ],
   "submission_channel": {
@@ -94,6 +121,15 @@
       "evidence_quote": "Step 3: Complete payment through authorized payment gateway or generate bank challan.",
       "source_page": 2,
       "status": "found"
+    }
+  ],
+  "warnings": [
+    {
+      "warning_text": "Non-payment exceeding 90 days leads to statutory asset attachment proceedings.",
+      "severity": "warning",
+      "code": "LEGAL_RECOVERY_WARNING",
+      "evidence_quote": "Non-payment exceeding 90 days may result in attachment of movable property",
+      "source_page": 2
     }
   ],
   "needs_verification": false,
