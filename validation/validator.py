@@ -30,6 +30,19 @@ LEGACY_CATEGORIES = (
 )
 
 
+def normalize_whitespace(text: str) -> str:
+    """Normalize curly quotes to straight quotes and collapse whitespace while preserving case.
+
+    Args:
+        text: Raw string containing quotes or page text.
+
+    Returns:
+        Text with straight quotes and collapsed whitespace.
+    """
+    text = text.replace("“", '"').replace("”", '"').replace("‘", "'").replace("’", "'")
+    return re.sub(r"\s+", " ", text).strip()
+
+
 def normalize_text(text: str) -> str:
     """Normalize whitespace and quotation marks for robust evidence grounding.
 
@@ -39,10 +52,7 @@ def normalize_text(text: str) -> str:
     Returns:
         Lowercased text with straight quotes and collapsed whitespace.
     """
-    # Normalize curly quotes to straight quotes
-    text = text.replace("“", '"').replace("”", '"').replace("‘", "'").replace("’", "'")
-    # Collapse multiple whitespace characters and line breaks into a single space
-    return re.sub(r"\s+", " ", text).strip().lower()
+    return normalize_whitespace(text).lower()
 
 
 def validate_notice(
