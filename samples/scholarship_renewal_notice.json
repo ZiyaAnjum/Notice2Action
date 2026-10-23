@@ -1,0 +1,138 @@
+{
+  "notice_id": "notice-sch-2026-001",
+  "schema_version": "1.0",
+  "category": "scholarship_or_college",
+  "notice_title": {
+    "text": "Post-Graduate Merit Scholarship 2026-27 Renewal & Verification Notice",
+    "evidence_quote": "Sub: Post-Graduate Merit Scholarship 2026-27 Renewal & Verification Notice",
+    "source_page": 1,
+    "status": "found"
+  },
+  "issuing_organisation": {
+    "text": "State Higher Education Directorate, Scholarship Cell",
+    "evidence_quote": "ISSUED BY: State Higher Education Directorate, Scholarship Cell",
+    "source_page": 1,
+    "status": "found"
+  },
+  "affected_party": {
+    "text": "All registered awardees under PG Merit Scheme 2025-27",
+    "evidence_quote": "Target Beneficiaries: All registered awardees under PG Merit Scheme 2025-27",
+    "source_page": 1,
+    "status": "found"
+  },
+  "main_purpose": {
+    "text": "Submit semester renewal dossiers and attendance verification online before disbursement suspension",
+    "evidence_quote": "All eligible scholars are hereby instructed to submit semester renewal dossiers online on or before 15-11-2026 to avoid disbursement suspension.",
+    "source_page": 1,
+    "status": "found"
+  },
+  "plain_language_summary": {
+    "what_is_this": "This is a mandatory renewal notification for students receiving the Post-Graduate Merit Scholarship.",
+    "why_it_matters": "Scholars who do not renew on time will face immediate suspension and eventual forfeiture of their monthly stipends.",
+    "what_to_do": "Obtain your 75% attendance certificate, gather your Semester II marksheet, and submit renewal forms online.",
+    "where_to_do_it": "Upload documents exclusively through the state scholarship portal at https://scholarships.state.gov.in.",
+    "if_deadline_missed": "Failure to submit by 15-11-2026 results in forfeiture of scholarship disbursements for subsequent academic quarters."
+  },
+  "deadlines": [
+    {
+      "date": "2026-11-15",
+      "description": "Last date for online submission of renewal dossier on the state scholarship portal.",
+      "evidence_quote": "last date for online upload on the state scholarship portal is 15-11-2026 up to 5:00 PM IST",
+      "source_page": 1,
+      "confidence": 0.98,
+      "is_ambiguous_or_conflicting": false,
+      "ambiguity_reason": null,
+      "status": "found"
+    },
+    {
+      "date": "uncertain",
+      "description": "College Principal countersignature verification window (relative deadline).",
+      "evidence_quote": "Principals must countersign uploaded forms within 7 working days from portal closing",
+      "source_page": 2,
+      "confidence": "uncertain",
+      "is_ambiguous_or_conflicting": true,
+      "ambiguity_reason": "Relative institutional deadline 'within 7 working days from portal closing' without explicit calendar date.",
+      "status": "ambiguous"
+    }
+  ],
+  "required_documents": [
+    {
+      "name": "Semester II Official Marksheet",
+      "is_required": true,
+      "evidence_quote": "Self-attested copy of Semester II Official Marksheet is mandatory",
+      "source_page": 1,
+      "status": "completed"
+    },
+    {
+      "name": "Minimum 75% Attendance Certificate",
+      "is_required": true,
+      "evidence_quote": "Institution head signed certificate certifying minimum 75% attendance",
+      "source_page": 1,
+      "status": "not_completed"
+    },
+    {
+      "name": "Hostel Fee Receipt",
+      "is_required": false,
+      "evidence_quote": "Hostel residents may attach fee receipt for consideration of additional accommodation stipend (optional)",
+      "source_page": 2,
+      "status": "needs_verification"
+    }
+  ],
+  "submission_channel": {
+    "channel": "State Scholarship Portal: https://scholarships.state.gov.in",
+    "evidence_quote": "Submissions will be accepted exclusively via state portal https://scholarships.state.gov.in",
+    "source_page": 1,
+    "status": "found"
+  },
+  "penalties": [
+    {
+      "description": "Disbursement suspension and forfeiture of scholarship for subsequent quarters",
+      "amount": null,
+      "evidence_quote": "Failure to submit by stipulated date shall result in forfeiture of scholarship for subsequent quarters.",
+      "source_page": 2,
+      "status": "found"
+    }
+  ],
+  "action_steps": [
+    {
+      "order": 1,
+      "action": "Obtain signed attendance certificate from Head of Department certifying minimum 75% attendance.",
+      "evidence_quote": "Step 1: Obtain signed attendance certificate from Head of Department.",
+      "source_page": 1,
+      "status": "found"
+    },
+    {
+      "order": 2,
+      "action": "Log in to portal https://scholarships.state.gov.in and click Renewal 2026.",
+      "evidence_quote": "Step 2: Log in to portal https://scholarships.state.gov.in and click Renewal 2026.",
+      "source_page": 1,
+      "status": "found"
+    },
+    {
+      "order": 3,
+      "action": "Upload PDF copies of Semester II marksheet and attendance certificate.",
+      "evidence_quote": "Step 3: Upload PDF copies of Semester II marksheet and attendance certificate.",
+      "source_page": 2,
+      "status": "found"
+    },
+    {
+      "order": 4,
+      "action": "Submit physical printout of submitted acknowledgment to College Nodal Officer.",
+      "evidence_quote": "Step 4: Submit physical printout of submitted acknowledgment to College Nodal Officer.",
+      "source_page": 2,
+      "status": "found"
+    }
+  ],
+  "warnings": [
+    {
+      "warning_text": "Students with attendance below 75% are ineligible for renewal without special board exemption.",
+      "severity": "critical",
+      "code": "ATTENDANCE_CRITERIA_WARNING",
+      "evidence_quote": "Institution head signed certificate certifying minimum 75% attendance",
+      "source_page": 1
+    }
+  ],
+  "needs_verification": false,
+  "document_quality": "good",
+  "extracted_at": "2026-10-22T20:20:00Z"
+}

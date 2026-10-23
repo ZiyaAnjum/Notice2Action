@@ -1,0 +1,135 @@
+{
+  "notice_id": "bank-kyc-2026-891",
+  "schema_version": "1.0",
+  "category": "bank",
+  "notice_title": {
+    "text": "Periodic KYC Updation Mandate & Account Regularization Notice (Savings Account #4092187342)",
+    "evidence_quote": "Subject: Periodic KYC Updation Mandate for Account No. 4092187342",
+    "source_page": 1,
+    "status": "found"
+  },
+  "issuing_organisation": {
+    "text": "Apex National Bank Ltd., Central Retail Banking & Customer Verification Operations",
+    "evidence_quote": "Issued by: Apex National Bank Ltd., Central Retail Banking Division",
+    "source_page": 1,
+    "status": "found"
+  },
+  "affected_party": {
+    "text": "Account Holder(s) of Savings Account No. 4092187342",
+    "evidence_quote": "Dear Customer, Account No: 4092187342, Branch: Connaught Place",
+    "source_page": 1,
+    "status": "found"
+  },
+  "main_purpose": {
+    "text": "Complete mandatory re-KYC document verification within 30 days to avoid account operation restrictions and transaction debit freeze",
+    "evidence_quote": "You are requested to submit fresh KYC documents within 30 days of this circular to prevent temporary debit restriction.",
+    "source_page": 1,
+    "status": "found"
+  },
+  "plain_language_summary": {
+    "what_is_this": "This is an official periodic KYC update notice from your bank under regulatory compliance guidelines.",
+    "why_it_matters": "Failure to update identification records will cause your bank account to be classified as inoperative with an automatic debit freeze.",
+    "what_to_do": "Submit updated self-attested identity proof (Aadhaar/Passport/Voter ID) and recent photograph online or at your branch.",
+    "where_to_do_it": "Complete online via Video-KYC on https://netbanking.apexbank.com/re-kyc or visit any bank branch counter.",
+    "if_deadline_missed": "Debit transactions, ATM withdrawals, and UPI payments will be blocked after December 15, 2026 until in-person re-activation."
+  },
+  "deadlines": [
+    {
+      "date": "2026-12-15",
+      "description": "Final deadline for completing re-KYC documentation before transaction freeze.",
+      "evidence_quote": "All KYC documents must be verified and updated on or before 15-12-2026.",
+      "source_page": 1,
+      "confidence": 0.99,
+      "is_ambiguous_or_conflicting": false,
+      "ambiguity_reason": null,
+      "status": "found"
+    }
+  ],
+  "required_documents": [
+    {
+      "name": "Officially Valid Document (OVD) for Address Proof (Aadhaar / Voter ID / Passport)",
+      "is_required": true,
+      "evidence_quote": "Self-attested photocopy of any Officially Valid Document (OVD) is mandatory for address re-verification.",
+      "source_page": 1,
+      "status": "not_completed"
+    },
+    {
+      "name": "Permanent Account Number (PAN) Card or Form 60",
+      "is_required": true,
+      "evidence_quote": "Copy of PAN card or signed Form 60 declaration must be tendered.",
+      "source_page": 1,
+      "status": "completed"
+    },
+    {
+      "name": "Recent Passport Size Color Photograph",
+      "is_required": true,
+      "evidence_quote": "One recent passport size color photograph taken within the last 3 months.",
+      "source_page": 2,
+      "status": "not_completed"
+    },
+    {
+      "name": "Passbook Copy for Signature Verification",
+      "is_required": false,
+      "evidence_quote": "Customer may present original passbook if updating recorded signature style (optional).",
+      "source_page": 2,
+      "status": "needs_verification"
+    }
+  ],
+  "submission_channel": {
+    "channel": "Apex NetBanking Portal (https://netbanking.apexbank.com/re-kyc) or Home Branch Helpdesk",
+    "evidence_quote": "Customers may verify via Video-KYC at https://netbanking.apexbank.com/re-kyc or at any home branch.",
+    "source_page": 1,
+    "status": "found"
+  },
+  "penalties": [
+    {
+      "description": "Temporary freeze on outgoing debit transactions, ATM withdrawals, and net-banking transfers",
+      "amount": null,
+      "evidence_quote": "Account will be subjected to total debit freeze preventing all automated clearing and ATM withdrawals.",
+      "source_page": 2,
+      "status": "found"
+    },
+    {
+      "description": "Account classified as dormant/inoperative requiring branch manager clearance to unfreeze",
+      "amount": null,
+      "evidence_quote": "Subsequent failure will classify account as inoperative per regulatory norms.",
+      "source_page": 2,
+      "status": "found"
+    }
+  ],
+  "action_steps": [
+    {
+      "order": 1,
+      "action": "Access Video-KYC portal at https://netbanking.apexbank.com/re-kyc or visit your nearest home branch.",
+      "evidence_quote": "Step 1: Access Video-KYC portal at https://netbanking.apexbank.com/re-kyc or visit your nearest home branch.",
+      "source_page": 1,
+      "status": "found"
+    },
+    {
+      "order": 2,
+      "action": "Submit self-attested photocopies of Aadhaar and PAN along with signed Re-KYC declaration form.",
+      "evidence_quote": "Step 2: Submit self-attested photocopies of Aadhaar and PAN along with signed Re-KYC declaration form.",
+      "source_page": 2,
+      "status": "found"
+    },
+    {
+      "order": 3,
+      "action": "Verify mobile OTP and obtain branch acknowledgment receipt or digital tracking service ticket.",
+      "evidence_quote": "Step 3: Verify mobile OTP and obtain branch acknowledgment receipt or digital tracking service ticket.",
+      "source_page": 2,
+      "status": "found"
+    }
+  ],
+  "warnings": [
+    {
+      "warning_text": "Bank officials will never ask for PIN, password, or CVV; do not share credentials over phone calls.",
+      "severity": "critical",
+      "code": "CYBER_FRAUD_CAUTION",
+      "evidence_quote": "Bank officials never request passwords, card PINs or OTPs under the guise of KYC updating.",
+      "source_page": 2
+    }
+  ],
+  "needs_verification": false,
+  "document_quality": "good",
+  "extracted_at": "2026-10-22T20:30:00Z"
+}
