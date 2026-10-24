@@ -32,6 +32,9 @@ env/
 .pytest_cache/
 .ruff_cache/
 *.sqlite3
+*.db
+notice.db
+notice_to_action.db
 
 # Node.js / Frontend
 node_modules/

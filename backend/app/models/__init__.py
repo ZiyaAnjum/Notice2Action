@@ -1,3 +1,5 @@
-from backend.app.models.notice import NoticeModel
+"""Models module exports."""
 
-__all__ = ["NoticeModel"]
+from backend.app.models.notice import ChecklistItemModel, NoticeModel, ReminderModel
+
+__all__ = ["NoticeModel", "ChecklistItemModel", "ReminderModel"]

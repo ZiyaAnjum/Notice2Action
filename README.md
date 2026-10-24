@@ -101,13 +101,45 @@ cd Notice2Action
 cp .env.example .env
 ```
 
-### Step 2: Database Setup (PostgreSQL)
+### Step 2: Database Storage (SQLite / Supabase PostgreSQL)
 
-Launch the isolated PostgreSQL container:
-```bash
-docker compose up -d
+The backend supports both local SQLite and remote PostgreSQL (Supabase):
+
+#### Option A: Local SQLite (Default)
+Runs with zero setup out of the box:
+```ini
+DATABASE_URL=sqlite:///./notice.db
+STORAGE_BACKEND=local
 ```
-*Note: The FastAPI skeleton operates with in-memory stubs out of the box, so local development can proceed even before the database is spun up.*
+
+#### Option B: Supabase (PostgreSQL)
+1. In your **Supabase Dashboard**, navigate to **Project Settings** ➡️ **Database** ➡️ **Connection string**.
+2. Select the **Session pooler** string (IPv4-compatible, port 6543) or direct connection string, and set it in `.env` using the `postgresql+psycopg2://` scheme:
+   ```ini
+   DATABASE_URL=postgresql+psycopg2://postgres.[YOUR-PROJECT-REF]:[YOUR-PASSWORD]@aws-0-[YOUR-REGION].pooler.supabase.com:6543/postgres?sslmode=require
+   STORAGE_BACKEND=local
+   ```
+3. Create the database tables (`notices`, `checklist_items`, `reminders`) using the setup script:
+   ```bash
+   python scripts/create_tables.py
+   ```
+   *The script verifies connection with `SELECT 1` and creates all schema tables automatically.*
+
+4. Confirm database connectivity through the health endpoint:
+   - Start the backend and query `GET /api/health`:
+     ```bash
+     curl http://localhost:8000/api/health
+     ```
+   - Expected response:
+     ```json
+     {
+       "status": "healthy",
+       "database": "connected",
+       "app": "Notice to Action API",
+       "version": "1.0.0",
+       "environment": "development"
+     }
+     ```
 
 ### Step 3: Backend Setup (FastAPI)
 
@@ -122,19 +154,29 @@ docker compose up -d
    source .venv/bin/activate
    ```
 
-2. Install backend dependencies:
+2. Install backend dependencies (including PostgreSQL driver `psycopg2-binary`):
    ```bash
    pip install -r backend/requirements.txt
    ```
 
-3. Launch the FastAPI server:
+3. Configure Environment Variables in `.env`:
+   - `DATABASE_URL`: SQLAlchemy connection URI (`sqlite:///./notice.db` or Supabase pooler URI).
+   - `STORAGE_BACKEND`: `local` (default). Structures uploads behind the `FileStorage` interface.
+   - `UPLOAD_DIR`: Private directory for saving uploaded PDFs with safe UUID filenames (default: `./uploads`).
+   - `LLM_PROVIDER`: `gemini` (default) or `openai`.
+   - `LLM_API_KEY`: API secret key (`GEMINI_API_KEY` or `OPENAI_API_KEY`). If omitted, uploads succeed and transition cleanly to `extraction_failed` with a helpful message.
+   - `LLM_MODEL`: Target model (e.g., `gemini-1.5-flash` or `gpt-4o-mini`).
+   - `CORS_ORIGINS`: Allowed CORS origins for the frontend (default: `http://localhost:5173`).
+
+4. Launch the FastAPI server:
    ```bash
    uvicorn backend.app.main:app --host 0.0.0.0 --port 8000 --reload
    ```
 
-4. Verify health check:
-   - Visit [http://localhost:8000/health](http://localhost:8000/health) in your browser.
-   - Interactive Swagger API docs: [http://localhost:8000/docs](http://localhost:8000/docs).
+5. Verify health check and API documentation:
+   - Health check: [http://localhost:8000/api/health](http://localhost:8000/api/health) (runs `SELECT 1` on DB)
+   - Interactive Swagger API docs: [http://localhost:8000/docs](http://localhost:8000/docs)
+   - ReDoc API docs: [http://localhost:8000/redoc](http://localhost:8000/redoc)
 
 ### Step 4: Frontend Setup (React + Vite + Tailwind)
 
@@ -171,7 +213,7 @@ The root `Makefile` provides one-line targets:
 
 ## 6. Testing and Validation
 
-Run the test suite across all Python packages:
+Run the test suite across all Python packages (all 60 unit and integration tests):
 ```bash
 python -m pytest
 ```
@@ -188,3 +230,12 @@ python validation/evaluate.py --data-dir data/masked --annotations-dir data/anno
 - **Single Source of Truth**: All payloads comply with [`schema/notice.schema.json`](schema/notice.schema.json).
 - **Core AI Reliability**: Zero hallucinations. If a fact is absent from the notice, return `null` with status `"not_found"`.
 - **See [rules.md](rules.md)** for full documentation on Git workflow, branch conventions, team ownership, and AI prompt versioning.
+
+---
+
+## 8. Known Limitations (MVP Scope)
+
+- **Single-User MVP (No Authentication Yet)**: Per-user authentication and authorization (ownership enforcement) are deferred to future production milestones. The codebase contains clear `# NOTE(ownership)` marker comments indicating exactly where per-user tenant and session ownership checks should be hooked up.
+- **In-App Reminders Only**: Reminders are managed and queried via `/api/notices/{id}/reminders` and `/api/reminders/upcoming` for dashboard notifications. Automated push, email, SMS, and cron schedulers are not yet integrated.
+- **Local Private Storage**: PDFs are persisted on the local filesystem in a private `UPLOAD_DIR` using UUIDs. S3/GCS blob storage will be introduced in future cloud deployments.
+- **Language Scope**: Currently optimized for English-language official notices; non-English/vernacular notices are rejected early or flagged as requiring manual verification.
