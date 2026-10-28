@@ -1,0 +1,13 @@
+{
+  "notice_id": "scanned_image_only",
+  "source_pdf": "tests/fixtures/scanned_image_only.pdf",
+  "expected_category": "other_out_of_scope",
+  "expected_status": "needs_clearer_document",
+  "explicit_deadlines": [],
+  "required_documents": [],
+  "action_steps": [],
+  "submission_channel": null,
+  "penalties": [],
+  "ambiguous_or_missing_notes": "Scanned image-only notice without readable text. Must be refused by the pipeline without calling the LLM.",
+  "critical_evidence_passages": []
+}

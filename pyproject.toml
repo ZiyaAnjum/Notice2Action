@@ -26,6 +26,7 @@ testpaths = [
     "backend/tests",
     "extraction/tests",
     "validation/tests",
+    "tests",
 ]
 pythonpath = [
     ".",

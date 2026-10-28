@@ -1,0 +1,13 @@
+{
+  "notice_id": "recipe_unrelated",
+  "source_pdf": "tests/fixtures/recipe_unrelated.pdf",
+  "expected_category": "other_out_of_scope",
+  "expected_status": "out_of_scope",
+  "explicit_deadlines": [],
+  "required_documents": [],
+  "action_steps": [],
+  "submission_channel": null,
+  "penalties": [],
+  "ambiguous_or_missing_notes": "Chocolate chip cookie recipe. Outside official notice domain; must be refused as out_of_scope.",
+  "critical_evidence_passages": []
+}
