@@ -1,8 +1,27 @@
 {
   "env": {
     "browser": true,
-    "es2020": true
+    "es2020": true,
+    "node": true
   },
+  "overrides": [
+    {
+      "files": ["src/**/*.test.{js,jsx}", "src/setupTests.js"],
+      "env": {
+        "browser": true,
+        "es2020": true
+      },
+      "globals": {
+        "describe": "readonly",
+        "it": "readonly",
+        "test": "readonly",
+        "expect": "readonly",
+        "vi": "readonly",
+        "beforeEach": "readonly",
+        "afterEach": "readonly"
+      }
+    }
+  ],
   "extends": [
     "eslint:recommended",
     "plugin:react/recommended",

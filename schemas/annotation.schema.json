@@ -1,0 +1,154 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://notice2action.ai/schemas/annotation.schema.json",
+  "title": "Notice Ground Truth Annotation Schema",
+  "description": "Standard ground-truth annotation format for Notice to Action evaluation harness.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "notice_id",
+    "source_pdf",
+    "expected_category",
+    "expected_status",
+    "explicit_deadlines",
+    "required_documents",
+    "action_steps",
+    "submission_channel",
+    "critical_evidence_passages"
+  ],
+  "properties": {
+    "notice_id": {
+      "type": "string",
+      "description": "Unique identifier for the annotated notice document."
+    },
+    "source_pdf": {
+      "type": "string",
+      "description": "Path to the source PDF file relative to project root or fixture directory."
+    },
+    "expected_category": {
+      "type": "string",
+      "description": "Ground-truth notice category (e.g. tax_or_payment, bank, utility, scholarship_or_college, government_scheme, other_out_of_scope)."
+    },
+    "expected_status": {
+      "type": "string",
+      "enum": ["processed", "needs_clearer_document", "out_of_scope"],
+      "description": "Expected pipeline decision status."
+    },
+    "explicit_deadlines": {
+      "type": "array",
+      "description": "List of all explicit or relative deadlines stated in the notice. Empty if none.",
+      "items": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": ["original_wording"],
+        "properties": {
+          "date": {
+            "type": ["string", "null"],
+            "description": "Normalized ISO calendar date (YYYY-MM-DD), or null if relative/unparseable."
+          },
+          "original_wording": {
+            "type": "string",
+            "description": "Exact wording of the deadline as written in the notice."
+          },
+          "description": {
+            "type": "string",
+            "description": "Short plain-language description of what is due."
+          },
+          "is_ambiguous": {
+            "type": "boolean",
+            "default": false,
+            "description": "True if the deadline is relative, missing an anchor, or internally conflicting."
+          },
+          "ambiguity_reason": {
+            "type": ["string", "null"],
+            "description": "Explanation of why the deadline is ambiguous."
+          }
+        }
+      }
+    },
+    "required_documents": {
+      "type": "array",
+      "description": "List of documents explicitly demanded or suggested in the notice.",
+      "items": {
+        "oneOf": [
+          { "type": "string" },
+          {
+            "type": "object",
+            "required": ["name"],
+            "properties": {
+              "name": { "type": "string" },
+              "is_required": { "type": "boolean", "default": true },
+              "description": { "type": "string" }
+            }
+          }
+        ]
+      }
+    },
+    "action_steps": {
+      "type": "array",
+      "description": "Sequential compliance instructions extracted directly from the notice.",
+      "items": {
+        "oneOf": [
+          { "type": "string" },
+          {
+            "type": "object",
+            "required": ["description"],
+            "properties": {
+              "order": { "type": "integer" },
+              "description": { "type": "string" }
+            }
+          }
+        ]
+      }
+    },
+    "submission_channel": {
+      "type": ["string", "null"],
+      "description": "Designated submission location, physical address, portal URL, or email; null if not stated."
+    },
+    "penalties": {
+      "type": ["array", "null"],
+      "description": "Penalties, late fees, interest, or consequences mentioned in the notice.",
+      "items": {
+        "oneOf": [
+          { "type": "string" },
+          {
+            "type": "object",
+            "required": ["description"],
+            "properties": {
+              "description": { "type": "string" },
+              "amount": { "type": "string" }
+            }
+          }
+        ]
+      }
+    },
+    "ambiguous_or_missing_notes": {
+      "type": ["string", "array", "null"],
+      "description": "Human notes on ambiguous, unclear, or intentionally absent fields for evaluating model uncertainty handling."
+    },
+    "critical_evidence_passages": {
+      "type": "array",
+      "description": "Ground-truth evidence citations verifying that every critical claim has a verbatim supporting quote in the PDF.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["field", "page", "quote"],
+        "properties": {
+          "field": {
+            "type": "string",
+            "description": "Identifier for the critical field (e.g. deadline, document, action_step, submission_channel, title, issuer, penalty)."
+          },
+          "page": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "1-indexed page number in the source PDF where the quote appears."
+          },
+          "quote": {
+            "type": "string",
+            "description": "Verbatim quote extracted directly from that page of the PDF."
+          }
+        }
+      }
+    }
+  }
+}

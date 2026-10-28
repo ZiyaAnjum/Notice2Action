@@ -14,6 +14,7 @@ from extraction.llm_client import BaseLLMClient, LLMError, clean_json_markdown, 
 from validation.validator import SCHEMA_PATH
 
 MAX_EXTRACTION_RETRIES = 2
+PROMPT_VERSION = "1.0.0"
 
 
 def load_notice_schema() -> dict[str, Any]:

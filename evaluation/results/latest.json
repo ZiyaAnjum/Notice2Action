@@ -1,0 +1,337 @@
+{
+  "metadata": {
+    "timestamp": "2026-10-25T21:12:38.123485",
+    "prompt_version": "1.0.0",
+    "mode": "deterministic_fake",
+    "model": "FakeLLMClient",
+    "sample_size": 3
+  },
+  "prompt_version": "1.0.0",
+  "sample_size": 3,
+  "summary": {
+    "classification_accuracy": 1.0,
+    "classification_correct": 3,
+    "classification_total": 3,
+    "confusion_matrix": {
+      "other_out_of_scope": {
+        "other_out_of_scope": 2
+      },
+      "tax_or_payment": {
+        "tax_or_payment": 1
+      }
+    },
+    "per_category": {
+      "other_out_of_scope": {
+        "total": 2,
+        "correct": 2
+      },
+      "tax_or_payment": {
+        "total": 1,
+        "correct": 1
+      }
+    },
+    "correct_refusal_rate": 1.0,
+    "correct_refusals": 2,
+    "total_refusal_cases": 2,
+    "false_refusal_rate": 0.0,
+    "false_refusals": 0,
+    "total_supported_cases": 1,
+    "deadline_precision": 1.0,
+    "deadline_recall": 1.0,
+    "deadline_tp": 1,
+    "deadline_fp": 0,
+    "deadline_fn": 0,
+    "invented_deadlines": [],
+    "document_precision": 1.0,
+    "document_recall": 1.0,
+    "document_tp": 2,
+    "document_fp": 0,
+    "document_fn": 0,
+    "action_step_precision": 1.0,
+    "action_step_recall": 1.0,
+    "action_step_tp": 3,
+    "action_step_fp": 0,
+    "action_step_fn": 0,
+    "combined_action_precision": 1.0,
+    "combined_action_recall": 1.0,
+    "submission_channel_match_rate": 1.0,
+    "grounding_rate": 1.0,
+    "quotes_verified": 10,
+    "quotes_checked": 10,
+    "unsupported_critical_count": 0,
+    "unsupported_offenders": [],
+    "uncertainty_adherence_rate": 1.0,
+    "processing_time": {
+      "mean_sec": 0.02,
+      "median_sec": 0.02,
+      "max_sec": 0.03,
+      "count_over_60s": 0
+    }
+  },
+  "targets_vs_measured": {
+    "classification_accuracy": {
+      "target": ">= 90%",
+      "measured": "100.0%",
+      "passed": true
+    },
+    "critical_deadline_precision": {
+      "target": ">= 95%",
+      "measured": "100.0%",
+      "passed": true
+    },
+    "required_action_precision": {
+      "target": ">= 85%",
+      "measured": "100.0%",
+      "passed": true
+    },
+    "required_action_recall": {
+      "target": ">= 85%",
+      "measured": "100.0%",
+      "passed": true
+    },
+    "unsupported_critical_instructions": {
+      "target": "= 0",
+      "measured": "0",
+      "passed": true
+    },
+    "processing_time": {
+      "target": "<= 60.0s max",
+      "measured": "0.0s (max)",
+      "passed": true
+    }
+  },
+  "per_notice": [
+    {
+      "notice_id": "recipe_unrelated",
+      "elapsed_time_sec": 0.03,
+      "expected_category": "other_out_of_scope",
+      "predicted_category": "other_out_of_scope",
+      "category_match": true,
+      "expected_status": "out_of_scope",
+      "predicted_status": "out_of_scope",
+      "is_refusal_case": true,
+      "refusal_correct": true,
+      "false_refusal": null,
+      "deadlines": {
+        "tp": 0,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "matches": [],
+        "invented_deadlines": [],
+        "missed_deadlines": []
+      },
+      "documents": {
+        "tp": 0,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "matches": [],
+        "unmatched_gt": [],
+        "unmatched_pred": []
+      },
+      "action_steps": {
+        "tp": 0,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "matches": [],
+        "unmatched_gt": [],
+        "unmatched_pred": []
+      },
+      "submission_channel_match": true,
+      "grounding": {
+        "quotes_checked": 0,
+        "quotes_verified": 0,
+        "grounding_rate": 1.0,
+        "unsupported_critical_count": 0,
+        "unsupported_items": []
+      },
+      "uncertainty_handled": null
+    },
+    {
+      "notice_id": "scanned_image_only",
+      "elapsed_time_sec": 0.01,
+      "expected_category": "other_out_of_scope",
+      "predicted_category": "other_out_of_scope",
+      "category_match": true,
+      "expected_status": "needs_clearer_document",
+      "predicted_status": "needs_clearer_document",
+      "is_refusal_case": true,
+      "refusal_correct": true,
+      "false_refusal": null,
+      "deadlines": {
+        "tp": 0,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "matches": [],
+        "invented_deadlines": [],
+        "missed_deadlines": []
+      },
+      "documents": {
+        "tp": 0,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "matches": [],
+        "unmatched_gt": [],
+        "unmatched_pred": []
+      },
+      "action_steps": {
+        "tp": 0,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "matches": [],
+        "unmatched_gt": [],
+        "unmatched_pred": []
+      },
+      "submission_channel_match": true,
+      "grounding": {
+        "quotes_checked": 0,
+        "quotes_verified": 0,
+        "grounding_rate": 1.0,
+        "unsupported_critical_count": 0,
+        "unsupported_items": []
+      },
+      "uncertainty_handled": null
+    },
+    {
+      "notice_id": "tax_or_payment",
+      "elapsed_time_sec": 0.02,
+      "expected_category": "tax_or_payment",
+      "predicted_category": "tax_or_payment",
+      "category_match": true,
+      "expected_status": "processed",
+      "predicted_status": "success",
+      "is_refusal_case": false,
+      "refusal_correct": null,
+      "false_refusal": false,
+      "deadlines": {
+        "tp": 1,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "matches": [
+          {
+            "gt": {
+              "date": "2026-12-31",
+              "original_wording": "paid in full on or before 31-12-2026",
+              "description": "Property tax payment deadline",
+              "is_ambiguous": false,
+              "ambiguity_reason": null
+            },
+            "pred": {
+              "date": "2026-12-31",
+              "description": "Property tax payment deadline",
+              "evidence_quote": "The statutory tax demand challan must be paid in full on or before 31-12-2026.",
+              "source_page": 1,
+              "confidence": 0.95,
+              "is_ambiguous_or_conflicting": false,
+              "ambiguity_reason": null,
+              "status": "found"
+            },
+            "match_type": "exact_date",
+            "score": 1.0
+          }
+        ],
+        "invented_deadlines": [],
+        "missed_deadlines": []
+      },
+      "documents": {
+        "tp": 2,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "matches": [
+          {
+            "gt": "statutory tax demand challan",
+            "pred": {
+              "name": "statutory tax demand challan",
+              "is_required": true,
+              "evidence_quote": "statutory tax demand challan",
+              "source_page": 1,
+              "status": "not_completed"
+            },
+            "score": 1.0
+          },
+          {
+            "gt": "bank challan",
+            "pred": {
+              "name": "bank challan",
+              "is_required": true,
+              "evidence_quote": "bank challan",
+              "source_page": 1,
+              "status": "not_completed"
+            },
+            "score": 1.0
+          }
+        ],
+        "unmatched_gt": [],
+        "unmatched_pred": []
+      },
+      "action_steps": {
+        "tp": 3,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "matches": [
+          {
+            "gt": "pay the outstanding property tax dues amounting to Rs. 24,600",
+            "pred": {
+              "order": 1,
+              "action": "pay the outstanding property tax dues amounting to Rs. 24,600",
+              "evidence_quote": "pay the outstanding property tax dues amounting to Rs. 24,600",
+              "source_page": 1,
+              "status": "found"
+            },
+            "score": 1.0
+          },
+          {
+            "gt": "Payment can be deposited online via municipal revenue treasury portal or at designated banks",
+            "pred": {
+              "order": 2,
+              "action": "Payment can be deposited online via municipal revenue treasury portal or at designated banks",
+              "evidence_quote": "Payment can be deposited online via municipal revenue treasury portal or at designated banks",
+              "source_page": 1,
+              "status": "found"
+            },
+            "score": 1.0
+          },
+          {
+            "gt": "quote your taxpayer identification number on the bank challan",
+            "pred": {
+              "order": 3,
+              "action": "quote your taxpayer identification number on the bank challan",
+              "evidence_quote": "quote your taxpayer identification number on the bank challan",
+              "source_page": 1,
+              "status": "found"
+            },
+            "score": 1.0
+          }
+        ],
+        "unmatched_gt": [],
+        "unmatched_pred": []
+      },
+      "submission_channel_match": true,
+      "grounding": {
+        "quotes_checked": 10,
+        "quotes_verified": 10,
+        "grounding_rate": 1.0,
+        "unsupported_critical_count": 0,
+        "unsupported_items": []
+      },
+      "uncertainty_handled": null
+    }
+  ]
+}

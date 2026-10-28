@@ -23,10 +23,8 @@ class Settings(BaseSettings):
         "http://localhost:3000",
     ]
 
-    # Database
-    DATABASE_URL: str = (
-        "postgresql://notice_user:notice_password@localhost:5432/notice_to_action_db"
-    )
+    # Database (SQLite default for MVP, easily switched via DATABASE_URL env)
+    DATABASE_URL: str = "sqlite:///./notice.db"
 
     # Security
     SECRET_KEY: str = "development-insecure-secret-key-placeholder"
@@ -35,7 +33,8 @@ class Settings(BaseSettings):
     LLM_API_KEY: str = "mock-llm-key-placeholder"
     LLM_MODEL: str = "gemini-1.5-pro"
 
-    # File uploads
+    # File uploads & storage
+    STORAGE_BACKEND: str = "local"
     UPLOAD_DIR: str = "./uploads"
     MAX_UPLOAD_MB: int = 10
 

@@ -1,0 +1,52 @@
+{
+  "notice_id": "tax_or_payment",
+  "source_pdf": "tests/fixtures/tax_or_payment.pdf",
+  "expected_category": "tax_or_payment",
+  "expected_status": "processed",
+  "explicit_deadlines": [
+    {
+      "date": "2026-12-31",
+      "original_wording": "paid in full on or before 31-12-2026",
+      "description": "Property tax payment deadline",
+      "is_ambiguous": false,
+      "ambiguity_reason": null
+    }
+  ],
+  "required_documents": [
+    "statutory tax demand challan",
+    "bank challan"
+  ],
+  "action_steps": [
+    "pay the outstanding property tax dues amounting to Rs. 24,600",
+    "Payment can be deposited online via municipal revenue treasury portal or at designated banks",
+    "quote your taxpayer identification number on the bank challan"
+  ],
+  "submission_channel": "online via municipal revenue treasury portal or at designated banks",
+  "penalties": [
+    "interest under statutory provisions at 1% per month plus a penal cess of 10% shall be levied on tax arrears",
+    "Distress warrants and attachment of municipal property will be initiated against defaulting assesses"
+  ],
+  "ambiguous_or_missing_notes": "Single unambiguous calendar date. Penalties explicitly stated on page 2.",
+  "critical_evidence_passages": [
+    {
+      "field": "notice_title",
+      "page": 1,
+      "quote": "Notice of Demand under Section 156 of Municipal Property Tax Act"
+    },
+    {
+      "field": "deadline",
+      "page": 1,
+      "quote": "The statutory tax demand challan must be paid in full on or before 31-12-2026."
+    },
+    {
+      "field": "submission_channel",
+      "page": 1,
+      "quote": "Payment can be deposited online via municipal revenue treasury portal or at designated banks."
+    },
+    {
+      "field": "penalty",
+      "page": 2,
+      "quote": "interest under statutory provisions at 1% per month plus a penal cess of 10% shall be levied on tax arrears."
+    }
+  ]
+}

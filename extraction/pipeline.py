@@ -21,7 +21,7 @@ from extraction.extractor import (
     extract_pages,
 )
 from extraction.llm_client import BaseLLMClient
-from extraction.llm_extractor import extract_notice_with_llm
+from extraction.llm_extractor import PROMPT_VERSION, extract_notice_with_llm
 from validation.validator import normalize_text, validate_notice
 
 
@@ -320,4 +320,5 @@ def process_notice(
         "validation_report": validation_report,
         "needs_verification": grounded_notice.get("needs_verification", False),
         "message": "Notice processed and verified successfully.",
+        "prompt_version": PROMPT_VERSION,
     }
