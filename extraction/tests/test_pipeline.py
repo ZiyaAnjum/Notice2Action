@@ -6,6 +6,15 @@ Tests:
 3. Invalid JSON is repaired on retry; repeated failure returns structured failure.
 4. Unreadable PDF and out-of-scope PDF refuse early WITHOUT calling LLM.
 5. Missing deadline results in 'not_found', never an invented date.
+6. Temporary LLM error (503 / 429 / timeout) retry succeeds with FakeLLMClient.
+7. Temporary LLM error retry exhaustion returns friendly plain-language busy message.
+8. Non-retryable error (400, 401, 403, 404) does not retry.
+9. Common date format parsing ("18 November 2026", "18 Nov 2026", "November 18, 2026",
+   "18th November 2026", DD/MM/YYYY, DD-MM-YYYY).
+10. Two different absolute dates produce conflict reason naming both dates and purposes.
+11. Real relative date ("within 7 days of the due date") retains relative reason.
+12. Status message differentiation based on needs_verification flag.
+13. Penalties with no stated amount use "not_found" rather than None.
 """
 
 import copy
@@ -13,8 +22,10 @@ import json
 from pathlib import Path
 from typing import Any
 
-from extraction.llm_client import FakeLLMClient
-from extraction.pipeline import process_notice
+import pytest
+
+from extraction.llm_client import FRIENDLY_BUSY_MESSAGE, FakeLLMClient, LLMError
+from extraction.pipeline import parse_date_string, process_notice
 
 FIXTURES_DIR = Path(__file__).resolve().parent.parent.parent / "tests" / "fixtures"
 SAMPLES_DIR = Path(__file__).resolve().parent.parent.parent / "samples"
@@ -61,6 +72,10 @@ def test_pipeline_hallucinated_quote_flagged() -> None:
 
     assert res["status"] == "success"
     assert res["needs_verification"] is True
+    assert (
+        res["message"]
+        == "Notice processed. Please check the highlighted items against your original notice."
+    )
 
     result_notice = res["result"]
     assert result_notice is not None
@@ -167,3 +182,313 @@ def test_pipeline_missing_deadline_is_not_found() -> None:
     assert result_notice is not None
     assert result_notice["deadlines"][0]["date"] == "not_found"
     assert result_notice["deadlines"][0]["status"] == "not_found"
+
+
+def test_pipeline_retry_success_with_fake_llm() -> None:
+    """Verify temporary 503 high demand error on attempt 1 succeeds after retry on attempt 2."""
+    canned_data = get_base_scholarship_canned_data()
+    fake_client = FakeLLMClient(
+        [
+            LLMError("HTTP 503: The model is overloaded. Please try again later.", status_code=503),
+            canned_data,
+        ]
+    )
+    pdf_path = FIXTURES_DIR / "scholarship_or_college.pdf"
+
+    res = process_notice(pdf_path, client=fake_client)
+
+    assert res["status"] == "success"
+    assert fake_client.call_count == 2
+    assert res["result"] is not None
+    assert res["result"]["notice_id"] == "notice-sch-2026-001"
+
+
+def test_pipeline_timeout_retry_success_with_fake_llm() -> None:
+    """Verify network timeout on attempt 1 succeeds after retry on attempt 2."""
+    canned_data = get_base_scholarship_canned_data()
+    fake_client = FakeLLMClient(
+        [
+            LLMError("Network timeout connecting to Gemini API", is_timeout=True),
+            canned_data,
+        ]
+    )
+    pdf_path = FIXTURES_DIR / "scholarship_or_college.pdf"
+
+    res = process_notice(pdf_path, client=fake_client)
+
+    assert res["status"] == "success"
+    assert fake_client.call_count == 2
+    assert res["result"] is not None
+
+
+def test_pipeline_retry_exhaustion_friendly_message_with_fake_llm() -> None:
+    """Verify temporary errors across all retry attempts return a friendly busy message.
+
+    Technical detail is logged, but not presented in the user-facing message.
+    """
+    fake_client = FakeLLMClient(
+        [
+            LLMError("HTTP 429: Resource has been exhausted (quota exceeded)", status_code=429),
+            LLMError("HTTP 429: Resource has been exhausted (quota exceeded)", status_code=429),
+            LLMError("HTTP 429: Resource has been exhausted (quota exceeded)", status_code=429),
+        ]
+    )
+    pdf_path = FIXTURES_DIR / "scholarship_or_college.pdf"
+
+    res = process_notice(pdf_path, client=fake_client)
+
+    assert res["status"] == "extraction_failed"
+    assert res["result"] is None
+    assert res["needs_verification"] is True
+    # User message must be friendly plain language
+    assert res["message"] == FRIENDLY_BUSY_MESSAGE
+    assert "The AI service is busy right now" in res["message"]
+    # Technical detail must NOT be shown to users in message
+    assert "429" not in res["message"]
+    assert "quota exceeded" not in res["message"]
+
+
+@pytest.mark.parametrize("status_code", [400, 401, 403, 404])
+def test_pipeline_non_retryable_errors_no_retry(status_code: int) -> None:
+    """Verify non-retryable 400, 401, 403, 404 errors fail immediately with no retry."""
+    fake_client = FakeLLMClient(
+        [LLMError(f"HTTP {status_code} client error", status_code=status_code)]
+    )
+    pdf_path = FIXTURES_DIR / "scholarship_or_college.pdf"
+
+    res = process_notice(pdf_path, client=fake_client)
+
+    assert res["status"] == "extraction_failed"
+    assert res["result"] is None
+    # Crucial assertion: exactly 1 call was made; no retries attempted!
+    assert fake_client.call_count == 1
+    # Friendly busy message is NOT shown for non-temporary errors
+    assert res["message"] != FRIENDLY_BUSY_MESSAGE
+
+
+# =========================================================================
+# Live Smoke Test Fixes Tests (Date Parsing, Conflicts, Status, Penalties)
+# =========================================================================
+
+
+@pytest.mark.parametrize(
+    ("raw_input", "expected_iso"),
+    [
+        ("18 November 2026", "2026-11-18"),
+        ("20 November 2026", "2026-11-20"),
+        ("18 Nov 2026", "2026-11-18"),
+        ("November 18, 2026", "2026-11-18"),
+        ("18th November 2026", "2026-11-18"),
+        ("18/11/2026", "2026-11-18"),
+        ("18-11-2026", "2026-11-18"),
+        ("1st December 2026", "2026-12-01"),
+        ("2nd January 2026", "2026-01-02"),
+        ("3rd March 2026", "2026-03-03"),
+    ],
+)
+def test_parse_date_string_common_formats(raw_input: str, expected_iso: str) -> None:
+    """Verify parse_date_string handles all common absolute date formats properly."""
+    is_cal, is_rel, iso_str = parse_date_string(raw_input)
+    assert is_cal is True
+    assert is_rel is False
+    assert iso_str == expected_iso
+
+
+def test_pipeline_date_format_parsed_in_notice() -> None:
+    """Verify an absolute date with ordinal suffix '18th November 2026' is parsed without parse failure."""
+    canned_data = get_base_scholarship_canned_data()
+    grounded_quote = "State Higher Education Directorate, Scholarship Cell"
+    canned_data["deadlines"][0]["date"] = "18th November 2026"
+    canned_data["deadlines"][0]["evidence_quote"] = grounded_quote
+    canned_data["deadlines"][0]["source_page"] = 1
+
+    fake_client = FakeLLMClient(canned_data)
+    pdf_path = FIXTURES_DIR / "scholarship_or_college.pdf"
+
+    res = process_notice(pdf_path, client=fake_client)
+
+    assert res["status"] == "success"
+    dl = res["result"]["deadlines"][0]
+    # Successfully parsed and normalized
+    assert dl["date"] == "2026-11-18"
+    assert dl["is_ambiguous_or_conflicting"] is False
+    assert dl["status"] == "found"
+
+
+def test_pipeline_two_different_absolute_dates_conflict_reason() -> None:
+    """Verify two different absolute dates produce a conflict reason naming both dates and what each is for."""
+    canned_data = get_base_scholarship_canned_data()
+    # Provide grounded quote from document page 1: "State Higher Education Directorate, Scholarship Cell"
+    grounded_quote = "State Higher Education Directorate, Scholarship Cell"
+    canned_data["deadlines"] = [
+        {
+            "date": "18 November 2026",
+            "description": "Last date for payment without surcharge",
+            "evidence_quote": grounded_quote,
+            "source_page": 1,
+            "confidence": 0.95,
+            "is_ambiguous_or_conflicting": False,
+            "ambiguity_reason": None,
+            "status": "found",
+        },
+        {
+            "date": "20 November 2026",
+            "description": "Bill due date",
+            "evidence_quote": grounded_quote,
+            "source_page": 1,
+            "confidence": 0.95,
+            "is_ambiguous_or_conflicting": False,
+            "ambiguity_reason": None,
+            "status": "found",
+        },
+    ]
+
+    fake_client = FakeLLMClient(canned_data)
+    pdf_path = FIXTURES_DIR / "scholarship_or_college.pdf"
+
+    res = process_notice(pdf_path, client=fake_client)
+
+    assert res["status"] == "success"
+    assert res["needs_verification"] is True
+    assert (
+        res["message"]
+        == "Notice processed. Please check the highlighted items against your original notice."
+    )
+
+    deadlines = res["result"]["deadlines"]
+    assert len(deadlines) == 2
+
+    for dl in deadlines:
+        assert dl["is_ambiguous_or_conflicting"] is True
+        assert dl["status"] == "conflicting"
+        reason = dl["ambiguity_reason"]
+        assert reason is not None
+        # Must name both dates
+        assert "2026-11-18" in reason
+        assert "2026-11-20" in reason
+        # Must name what each is for
+        assert "Last date for payment without surcharge" in reason
+        assert "Bill due date" in reason
+        # Must NOT be a parse-failure reason
+        assert "could not be parsed" not in reason.lower()
+        assert "non-standard" not in reason.lower()
+
+
+def test_pipeline_real_relative_date_retains_relative_reason() -> None:
+    """Verify a genuinely relative date ('within 7 days of the due date') retains the relative reason."""
+    canned_data = get_base_scholarship_canned_data()
+    grounded_quote = "State Higher Education Directorate, Scholarship Cell"
+    canned_data["deadlines"] = [
+        {
+            "date": "within 7 days of the due date",
+            "description": "Disconnection notice",
+            "evidence_quote": grounded_quote,
+            "source_page": 1,
+            "confidence": 0.90,
+            "is_ambiguous_or_conflicting": True,
+            "ambiguity_reason": None,
+            "status": "ambiguous",
+        }
+    ]
+
+    fake_client = FakeLLMClient(canned_data)
+    pdf_path = FIXTURES_DIR / "scholarship_or_college.pdf"
+
+    res = process_notice(pdf_path, client=fake_client)
+
+    assert res["status"] == "success"
+    assert res["needs_verification"] is True
+
+    dl = res["result"]["deadlines"][0]
+    assert dl["is_ambiguous_or_conflicting"] is True
+    assert dl["status"] == "ambiguous"
+    assert "relative" in dl["ambiguity_reason"].lower()
+    assert "could not be parsed" not in dl["ambiguity_reason"].lower()
+
+
+def test_pipeline_status_messages_verification_true_and_false() -> None:
+    """Verify distinct pipeline success messages when needs_verification is True vs False."""
+    pdf_path = FIXTURES_DIR / "scholarship_or_college.pdf"
+    grounded_quote = "State Higher Education Directorate, Scholarship Cell"
+
+    # Case 1: needs_verification is False
+    canned_clean = get_base_scholarship_canned_data()
+    canned_clean["warnings"] = []
+    canned_clean["needs_verification"] = False
+    for k in ["notice_title", "issuing_organisation", "affected_party", "main_purpose"]:
+        canned_clean[k]["evidence_quote"] = grounded_quote
+        canned_clean[k]["source_page"] = 1
+    canned_clean["submission_channel"]["evidence_quote"] = grounded_quote
+    canned_clean["submission_channel"]["source_page"] = 1
+    canned_clean["deadlines"] = [
+        {
+            "date": "2026-11-18",
+            "description": "Submission",
+            "evidence_quote": grounded_quote,
+            "source_page": 1,
+            "confidence": 0.95,
+            "is_ambiguous_or_conflicting": False,
+            "ambiguity_reason": None,
+            "status": "found",
+        }
+    ]
+    canned_clean["required_documents"] = []
+    canned_clean["action_steps"] = []
+    canned_clean["penalties"] = []
+
+    fake_client_clean = FakeLLMClient(canned_clean)
+    res_clean = process_notice(pdf_path, client=fake_client_clean)
+    assert res_clean["status"] == "success"
+    assert res_clean["needs_verification"] is False
+    assert res_clean["message"] == "Notice processed and verified successfully."
+
+    # Case 2: needs_verification is True (due to relative deadline)
+    canned_unverified = copy.deepcopy(canned_clean)
+    canned_unverified["deadlines"] = [
+        {
+            "date": "within 10 days of notice receipt",
+            "description": "Relative window",
+            "evidence_quote": grounded_quote,
+            "source_page": 1,
+            "confidence": 0.95,
+            "is_ambiguous_or_conflicting": True,
+            "ambiguity_reason": None,
+            "status": "ambiguous",
+        }
+    ]
+    fake_client_unverified = FakeLLMClient(canned_unverified)
+
+    res_unverified = process_notice(pdf_path, client=fake_client_unverified)
+    assert res_unverified["status"] == "success"
+    assert res_unverified["needs_verification"] is True
+    assert (
+        res_unverified["message"]
+        == "Notice processed. Please check the highlighted items against your original notice."
+    )
+
+
+def test_pipeline_penalty_amount_not_found() -> None:
+    """Verify a penalty with no stated amount uses 'not_found' for amount, never None."""
+    canned_data = get_base_scholarship_canned_data()
+    grounded_quote = "State Higher Education Directorate, Scholarship Cell"
+    canned_data["penalties"] = [
+        {
+            "description": "Supply disconnection if bill remains unpaid",
+            "amount": None,  # Stated as None by LLM candidate
+            "evidence_quote": grounded_quote,
+            "source_page": 1,
+            "status": "found",
+        }
+    ]
+
+    fake_client = FakeLLMClient(canned_data)
+    pdf_path = FIXTURES_DIR / "scholarship_or_college.pdf"
+
+    res = process_notice(pdf_path, client=fake_client)
+
+    assert res["status"] == "success"
+    penalties = res["result"]["penalties"]
+    assert len(penalties) == 1
+    # Amount must be normalized to "not_found", never None
+    assert penalties[0]["amount"] == "not_found"
+    assert penalties[0]["amount"] is not None

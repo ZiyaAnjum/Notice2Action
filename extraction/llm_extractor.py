@@ -6,15 +6,24 @@ with up to 2 self-repair retry attempts.
 """
 
 import json
+import logging
 from typing import Any
 
 import jsonschema
 
-from extraction.llm_client import BaseLLMClient, LLMError, clean_json_markdown, get_llm_client
+from extraction.llm_client import (
+    BaseLLMClient,
+    LLMError,
+    clean_json_markdown,
+    get_llm_client,
+    sanitize_message,
+)
 from validation.validator import SCHEMA_PATH
 
+logger = logging.getLogger(__name__)
+
 MAX_EXTRACTION_RETRIES = 2
-PROMPT_VERSION = "1.0.0"
+PROMPT_VERSION = "1.1.0"
 
 
 def load_notice_schema() -> dict[str, Any]:
@@ -43,18 +52,26 @@ def build_system_prompt() -> str:
         "evidence_quote verbatim from the text.\n"
         "   - Cite the exact 1-indexed source_page where that quote appears (e.g. 1, 2).\n"
         "3. RELATIVE AND CONFLICTING DEADLINES:\n"
-        "   - If a deadline date is relative (e.g., 'within 15 days of receipt') without a specific "
-        "calendar date, record 'uncertain' as the date, set is_ambiguous_or_conflicting to true, "
-        "and explain the ambiguity in ambiguity_reason.\n"
-        "4. REQUIRED VS. OPTIONAL DOCUMENTS:\n"
-        "   - Set is_required to true ONLY when the notice explicitly mandates submission.\n"
+        "   - If a deadline date is relative (e.g., 'within 15 days of receipt', 'within 7 days of due date') "
+        "without a specific calendar date, record the relative wording or 'uncertain' as the date, "
+        "set is_ambiguous_or_conflicting to true, and explain the ambiguity in ambiguity_reason.\n"
+        "4. REQUIRED DOCUMENTS VS. ACTION STEPS:\n"
+        "   - required_documents must ONLY contain documents the notice explicitly asks the user to provide or submit.\n"
+        "   - A conditional item (such as 'if you have already paid, send the receipt' or 'show ID upon inspection') "
+        "belongs in action_steps, NOT in required_documents.\n"
         "   - If a document is merely recommended or optional, set is_required to false.\n"
-        "5. ACTION STEPS:\n"
+        "5. PENALTIES AND CONSEQUENCES:\n"
+        "   - Extract all stated surcharges, late fees, disconnection warnings, reconnection fees, or legal consequences.\n"
+        "   - A penalty with no stated amount uses 'not_found' for the amount, NOT null or None.\n"
+        "6. ACTION STEPS:\n"
         "   - Extract ordered step-by-step compliance actions strictly from textual instructions.\n"
-        "6. PLAIN LANGUAGE SUMMARY:\n"
-        "   - Provide clear, simple explanations as plain strings for: what_is_this, why_it_matters, "
-        "what_to_do, where_to_do_it, and if_deadline_missed.\n"
-        "7. STRICT JSON OUTPUT:\n"
+        "7. PLAIN LANGUAGE SUMMARY:\n"
+        "   - The five summary parts (what_is_this, why_it_matters, what_to_do, where_to_do_it, and if_deadline_missed) "
+        "may ONLY restate what the notice explicitly says.\n"
+        "   - Do NOT infer cause and effect or add advice not in the notice (for example, do not say that paying before a "
+        "date prevents disconnection unless the notice explicitly says so).\n"
+        "   - Where the notice is unclear, conflicting, or does not specify details, say so in plain words.\n"
+        "8. STRICT JSON OUTPUT:\n"
         "   - Return ONLY raw JSON strictly conforming to schemas/notice_output.schema.json.\n"
         "   - Do not include explanations, code block fences, or text outside the JSON object."
     )
@@ -127,7 +144,7 @@ def extract_notice_with_llm(
 
     Returns:
         Dict with status ('success' | 'extraction_failed'), data (extracted notice or None),
-        error (error message if failed), and raw_response.
+        error (error message if failed), is_busy (boolean), and raw_response.
     """
     llm = client or get_llm_client()
     schema = load_notice_schema()
@@ -144,17 +161,46 @@ def extract_notice_with_llm(
             raw_response = llm.generate_json(system_prompt, current_user_prompt)
             last_raw_response = raw_response
         except LLMError as err:
+            safe_err = sanitize_message(err.message)
+            is_busy = (
+                err.is_retryable
+                or err.retries_exhausted
+                or (err.status_code in {429, 500, 502, 503, 504})
+            )
+
+            # Retry temporary errors if client did not already exhaust retries internally
+            if err.is_retryable and not err.retries_exhausted and attempt < max_retries:
+                logger.warning(
+                    "LLM generation attempt %d failed with retryable error (status=%s): %s. Retrying...",
+                    attempt + 1,
+                    err.status_code,
+                    safe_err,
+                )
+                continue
+
+            logger.error(
+                "LLM generation failed (status=%s, retries_exhausted=%s): %s",
+                err.status_code,
+                err.retries_exhausted,
+                safe_err,
+            )
             return {
                 "status": "extraction_failed",
-                "error": f"LLM generation failed: {err.message}",
+                "error": safe_err,
+                "is_busy": is_busy,
+                "status_code": err.status_code,
                 "data": None,
                 "raw_response": last_raw_response,
                 "attempts": attempt + 1,
             }
         except Exception as err:
+            safe_err = sanitize_message(str(err))
+            logger.error("Unexpected error during LLM invocation: %s", safe_err)
             return {
                 "status": "extraction_failed",
-                "error": f"Unexpected error during LLM invocation: {err}",
+                "error": f"Unexpected error during LLM invocation: {safe_err}",
+                "is_busy": False,
+                "status_code": None,
                 "data": None,
                 "raw_response": last_raw_response,
                 "attempts": attempt + 1,
@@ -185,6 +231,8 @@ def extract_notice_with_llm(
                 "status": "success",
                 "data": parsed_data,
                 "error": None,
+                "is_busy": False,
+                "status_code": None,
                 "raw_response": raw_response,
                 "attempts": attempt + 1,
             }
@@ -206,6 +254,8 @@ def extract_notice_with_llm(
     return {
         "status": "extraction_failed",
         "error": f"Schema validation failed after {max_retries} repair retries: {'; '.join(last_errors[:3])}",
+        "is_busy": False,
+        "status_code": None,
         "data": None,
         "raw_response": last_raw_response,
         "attempts": max_retries + 1,

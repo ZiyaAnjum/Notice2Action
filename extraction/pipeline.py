@@ -10,6 +10,8 @@ Flow:
    as uncertain with warnings, and sets needs_verification flag.
 """
 
+import logging
+import re
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any
@@ -20,9 +22,16 @@ from extraction.extractor import (
     check_document_readability,
     extract_pages,
 )
-from extraction.llm_client import BaseLLMClient
+from extraction.llm_client import (
+    FRIENDLY_BUSY_MESSAGE,
+    RETRYABLE_STATUS_CODES,
+    BaseLLMClient,
+    sanitize_message,
+)
 from extraction.llm_extractor import PROMPT_VERSION, extract_notice_with_llm
 from validation.validator import normalize_text, validate_notice
+
+logger = logging.getLogger(__name__)
 
 
 def parse_date_string(date_str: str | None) -> tuple[bool, bool, str | None]:
@@ -32,7 +41,7 @@ def parse_date_string(date_str: str | None) -> tuple[bool, bool, str | None]:
         date_str: Raw date value from extracted notice.
 
     Returns:
-        (is_valid_calendar_date, is_relative_or_unclear, parsed_iso_string)
+        (is_valid_calendar_date, is_relative, parsed_iso_string)
     """
     if not date_str or date_str in ("not_found", "uncertain"):
         return True, False, date_str
@@ -53,16 +62,46 @@ def parse_date_string(date_str: str | None) -> tuple[bool, bool, str | None]:
     except ValueError:
         pass
 
-    # 3. Common official circular format: DD-MM-YYYY or DD/MM/YYYY
+    # Strip ordinal suffixes (1st, 2nd, 3rd, 18th, etc.) from day numbers
+    normalized = re.sub(r"\b(\d{1,2})(?:st|nd|rd|th)\b", r"\1", cleaned, flags=re.IGNORECASE)
+    # Normalize punctuation and excess whitespace
+    normalized = re.sub(r"[,]+", " ", normalized)
+    normalized = re.sub(r"\s+", " ", normalized).strip()
+
+    # 3. Numeric dates: DD/MM/YYYY and DD-MM-YYYY
+    # NOTE: Day first (DD/MM/YYYY, DD-MM-YYYY, DD.MM.YYYY) is the standard Indian administrative convention.
     for fmt in ("%d-%m-%Y", "%d/%m/%Y", "%d.%m.%Y"):
         try:
-            dt = datetime.strptime(cleaned, fmt)
+            dt = datetime.strptime(normalized, fmt)
             return True, False, dt.date().isoformat()
         except ValueError:
             pass
 
-    # Unparseable, relative, or ambiguous text (e.g., "within 15 days of receipt")
-    return False, True, None
+    # 4. Textual month formats: "18 November 2026", "18 Nov 2026", "November 18 2026", "Nov 18 2026"
+    for fmt in (
+        "%d %B %Y",
+        "%d %b %Y",
+        "%B %d %Y",
+        "%b %d %Y",
+        "%d-%b-%Y",
+        "%d-%B-%Y",
+    ):
+        try:
+            dt = datetime.strptime(normalized, fmt)
+            return True, False, dt.date().isoformat()
+        except ValueError:
+            pass
+
+    # 5. Check if it is really a relative date (e.g. "within 7 days of the due date")
+    relative_pattern = (
+        r"\b(within|after|before|prior to|from|of)\b.*\b(days?|weeks?|months?|receipt|issuance|due\s+date|notice|circular)\b"
+        r"|\bwithin\b"
+    )
+    if re.search(relative_pattern, cleaned, re.IGNORECASE):
+        return False, True, None
+
+    # Unparseable, but not a recognized relative date
+    return False, False, None
 
 
 def post_process_notice(
@@ -74,7 +113,7 @@ def post_process_notice(
 
     Any critical item whose evidence_quote is not found verbatim in page text is
     marked 'uncertain' with an explicit warning and triggers needs_verification=True.
-    Relative or unparseable dates are flagged as ambiguous.
+    Relative dates, conflicting multiple dates, or unparseable dates are flagged.
 
     Args:
         notice: Extracted notice dictionary.
@@ -147,6 +186,8 @@ def post_process_notice(
         verify_field_quote(sub_chan, "submission_channel")
 
     # 3. Verify and parse deadlines
+    parsed_calendar_deadlines: list[dict[str, Any]] = []
+
     for idx, dl in enumerate(notice_copy.get("deadlines") or []):
         if not isinstance(dl, dict):
             continue
@@ -161,22 +202,64 @@ def post_process_notice(
             dl["is_ambiguous_or_conflicting"] = True
             if not dl.get("ambiguity_reason"):
                 dl["ambiguity_reason"] = (
-                    f"Date '{raw_date}' is a relative or non-standard date format."
+                    f"Date '{raw_date}' is a relative deadline requiring a reference date to calculate."
                 )
             dl["status"] = "ambiguous"
             notice_copy["needs_verification"] = True
             warnings.append(
                 {
-                    "code": "DEADLINE_RELATIVE_OR_AMBIGUOUS",
-                    "warning_text": f"Deadline '{label}' contains relative or unparseable date '{raw_date}'.",
+                    "code": "DEADLINE_RELATIVE",
+                    "warning_text": f"Deadline '{label}' contains relative date '{raw_date}'.",
+                    "severity": "warning",
+                    "evidence_quote": dl.get("evidence_quote"),
+                    "source_page": dl.get("source_page"),
+                }
+            )
+        elif not is_cal:
+            dl["is_ambiguous_or_conflicting"] = True
+            if not dl.get("ambiguity_reason"):
+                dl["ambiguity_reason"] = (
+                    f"Date '{raw_date}' could not be parsed as a calendar date."
+                )
+            dl["status"] = "ambiguous"
+            notice_copy["needs_verification"] = True
+            warnings.append(
+                {
+                    "code": "DEADLINE_UNPARSEABLE",
+                    "warning_text": f"Deadline '{label}' contains unparseable date '{raw_date}'.",
                     "severity": "warning",
                     "evidence_quote": dl.get("evidence_quote"),
                     "source_page": dl.get("source_page"),
                 }
             )
         elif iso_str and iso_str not in ("not_found", "uncertain"):
-            # Normalize date to standard ISO format
+            # Successfully parsed calendar date! Normalize date to standard ISO format
             dl["date"] = iso_str
+            parsed_calendar_deadlines.append(dl)
+
+    # Check for multiple different absolute dates for related obligations
+    distinct_dates = {d["date"] for d in parsed_calendar_deadlines if d.get("date")}
+    if len(distinct_dates) >= 2:
+        parts = [
+            f"{d.get('date')} for '{d.get('description', 'obligation')}'"
+            for d in parsed_calendar_deadlines
+        ]
+        conflict_reason = f"Multiple deadline dates for related obligations: {' vs '.join(parts)}"
+        for dl in parsed_calendar_deadlines:
+            dl["is_ambiguous_or_conflicting"] = True
+            dl["ambiguity_reason"] = conflict_reason
+            dl["status"] = "conflicting"
+
+        notice_copy["needs_verification"] = True
+        warnings.append(
+            {
+                "code": "DEADLINE_CONFLICTING_DATES",
+                "warning_text": conflict_reason,
+                "severity": "warning",
+                "evidence_quote": None,
+                "source_page": None,
+            }
+        )
 
     # 4. Verify required documents
     for doc in notice_copy.get("required_documents") or []:
@@ -192,6 +275,9 @@ def post_process_notice(
     for pen in notice_copy.get("penalties") or []:
         if isinstance(pen, dict):
             verify_field_quote(pen, f"penalty: {pen.get('description', 'unnamed')}")
+            # Ensure penalties with no stated amount use "not_found", not None
+            if pen.get("amount") is None:
+                pen["amount"] = "not_found"
 
     # If any warnings exist or validation report had errors, set needs_verification
     if len(warnings) > 0 or not validation_report.get("is_valid"):
@@ -221,7 +307,7 @@ def process_notice(
 
     Returns:
         Structured result dict:
-        {status, category, result, validation_report, needs_verification, message}
+        {status, category, result, validation_report, needs_verification, message, prompt_version}
     """
     path = Path(file_path)
 
@@ -287,6 +373,26 @@ def process_notice(
     extraction_res = extract_notice_with_llm(pages, category, client=client)
 
     if extraction_res["status"] != "success" or not extraction_res["data"]:
+        is_busy = extraction_res.get("is_busy", False)
+        status_code = extraction_res.get("status_code")
+        raw_error = extraction_res.get("error") or "LLM extraction failed."
+        safe_error = sanitize_message(raw_error)
+
+        if is_busy or (status_code in RETRYABLE_STATUS_CODES):
+            user_message = FRIENDLY_BUSY_MESSAGE
+            logger.error(
+                "Pipeline extraction failed due to temporary AI service error: %s (status=%s)",
+                safe_error,
+                status_code,
+            )
+        else:
+            user_message = f"Structured extraction failed: {safe_error}"
+            logger.error(
+                "Pipeline extraction failed: %s (status=%s)",
+                safe_error,
+                status_code,
+            )
+
         return {
             "status": "extraction_failed",
             "category": category,
@@ -294,11 +400,11 @@ def process_notice(
             "validation_report": {
                 "is_valid": False,
                 "schema_compliant": False,
-                "errors": [extraction_res.get("error") or "LLM extraction failed."],
+                "errors": [user_message],
                 "warnings": [],
             },
             "needs_verification": True,
-            "message": f"Structured extraction failed: {extraction_res.get('error')}",
+            "message": user_message,
         }
 
     extracted_data = extraction_res["data"]
@@ -313,12 +419,20 @@ def process_notice(
     # Update document_quality based on readability
     grounded_notice["document_quality"] = "good" if readability["status"] == "good" else "poor_scan"
 
+    needs_verification = grounded_notice.get("needs_verification", False)
+    if needs_verification:
+        status_message = (
+            "Notice processed. Please check the highlighted items against your original notice."
+        )
+    else:
+        status_message = "Notice processed and verified successfully."
+
     return {
         "status": "success",
         "category": category,
         "result": grounded_notice,
         "validation_report": validation_report,
-        "needs_verification": grounded_notice.get("needs_verification", False),
-        "message": "Notice processed and verified successfully.",
+        "needs_verification": needs_verification,
+        "message": status_message,
         "prompt_version": PROMPT_VERSION,
     }

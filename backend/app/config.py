@@ -32,6 +32,7 @@ class Settings(BaseSettings):
     # LLM & Extraction Services
     LLM_API_KEY: str = "mock-llm-key-placeholder"
     LLM_MODEL: str = "gemini-1.5-pro"
+    LLM_FALLBACK_MODEL: str | None = None
 
     # File uploads & storage
     STORAGE_BACKEND: str = "local"
