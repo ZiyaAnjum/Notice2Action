@@ -51,12 +51,17 @@ export function SummaryQuestions({ summary = {} }) {
       <div className="space-y-4">
         {SUMMARY_QUESTIONS.map(({ key, question, ariaId }) => {
           const rawValue = summary ? summary[key] : null;
+          let textValue = rawValue;
+          if (typeof rawValue === "object" && rawValue !== null) {
+            textValue = rawValue.text ?? "";
+          }
+          const textStr = typeof textValue === "string" ? textValue : String(textValue || "");
           const isMissing =
-            !rawValue ||
-            rawValue.trim() === "" ||
-            rawValue.toLowerCase() === "not_found" ||
-            rawValue.toLowerCase() === "not stated in the notice";
-          const displayContent = isMissing ? "Not stated in the notice" : rawValue;
+            !textStr ||
+            textStr.trim() === "" ||
+            textStr.toLowerCase() === "not_found" ||
+            textStr.toLowerCase() === "not stated in the notice";
+          const displayContent = isMissing ? "Not stated in the notice" : textStr;
 
           return (
             <article

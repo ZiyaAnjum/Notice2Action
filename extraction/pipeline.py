@@ -141,6 +141,24 @@ def post_process_notice(
         if quote in ("not_found", "uncertain", None) or page in ("not_found", "uncertain", None):
             return
 
+        # Treat quotes containing ellipsis "..." as ungrounded (non-contiguous)
+        if isinstance(quote, str) and "..." in quote:
+            field_data["status"] = "uncertain"
+            notice_copy["needs_verification"] = True
+            warnings.append(
+                {
+                    "code": "GROUNDING_ELLIPSIS_QUOTE",
+                    "warning_text": (
+                        f"Grounding warning: Quote for '{field_name}' contains ellipsis '...' "
+                        "and is not a single contiguous passage."
+                    ),
+                    "severity": "warning",
+                    "evidence_quote": str(quote)[:100],
+                    "source_page": page if type(page) is int else None,
+                }
+            )
+            return
+
         # Check page bounds
         if not (type(page) is int and 1 <= page <= total_pages):
             field_data["status"] = "uncertain"
@@ -174,6 +192,31 @@ def post_process_notice(
                 }
             )
 
+    # 0. Normalize plain_language_summary parts to plain strings and retain evidence separately
+    summary = notice_copy.get("plain_language_summary")
+    if isinstance(summary, dict):
+        summary_evidence: dict[str, Any] = {}
+        for key in (
+            "what_is_this",
+            "why_it_matters",
+            "what_to_do",
+            "where_to_do_it",
+            "if_deadline_missed",
+        ):
+            val = summary.get(key)
+            if isinstance(val, dict):
+                text_val = val.get("text")
+                summary[key] = str(text_val) if text_val is not None else ""
+                ev_quote = val.get("evidence_quote")
+                src_page = val.get("source_page")
+                if ev_quote or src_page:
+                    summary_evidence[key] = {
+                        "evidence_quote": ev_quote,
+                        "source_page": src_page,
+                    }
+        if summary_evidence:
+            notice_copy["plain_language_summary_evidence"] = summary_evidence
+
     # 1. Verify top-level critical fields
     for field_name in ("notice_title", "issuing_organisation", "affected_party", "main_purpose"):
         field_val = notice_copy.get(field_name)
@@ -204,7 +247,7 @@ def post_process_notice(
                 dl["ambiguity_reason"] = (
                     f"Date '{raw_date}' is a relative deadline requiring a reference date to calculate."
                 )
-            dl["status"] = "ambiguous"
+            dl["status"] = "uncertain"
             notice_copy["needs_verification"] = True
             warnings.append(
                 {

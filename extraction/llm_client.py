@@ -184,7 +184,9 @@ class GeminiLLMClient(BaseLLMClient):
 
         for attempt in range(max_attempts):
             try:
-                return self._post_generate_content(self.model, system_prompt, user_prompt)
+                res = self._post_generate_content(self.model, system_prompt, user_prompt)
+                logger.info("Model '%s' answered successfully.", self.model)
+                return res
             except httpx.TimeoutException as exc:
                 last_is_timeout = True
                 last_status_code = None
@@ -202,6 +204,51 @@ class GeminiLLMClient(BaseLLMClient):
                 last_status_code = exc.status_code
                 safe_err = sanitize_message(exc.message, self.api_key)
                 last_err_msg = safe_err
+
+                # Fallback model must also be tried when primary returns 404 (model no longer available)
+                if exc.status_code == 404:
+                    if (
+                        self.fallback_model
+                        and self.fallback_model.strip()
+                        and self.fallback_model.strip() != self.model
+                    ):
+                        fallback = self.fallback_model.strip()
+                        logger.warning(
+                            "Primary model '%s' returned 404 (model no longer available / not found): %s. Trying fallback model '%s'...",
+                            self.model,
+                            safe_err,
+                            fallback,
+                        )
+                        try:
+                            res = self._post_generate_content(fallback, system_prompt, user_prompt)
+                            logger.info("Model '%s' answered successfully.", fallback)
+                            return res
+                        except Exception as fb_exc:
+                            safe_fb_err = sanitize_message(str(fb_exc), self.api_key)
+                            logger.error(
+                                "Fallback model '%s' also failed after primary 404: %s",
+                                fallback,
+                                safe_fb_err,
+                            )
+                            fb_status = getattr(fb_exc, "status_code", 404)
+                            raise LLMError(
+                                f"Gemini API primary model '{self.model}' returned 404 and fallback to '{fallback}' failed: {safe_fb_err}",
+                                status_code=fb_status,
+                                is_timeout=isinstance(fb_exc, httpx.TimeoutException),
+                                retries_exhausted=True,
+                            ) from None
+
+                    logger.error(
+                        "Primary model '%s' returned 404 (model no longer available / not found) and no fallback configured: %s",
+                        self.model,
+                        safe_err,
+                    )
+                    raise LLMError(
+                        safe_err,
+                        status_code=404,
+                        is_timeout=False,
+                        retries_exhausted=False,
+                    ) from None
 
                 is_retryable = (exc.status_code in RETRYABLE_STATUS_CODES) or exc.is_timeout
                 if not is_retryable:
@@ -259,7 +306,9 @@ class GeminiLLMClient(BaseLLMClient):
             fallback = self.fallback_model.strip()
             logger.info("Attempting fallback model '%s' once...", fallback)
             try:
-                return self._post_generate_content(fallback, system_prompt, user_prompt)
+                res = self._post_generate_content(fallback, system_prompt, user_prompt)
+                logger.info("Model '%s' answered successfully.", fallback)
+                return res
             except Exception as exc:
                 safe_fallback_err = sanitize_message(str(exc), self.api_key)
                 logger.error(
@@ -347,6 +396,7 @@ class OpenAILLMClient(BaseLLMClient):
                 raise LLMError("OpenAI API returned no choices.")
 
             content = choices[0].get("message", {}).get("content", "")
+            logger.info("Model '%s' answered successfully.", self.model)
             return clean_json_markdown(content)
 
         except httpx.RequestError as exc:
@@ -364,7 +414,9 @@ class FakeLLMClient(BaseLLMClient):
     def __init__(
         self,
         responses: list[Any] | Any | None = None,
+        model: str = "fake-model",
     ) -> None:
+        self.model = model
         self.calls: list[dict[str, str]] = []
         self._responses: list[Any] = []
 
@@ -459,7 +511,9 @@ class FakeLLMClient(BaseLLMClient):
             val = resp(system_prompt, user_prompt)
             if isinstance(val, Exception):
                 raise val
+            logger.info("Model '%s' answered successfully.", self.model)
             return str(val)
+        logger.info("Model '%s' answered successfully.", self.model)
         return str(resp)
 
 

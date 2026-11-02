@@ -401,7 +401,7 @@ def test_pipeline_real_relative_date_retains_relative_reason() -> None:
 
     dl = res["result"]["deadlines"][0]
     assert dl["is_ambiguous_or_conflicting"] is True
-    assert dl["status"] == "ambiguous"
+    assert dl["status"] == "uncertain"
     assert "relative" in dl["ambiguity_reason"].lower()
     assert "could not be parsed" not in dl["ambiguity_reason"].lower()
 
@@ -492,3 +492,158 @@ def test_pipeline_penalty_amount_not_found() -> None:
     # Amount must be normalized to "not_found", never None
     assert penalties[0]["amount"] == "not_found"
     assert penalties[0]["amount"] is not None
+
+
+def test_pipeline_summary_objects_normalized_to_plain_strings_and_evidence_separated() -> None:
+    """Verify that if LLM returns summary parts as objects {text, evidence_quote, source_page},
+    the pipeline normalizes each part to a plain string and stores evidence in plain_language_summary_evidence.
+    """
+    canned_data = get_base_scholarship_canned_data()
+    grounded_quote = "State Higher Education Directorate, Scholarship Cell"
+
+    canned_data["plain_language_summary"] = {
+        "what_is_this": {
+            "text": "Electricity disconnection notice",
+            "evidence_quote": grounded_quote,
+            "source_page": 1,
+        },
+        "why_it_matters": {
+            "text": "Electricity supply will be disconnected",
+            "evidence_quote": grounded_quote,
+            "source_page": 1,
+        },
+        "what_to_do": {
+            "text": "Pay outstanding bill immediately",
+            "evidence_quote": grounded_quote,
+            "source_page": 1,
+        },
+        "where_to_do_it": {
+            "text": "Online portal or local bill counter",
+            "evidence_quote": grounded_quote,
+            "source_page": 1,
+        },
+        "if_deadline_missed": {
+            "text": "Reconnection fee of Rs. 500 will apply",
+            "evidence_quote": grounded_quote,
+            "source_page": 1,
+        },
+    }
+
+    fake_client = FakeLLMClient(canned_data)
+    pdf_path = FIXTURES_DIR / "scholarship_or_college.pdf"
+
+    res = process_notice(pdf_path, client=fake_client)
+
+    assert res["status"] == "success"
+    summary = res["result"]["plain_language_summary"]
+
+    for key, expected_text in [
+        ("what_is_this", "Electricity disconnection notice"),
+        ("why_it_matters", "Electricity supply will be disconnected"),
+        ("what_to_do", "Pay outstanding bill immediately"),
+        ("where_to_do_it", "Online portal or local bill counter"),
+        ("if_deadline_missed", "Reconnection fee of Rs. 500 will apply"),
+    ]:
+        val = summary[key]
+        assert isinstance(val, str), f"{key} was expected to be str, got {type(val)}"
+        assert val == expected_text
+
+    evidence = res["result"].get("plain_language_summary_evidence")
+    assert evidence is not None
+    assert evidence["what_is_this"]["evidence_quote"] == grounded_quote
+    assert evidence["what_is_this"]["source_page"] == 1
+
+
+def test_pipeline_evidence_quote_with_ellipsis_treated_as_ungrounded() -> None:
+    """Verify evidence_quote containing ellipsis '...' is treated as ungrounded."""
+    canned_data = get_base_scholarship_canned_data()
+    canned_data["notice_title"]["evidence_quote"] = "State Higher Education...Scholarship Cell"
+    canned_data["notice_title"]["source_page"] = 1
+    canned_data["notice_title"]["status"] = "found"
+
+    fake_client = FakeLLMClient(canned_data)
+    pdf_path = FIXTURES_DIR / "scholarship_or_college.pdf"
+
+    res = process_notice(pdf_path, client=fake_client)
+
+    assert res["status"] == "success"
+    assert res["needs_verification"] is True
+    assert res["result"]["notice_title"]["status"] == "uncertain"
+
+    warnings = res["result"]["warnings"]
+    assert any(w.get("code") == "GROUNDING_ELLIPSIS_QUOTE" for w in warnings)
+
+
+def test_pipeline_relative_consequence_deadline_preserved_with_original_wording() -> None:
+    """Verify consequence date stated relative to another date ('within 7 days of the due date')
+    appears in the deadlines list with original wording as date text, status uncertain,
+    and is_ambiguous_or_conflicting true with a reason, and is NOT dropped in favour of a warning.
+    """
+    canned_data = get_base_scholarship_canned_data()
+    grounded_quote = "State Higher Education Directorate, Scholarship Cell"
+
+    canned_data["deadlines"] = [
+        {
+            "date": "within 7 days of the due date",
+            "description": "Electricity power supply disconnection",
+            "evidence_quote": grounded_quote,
+            "source_page": 1,
+            "confidence": 0.90,
+            "is_ambiguous_or_conflicting": True,
+            "ambiguity_reason": "Relative to bill due date",
+            "status": "uncertain",
+        }
+    ]
+
+    fake_client = FakeLLMClient(canned_data)
+    pdf_path = FIXTURES_DIR / "scholarship_or_college.pdf"
+
+    res = process_notice(pdf_path, client=fake_client)
+
+    assert res["status"] == "success"
+    assert res["needs_verification"] is True
+
+    deadlines = res["result"]["deadlines"]
+    assert len(deadlines) == 1
+    dl = deadlines[0]
+    assert dl["date"] == "within 7 days of the due date"
+    assert dl["status"] == "uncertain"
+    assert dl["is_ambiguous_or_conflicting"] is True
+    assert dl["ambiguity_reason"] is not None
+    assert (
+        "relative" in dl["ambiguity_reason"].lower() or "due date" in dl["ambiguity_reason"].lower()
+    )
+
+
+def test_pipeline_penalty_amounts_preserved_with_currency_and_units() -> None:
+    """Verify penalty amounts are preserved exactly as written including currency and units."""
+    canned_data = get_base_scholarship_canned_data()
+    grounded_quote = "State Higher Education Directorate, Scholarship Cell"
+
+    canned_data["penalties"] = [
+        {
+            "description": "Late payment surcharge",
+            "amount": "2 percent per month",
+            "evidence_quote": grounded_quote,
+            "source_page": 1,
+            "status": "found",
+        },
+        {
+            "description": "Reconnection fee",
+            "amount": "Rs. 500",
+            "evidence_quote": grounded_quote,
+            "source_page": 1,
+            "status": "found",
+        },
+    ]
+
+    fake_client = FakeLLMClient(canned_data)
+    pdf_path = FIXTURES_DIR / "scholarship_or_college.pdf"
+
+    res = process_notice(pdf_path, client=fake_client)
+
+    assert res["status"] == "success"
+    penalties = res["result"]["penalties"]
+    assert len(penalties) == 2
+    assert penalties[0]["amount"] == "2 percent per month"
+    assert penalties[1]["amount"] == "Rs. 500"

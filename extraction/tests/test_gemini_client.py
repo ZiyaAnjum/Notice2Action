@@ -298,3 +298,176 @@ def test_sanitize_message_utility() -> None:
     assert secret not in sanitized
     assert "?key=***REDACTED***" in sanitized
     assert "Bearer ***REDACTED***" in sanitized
+
+
+def test_gemini_client_fallback_on_404_model_not_found(caplog: pytest.LogCaptureFixture) -> None:
+    """Verify fallback model is tried immediately when primary returns 404 'model not found/available'."""
+    models_called: list[str] = []
+    valid_payload = json.dumps({"notice_id": "notice-404-fallback-success"})
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        url_str = str(request.url)
+        if "gemini-obsolete" in url_str:
+            models_called.append("gemini-obsolete")
+            return httpx.Response(
+                404, text="models/gemini-obsolete is not found or no longer available."
+            )
+        elif "gemini-1.5-flash" in url_str:
+            models_called.append("gemini-1.5-flash")
+            return httpx.Response(200, json=_make_gemini_response(valid_payload))
+        return httpx.Response(500, text="Unexpected")
+
+    transport = httpx.MockTransport(handler)
+    client = GeminiLLMClient(
+        api_key="test-key",
+        model="gemini-obsolete",
+        fallback_model="gemini-1.5-flash",
+        transport=transport,
+        backoff_delays=[0.01, 0.02],
+        sleep_fn=lambda _: None,
+    )
+
+    with caplog.at_level(logging.INFO):
+        res = client.generate_json("sys", "usr")
+
+    assert json.loads(res)["notice_id"] == "notice-404-fallback-success"
+    # Primary model called once (not retried across delays on 404)
+    assert models_called.count("gemini-obsolete") == 1
+    # Fallback model called and succeeded
+    assert models_called.count("gemini-1.5-flash") == 1
+    # Log must state which model answered
+    assert "Model 'gemini-1.5-flash' answered successfully." in caplog.text
+
+
+def test_gemini_client_logs_primary_model_answered(caplog: pytest.LogCaptureFixture) -> None:
+    """Verify GeminiLLMClient logs which model answered when primary succeeds."""
+    valid_payload = json.dumps({"notice_id": "notice-primary-success"})
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=_make_gemini_response(valid_payload))
+
+    transport = httpx.MockTransport(handler)
+    client = GeminiLLMClient(
+        api_key="test-key",
+        model="gemini-1.5-flash",
+        transport=transport,
+    )
+
+    with caplog.at_level(logging.INFO):
+        res = client.generate_json("sys", "usr")
+
+    assert json.loads(res)["notice_id"] == "notice-primary-success"
+    assert "Model 'gemini-1.5-flash' answered successfully." in caplog.text
+
+
+def test_gemini_client_404_without_fallback_raises_immediately() -> None:
+    """Verify 404 without a fallback model configured raises LLMError immediately."""
+    call_count = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal call_count
+        call_count += 1
+        return httpx.Response(404, text="model not found")
+
+    transport = httpx.MockTransport(handler)
+    client = GeminiLLMClient(
+        api_key="test-key",
+        model="gemini-nonexistent",
+        fallback_model=None,
+        transport=transport,
+        backoff_delays=[0.01, 0.02],
+        sleep_fn=lambda _: None,
+    )
+
+    with pytest.raises(LLMError) as exc_info:
+        client.generate_json("sys", "usr")
+
+    assert exc_info.value.status_code == 404
+    assert exc_info.value.retries_exhausted is False
+    assert call_count == 1
+
+
+def test_gemini_client_fallback_on_404_model_not_found(caplog: pytest.LogCaptureFixture) -> None:
+    """Verify fallback model is tried immediately when primary returns 404 'model not found/available'."""
+    models_called: list[str] = []
+    valid_payload = json.dumps({"notice_id": "notice-404-fallback-success"})
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        url_str = str(request.url)
+        if "gemini-obsolete" in url_str:
+            models_called.append("gemini-obsolete")
+            return httpx.Response(404, text="models/gemini-obsolete is not found or no longer available.")
+        elif "gemini-1.5-flash" in url_str:
+            models_called.append("gemini-1.5-flash")
+            return httpx.Response(200, json=_make_gemini_response(valid_payload))
+        return httpx.Response(500, text="Unexpected")
+
+    transport = httpx.MockTransport(handler)
+    client = GeminiLLMClient(
+        api_key="test-key",
+        model="gemini-obsolete",
+        fallback_model="gemini-1.5-flash",
+        transport=transport,
+        backoff_delays=[0.01, 0.02],
+        sleep_fn=lambda _: None,
+    )
+
+    with caplog.at_level(logging.INFO):
+        res = client.generate_json("sys", "usr")
+
+    assert json.loads(res)["notice_id"] == "notice-404-fallback-success"
+    # Primary model called once (not retried across delays on 404)
+    assert models_called.count("gemini-obsolete") == 1
+    # Fallback model called and succeeded
+    assert models_called.count("gemini-1.5-flash") == 1
+    # Log must state which model answered
+    assert "Model 'gemini-1.5-flash' answered successfully." in caplog.text
+
+
+def test_gemini_client_logs_primary_model_answered(caplog: pytest.LogCaptureFixture) -> None:
+    """Verify GeminiLLMClient logs which model answered when primary succeeds."""
+    valid_payload = json.dumps({"notice_id": "notice-primary-success"})
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=_make_gemini_response(valid_payload))
+
+    transport = httpx.MockTransport(handler)
+    client = GeminiLLMClient(
+        api_key="test-key",
+        model="gemini-1.5-flash",
+        transport=transport,
+    )
+
+    with caplog.at_level(logging.INFO):
+        res = client.generate_json("sys", "usr")
+
+    assert json.loads(res)["notice_id"] == "notice-primary-success"
+    assert "Model 'gemini-1.5-flash' answered successfully." in caplog.text
+
+
+def test_gemini_client_404_without_fallback_raises_immediately() -> None:
+    """Verify 404 without a fallback model configured raises LLMError immediately."""
+    call_count = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal call_count
+        call_count += 1
+        return httpx.Response(404, text="model not found")
+
+    transport = httpx.MockTransport(handler)
+    client = GeminiLLMClient(
+        api_key="test-key",
+        model="gemini-nonexistent",
+        fallback_model=None,
+        transport=transport,
+        backoff_delays=[0.01, 0.02],
+        sleep_fn=lambda _: None,
+    )
+
+    with pytest.raises(LLMError) as exc_info:
+        client.generate_json("sys", "usr")
+
+    assert exc_info.value.status_code == 404
+    assert exc_info.value.retries_exhausted is False
+    assert call_count == 1
+
