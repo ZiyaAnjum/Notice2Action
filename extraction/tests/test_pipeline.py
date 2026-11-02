@@ -324,6 +324,7 @@ def test_pipeline_two_different_absolute_dates_conflict_reason() -> None:
         {
             "date": "18 November 2026",
             "description": "Last date for payment without surcharge",
+            "role": "primary",
             "evidence_quote": grounded_quote,
             "source_page": 1,
             "confidence": 0.95,
@@ -334,6 +335,7 @@ def test_pipeline_two_different_absolute_dates_conflict_reason() -> None:
         {
             "date": "20 November 2026",
             "description": "Bill due date",
+            "role": "primary",
             "evidence_quote": grounded_quote,
             "source_page": 1,
             "confidence": 0.95,
@@ -363,6 +365,8 @@ def test_pipeline_two_different_absolute_dates_conflict_reason() -> None:
         assert dl["status"] == "conflicting"
         reason = dl["ambiguity_reason"]
         assert reason is not None
+        assert "The notice gives two different dates" in reason
+        assert "Please check which one applies to you" in reason
         # Must name both dates
         assert "2026-11-18" in reason
         assert "2026-11-20" in reason
@@ -647,3 +651,136 @@ def test_pipeline_penalty_amounts_preserved_with_currency_and_units() -> None:
     assert len(penalties) == 2
     assert penalties[0]["amount"] == "2 percent per month"
     assert penalties[1]["amount"] == "Rs. 500"
+
+
+def test_pipeline_staged_deadlines_not_a_conflict() -> None:
+    """Verify that staged deadlines (primary + extended) are not flagged as conflicting."""
+    canned_data = get_base_scholarship_canned_data()
+    grounded_quote = "State Higher Education Directorate, Scholarship Cell"
+
+    canned_data["deadlines"] = [
+        {
+            "description": "Online application submission",
+            "date": "2026-11-30",
+            "role": "primary",
+            "evidence_quote": grounded_quote,
+            "source_page": 1,
+            "confidence": 0.95,
+            "is_ambiguous_or_conflicting": False,
+            "ambiguity_reason": None,
+            "status": "found",
+        },
+        {
+            "description": "Submission with late fee of Rs. 100",
+            "date": "2026-12-15",
+            "role": "extended",
+            "evidence_quote": grounded_quote,
+            "source_page": 1,
+            "confidence": 0.90,
+            "is_ambiguous_or_conflicting": False,
+            "ambiguity_reason": None,
+            "status": "found",
+        },
+    ]
+
+    fake_client = FakeLLMClient(canned_data)
+    pdf_path = FIXTURES_DIR / "scholarship_or_college.pdf"
+
+    res = process_notice(pdf_path, client=fake_client)
+
+    assert res["status"] == "success"
+    deadlines = res["result"]["deadlines"]
+    assert len(deadlines) == 2
+
+    # Primary deadline must NOT be marked conflicting
+    assert deadlines[0]["role"] == "primary"
+    assert deadlines[0]["is_ambiguous_or_conflicting"] is False
+    assert deadlines[0]["status"] == "found"
+
+    # Extended deadline must NOT be marked conflicting
+    assert deadlines[1]["role"] == "extended"
+    assert deadlines[1]["is_ambiguous_or_conflicting"] is False
+    assert deadlines[1]["status"] == "found"
+
+    # No conflict warning should be emitted
+    warnings = res["result"]["warnings"]
+    assert not any(w.get("code") == "DEADLINE_CONFLICTING_DATES" for w in warnings)
+
+
+def test_pipeline_required_documents_conditional_items_moved_to_warnings() -> None:
+    """Verify that required_documents items with conditional phrasing ('if you', 'instead', 'may')
+    are moved to warnings for review and removed from required_documents.
+    """
+    canned_data = get_base_scholarship_canned_data()
+    grounded_quote = "State Higher Education Directorate, Scholarship Cell"
+
+    canned_data["required_documents"] = [
+        {
+            "name": "Income Certificate",
+            "is_required": True,
+            "evidence_quote": grounded_quote,
+            "source_page": 1,
+            "status": "not_completed",
+        },
+        {
+            "name": "Payment Receipt",
+            "is_required": True,
+            "evidence_quote": "If you have already paid, send the receipt",
+            "source_page": 1,
+            "status": "not_completed",
+        },
+        {
+            "name": "Self-Declaration",
+            "is_required": True,
+            "evidence_quote": "Candidates may submit a self-declaration instead",
+            "source_page": 1,
+            "status": "not_completed",
+        },
+    ]
+
+    fake_client = FakeLLMClient(canned_data)
+    pdf_path = FIXTURES_DIR / "scholarship_or_college.pdf"
+
+    res = process_notice(pdf_path, client=fake_client)
+
+    assert res["status"] == "success"
+    assert res["needs_verification"] is True
+
+    # Only genuine required document must remain
+    docs = res["result"]["required_documents"]
+    assert len(docs) == 1
+    assert docs[0]["name"] == "Income Certificate"
+
+    # Conditional and alternative items must be moved to warnings
+    doc_warnings = [
+        w
+        for w in res["result"]["warnings"]
+        if w.get("code") == "DOCUMENT_CONDITIONAL_OR_ALTERNATIVE"
+    ]
+    assert len(doc_warnings) == 2
+    warning_texts = " ".join(w["warning_text"] for w in doc_warnings)
+    assert "Payment Receipt" in warning_texts
+    assert "Self-Declaration" in warning_texts
+
+
+def test_pipeline_no_deadlines_summary_if_deadline_missed() -> None:
+    """Verify that when the notice states no deadline, if_deadline_missed summary says
+    'The notice does not give a deadline.' and does not reuse penalty text.
+    """
+    canned_data = get_base_scholarship_canned_data()
+    # No deadlines stated in notice
+    canned_data["deadlines"] = []
+    # LLM hallucinated penalty text into if_deadline_missed
+    canned_data["plain_language_summary"]["if_deadline_missed"] = (
+        "Disconnection penalty of Rs. 500 and 2 percent late surcharge will be charged."
+    )
+
+    fake_client = FakeLLMClient(canned_data)
+    pdf_path = FIXTURES_DIR / "scholarship_or_college.pdf"
+
+    res = process_notice(pdf_path, client=fake_client)
+
+    assert res["status"] == "success"
+    summary = res["result"]["plain_language_summary"]
+    assert summary["if_deadline_missed"] == "The notice does not give a deadline."
+    assert "penalty" not in summary["if_deadline_missed"].lower()

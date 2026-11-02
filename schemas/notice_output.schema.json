@@ -119,6 +119,11 @@
             "type": "string",
             "description": "Explanation of what must be submitted or performed by this deadline, or 'not_found' / 'uncertain'."
           },
+          "role": {
+            "type": "string",
+            "enum": ["primary", "extended", "consequence", "other"],
+            "description": "Role of this deadline: primary (the main deadline), extended (a later date that is allowed with a fee or penalty), consequence (a date or period triggered by something else, for example 'within 7 days of the due date'), or other."
+          },
           "evidence_quote": {
             "type": ["string", "null"],
             "description": "Verbatim quotation from the source text, or 'not_found' / 'uncertain'."

@@ -241,6 +241,31 @@ def post_process_notice(
         raw_date = dl.get("date")
         is_cal, is_relative, iso_str = parse_date_string(raw_date)
 
+        # Infer or preserve deadline role
+        raw_role = dl.get("role")
+        if raw_role in ("primary", "extended", "consequence", "other"):
+            role = raw_role
+        elif is_relative or (raw_date and "within" in str(raw_date).lower()):
+            role = "consequence"
+        elif (
+            any(
+                kw in f"{label} {dl.get('evidence_quote', '')}".lower()
+                for kw in (
+                    "extended",
+                    "with late fee",
+                    "with fine",
+                    "with surcharge",
+                    "late fee",
+                    "after due date",
+                )
+            )
+            and "without" not in f"{label}".lower()
+        ):
+            role = "extended"
+        else:
+            role = "primary"
+        dl["role"] = role
+
         if is_relative:
             dl["is_ambiguous_or_conflicting"] = True
             if not dl.get("ambiguity_reason"):
@@ -280,15 +305,23 @@ def post_process_notice(
             dl["date"] = iso_str
             parsed_calendar_deadlines.append(dl)
 
-    # Check for multiple different absolute dates for related obligations
-    distinct_dates = {d["date"] for d in parsed_calendar_deadlines if d.get("date")}
-    if len(distinct_dates) >= 2:
+    # Check for conflicting dates: Two or more different primary dates for related obligations.
+    # Staged deadlines (primary + extended) are NOT a conflict.
+    primary_calendar_deadlines = [
+        d for d in parsed_calendar_deadlines if d.get("role") == "primary"
+    ]
+    distinct_primary_dates = {d["date"] for d in primary_calendar_deadlines if d.get("date")}
+
+    if len(distinct_primary_dates) >= 2:
         parts = [
-            f"{d.get('date')} for '{d.get('description', 'obligation')}'"
-            for d in parsed_calendar_deadlines
+            f"{d.get('date')} for {d.get('description', 'obligation')}"
+            for d in primary_calendar_deadlines
         ]
-        conflict_reason = f"Multiple deadline dates for related obligations: {' vs '.join(parts)}"
-        for dl in parsed_calendar_deadlines:
+        conflict_reason = (
+            f"The notice gives two different dates ({', '.join(parts)}). "
+            "Please check which one applies to you."
+        )
+        for dl in primary_calendar_deadlines:
             dl["is_ambiguous_or_conflicting"] = True
             dl["ambiguity_reason"] = conflict_reason
             dl["status"] = "conflicting"
@@ -304,10 +337,57 @@ def post_process_notice(
             }
         )
 
-    # 4. Verify required documents
+    # When the notice states no deadline, if_deadline_missed summary must state so plainly
+    all_deadlines = notice_copy.get("deadlines") or []
+    has_stated_deadline = any(
+        isinstance(dl, dict)
+        and dl.get("date") not in ("not_found", None, "")
+        and dl.get("status") != "not_found"
+        for dl in all_deadlines
+    )
+    if not has_stated_deadline and isinstance(summary, dict):
+        summary["if_deadline_missed"] = "The notice does not give a deadline."
+
+    # 4. Verify required documents and filter conditional / alternative items
+    cleaned_required_docs: list[dict[str, Any]] = []
+
+    def is_conditional_or_alternative_quote(quote_str: str) -> bool:
+        q = quote_str.lower()
+        if "if you" in q or "instead" in q:
+            return True
+        if re.search(r"\bmay\b", q):
+            # Exclude when 'May' is just a date month (e.g. '15 May 2026', 'May 15', 'May 2026')
+            stripped = re.sub(r"(\b\d{1,2}\s+may\b|\bmay\s+\d{1,2}\b|\bmay\s+\d{4}\b)", "", q)
+            return bool(re.search(r"\bmay\b", stripped))
+        return False
+
     for doc in notice_copy.get("required_documents") or []:
-        if isinstance(doc, dict):
-            verify_field_quote(doc, f"required_document: {doc.get('name', 'unnamed')}")
+        if not isinstance(doc, dict):
+            continue
+
+        doc_name = doc.get("name", "unnamed document")
+        quote = str(doc.get("evidence_quote") or "")
+
+        if is_conditional_or_alternative_quote(quote):
+            notice_copy["needs_verification"] = True
+            warnings.append(
+                {
+                    "code": "DOCUMENT_CONDITIONAL_OR_ALTERNATIVE",
+                    "warning_text": (
+                        f"Document '{doc_name}' appears conditional or an alternative route "
+                        f"(quote: '{quote[:100]}') and was moved from required documents to warnings for review."
+                    ),
+                    "severity": "warning",
+                    "evidence_quote": doc.get("evidence_quote"),
+                    "source_page": doc.get("source_page"),
+                }
+            )
+            continue
+
+        verify_field_quote(doc, f"required_document: {doc_name}")
+        cleaned_required_docs.append(doc)
+
+    notice_copy["required_documents"] = cleaned_required_docs
 
     # 5. Verify action steps
     for step in notice_copy.get("action_steps") or []:
