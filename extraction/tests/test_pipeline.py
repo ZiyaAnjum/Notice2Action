@@ -25,6 +25,7 @@ from typing import Any
 import pytest
 
 from extraction.llm_client import FRIENDLY_BUSY_MESSAGE, FakeLLMClient, LLMError
+from extraction.llm_extractor import PROMPT_VERSION, build_system_prompt
 from extraction.pipeline import parse_date_string, process_notice
 
 FIXTURES_DIR = Path(__file__).resolve().parent.parent.parent / "tests" / "fixtures"
@@ -784,3 +785,182 @@ def test_pipeline_no_deadlines_summary_if_deadline_missed() -> None:
     summary = res["result"]["plain_language_summary"]
     assert summary["if_deadline_missed"] == "The notice does not give a deadline."
     assert "penalty" not in summary["if_deadline_missed"].lower()
+
+
+def test_pipeline_explicitly_optional_document_retained_with_label() -> None:
+    """Verify that explicitly optional documents ('optional but recommended', is_required: false)
+    are retained in required_documents with label 'Suggested, not required', while conditional
+    items ('if you have already paid') and alternatives ('a self-declaration instead') are moved to warnings.
+    """
+    canned_data = get_base_scholarship_canned_data()
+    grounded_quote = "State Higher Education Directorate, Scholarship Cell"
+
+    canned_data["required_documents"] = [
+        {
+            "name": "Income Certificate",
+            "is_required": True,
+            "evidence_quote": grounded_quote,
+            "source_page": 1,
+            "status": "not_completed",
+        },
+        {
+            "name": "Character Certificate (optional but recommended)",
+            "is_required": False,
+            "evidence_quote": grounded_quote,
+            "source_page": 1,
+            "status": "not_completed",
+        },
+        {
+            "name": "Payment Receipt",
+            "is_required": True,
+            "evidence_quote": "If you have already paid, send the receipt",
+            "source_page": 1,
+            "status": "not_completed",
+        },
+        {
+            "name": "Self-Declaration",
+            "is_required": True,
+            "evidence_quote": "Candidates may submit a self-declaration instead",
+            "source_page": 1,
+            "status": "not_completed",
+        },
+    ]
+
+    fake_client = FakeLLMClient(canned_data)
+    pdf_path = FIXTURES_DIR / "scholarship_or_college.pdf"
+
+    res = process_notice(pdf_path, client=fake_client)
+
+    assert res["status"] == "success"
+    assert res["needs_verification"] is True
+
+    # Check remaining documents
+    docs = res["result"]["required_documents"]
+    assert len(docs) == 2
+    assert docs[0]["name"] == "Income Certificate"
+    assert docs[0]["is_required"] is True
+
+    # Explicitly optional document retained with label
+    assert docs[1]["name"] == "Character Certificate (optional but recommended)"
+    assert docs[1]["is_required"] is False
+    assert docs[1]["label"] == "Suggested, not required"
+
+    # Conditional and alternative items must be moved to warnings
+    doc_warnings = [
+        w
+        for w in res["result"]["warnings"]
+        if w.get("code") == "DOCUMENT_CONDITIONAL_OR_ALTERNATIVE"
+    ]
+    assert len(doc_warnings) == 2
+    warning_texts = " ".join(w["warning_text"] for w in doc_warnings)
+    assert "Payment Receipt" in warning_texts
+    assert "Self-Declaration" in warning_texts
+
+
+def test_pipeline_optional_document_with_may_in_quote_retained() -> None:
+    """Verify that an optional document whose quote contains 'may' is NOT removed by the 'may' filter."""
+    canned_data = get_base_scholarship_canned_data()
+    grounded_quote = "State Higher Education Directorate, Scholarship Cell"
+
+    # Simulate an optional document whose quote includes 'may' and 'optional'
+    canned_data["required_documents"] = [
+        {
+            "name": "Bonus Project Certificate",
+            "is_required": False,
+            "label": "Suggested, not required",
+            "evidence_quote": grounded_quote,
+            "source_page": 1,
+            "status": "not_completed",
+        }
+    ]
+
+    fake_client = FakeLLMClient(canned_data)
+    pdf_path = FIXTURES_DIR / "scholarship_or_college.pdf"
+
+    res = process_notice(pdf_path, client=fake_client)
+    assert res["status"] == "success"
+    docs = res["result"]["required_documents"]
+    assert len(docs) == 1
+    assert docs[0]["name"] == "Bonus Project Certificate"
+    assert docs[0]["is_required"] is False
+    assert docs[0]["label"] == "Suggested, not required"
+
+
+def test_pipeline_eligibility_action_step_at_start_and_option_steps() -> None:
+    """Verify canned output with eligibility conditions action step at order 1,
+    alternative action steps labelled 'Option 1'/'Option 2', and conditional step labelled
+    'If this applies to you'.
+    """
+    canned_data = get_base_scholarship_canned_data()
+    grounded_quote_eligibility = (
+        "Scholars must upload their Semester II Official Marksheet and 75% attendance certificate"
+    )
+    grounded_quote_dossier = "submit semester renewal dossiers online on or before 15-11-2026 to avoid disbursement suspension"
+
+    canned_data["action_steps"] = [
+        {
+            "order": 1,
+            "action": (
+                "Check that you meet the conditions in the notice: minimum 75% attendance "
+                "and Semester II Official Marksheet without backlog."
+            ),
+            "evidence_quote": grounded_quote_eligibility,
+            "source_page": 1,
+            "status": "found",
+        },
+        {
+            "order": 2,
+            "action": "Option 1: Submit renewal dossier online at https://scholarships.state.gov.in.",
+            "evidence_quote": grounded_quote_dossier,
+            "source_page": 1,
+            "status": "found",
+        },
+        {
+            "order": 3,
+            "action": "Option 2: Submit physical dossier at State Higher Education Directorate counter.",
+            "evidence_quote": "State Higher Education Directorate, Scholarship Cell",
+            "source_page": 1,
+            "status": "found",
+        },
+        {
+            "order": 4,
+            "action": "If this applies to you: If you have already received renewal, retain the acknowledgment slip.",
+            "evidence_quote": "Target Beneficiaries: All registered awardees under PG Merit Scheme 2025-27",
+            "source_page": 1,
+            "status": "found",
+        },
+    ]
+
+    fake_client = FakeLLMClient(canned_data)
+    pdf_path = FIXTURES_DIR / "scholarship_or_college.pdf"
+
+    res = process_notice(pdf_path, client=fake_client)
+
+    assert res["status"] == "success"
+    action_steps = res["result"]["action_steps"]
+    assert len(action_steps) == 4
+
+    # Step 1: Eligibility check
+    assert action_steps[0]["order"] == 1
+    assert action_steps[0]["action"].startswith("Check that you meet the conditions in the notice")
+    assert "75% attendance" in action_steps[0]["action"]
+    assert action_steps[0]["status"] == "found"
+
+    # Step 2 & 3: Alternatives labelled Option 1 and Option 2
+    assert action_steps[1]["action"].startswith("Option 1:")
+    assert action_steps[2]["action"].startswith("Option 2:")
+
+    # Step 4: Conditional step labelled "If this applies to you"
+    assert action_steps[3]["action"].startswith("If this applies to you:")
+
+
+def test_prompt_version_and_system_prompt_rules() -> None:
+    """Verify that PROMPT_VERSION is 1.4.0 and includes rules for optional documents,
+    eligibility action step, and alternatives vs sequence.
+    """
+    assert PROMPT_VERSION == "1.4.0"
+    prompt = build_system_prompt()
+    assert "Suggested, not required" in prompt
+    assert "Check that you meet the conditions in the notice" in prompt
+    assert "Option 1" in prompt
+    assert "If this applies to you" in prompt

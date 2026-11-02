@@ -181,6 +181,10 @@
             "type": "boolean",
             "description": "True if document is legally or procedurally mandatory; false if optional, recommended, or conditional."
           },
+          "label": {
+            "type": ["string", "null"],
+            "description": "Optional label for document requirements, e.g. 'Suggested, not required'."
+          },
           "evidence_quote": {
             "type": ["string", "null"],
             "description": "Verbatim quote where this document is mentioned, or 'not_found' / 'uncertain'."

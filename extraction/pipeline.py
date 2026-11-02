@@ -351,24 +351,19 @@ def post_process_notice(
     # 4. Verify required documents and filter conditional / alternative items
     cleaned_required_docs: list[dict[str, Any]] = []
 
-    def is_conditional_or_alternative_quote(quote_str: str) -> bool:
-        q = quote_str.lower()
-        if "if you" in q or "instead" in q:
-            return True
-        if re.search(r"\bmay\b", q):
-            # Exclude when 'May' is just a date month (e.g. '15 May 2026', 'May 15', 'May 2026')
-            stripped = re.sub(r"(\b\d{1,2}\s+may\b|\bmay\s+\d{1,2}\b|\bmay\s+\d{4}\b)", "", q)
-            return bool(re.search(r"\bmay\b", stripped))
-        return False
-
     for doc in notice_copy.get("required_documents") or []:
         if not isinstance(doc, dict):
             continue
 
         doc_name = doc.get("name", "unnamed document")
         quote = str(doc.get("evidence_quote") or "")
+        q_lower = quote.lower()
+        name_lower = doc_name.lower()
 
-        if is_conditional_or_alternative_quote(quote):
+        # Still never include conditional items ("if you have already paid...") or alternatives ("a self-declaration instead")
+        is_conditional_or_alt = "if you" in q_lower or "instead" in q_lower
+
+        if is_conditional_or_alt:
             notice_copy["needs_verification"] = True
             warnings.append(
                 {
@@ -383,6 +378,44 @@ def post_process_notice(
                 }
             )
             continue
+
+        # Check if explicitly optional / recommended
+        is_optional = (
+            doc.get("is_required") is False
+            or "optional" in q_lower
+            or "recommended" in q_lower
+            or "optional" in name_lower
+            or "recommended" in name_lower
+            or doc.get("label") == "Suggested, not required"
+        )
+
+        if is_optional:
+            doc["is_required"] = False
+            doc["label"] = "Suggested, not required"
+        else:
+            # Check for non-optional documents that might contain "may" (excluding 'May' as month name)
+            has_may = False
+            if re.search(r"\bmay\b", q_lower):
+                stripped = re.sub(
+                    r"(\b\d{1,2}\s+may\b|\bmay\s+\d{1,2}\b|\bmay\s+\d{4}\b)", "", q_lower
+                )
+                has_may = bool(re.search(r"\bmay\b", stripped))
+
+            if has_may:
+                notice_copy["needs_verification"] = True
+                warnings.append(
+                    {
+                        "code": "DOCUMENT_CONDITIONAL_OR_ALTERNATIVE",
+                        "warning_text": (
+                            f"Document '{doc_name}' appears conditional or an alternative route "
+                            f"(quote: '{quote[:100]}') and was moved from required documents to warnings for review."
+                        ),
+                        "severity": "warning",
+                        "evidence_quote": doc.get("evidence_quote"),
+                        "source_page": doc.get("source_page"),
+                    }
+                )
+                continue
 
         verify_field_quote(doc, f"required_document: {doc_name}")
         cleaned_required_docs.append(doc)

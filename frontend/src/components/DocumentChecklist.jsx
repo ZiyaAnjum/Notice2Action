@@ -87,7 +87,7 @@ export function DocumentChecklist({
                       </span>
                       {!isRequired ? (
                         <span className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-semibold bg-slate-200 text-slate-700">
-                          Suggested, not required by the notice
+                          {doc.label || "Suggested, not required"}
                         </span>
                       ) : (
                         <span className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-bold bg-indigo-100 text-indigo-900">

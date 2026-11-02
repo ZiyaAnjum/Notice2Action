@@ -168,7 +168,7 @@ describe("NoticeDashboardPage", () => {
     expect(screen.getByText(/Proof of Income/i)).toBeInTheDocument();
     expect(screen.getByText(/Mandatory/i)).toBeInTheDocument();
     expect(screen.getByText(/Bank Statement/i)).toBeInTheDocument();
-    expect(screen.getByText(/Suggested, not required by the notice/i)).toBeInTheDocument();
+    expect(screen.getByText(/Suggested, not required/i)).toBeInTheDocument();
 
     // Penalties
     expect(screen.getByText(/£100 late penalty/i)).toBeInTheDocument();
