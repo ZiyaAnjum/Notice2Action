@@ -127,7 +127,23 @@ def post_process_notice(
     normalized_pages = [normalize_text(p.get("text", "")) for p in pages]
     total_pages = len(normalized_pages)
 
-    warnings: list[dict[str, Any]] = list(notice_copy.get("warnings") or [])
+    user_warnings: list[dict[str, Any]] = []
+    technical_notes: list[dict[str, Any]] = list(notice_copy.get("technical_notes") or [])
+
+    # Filter out any technical checks that were previously stored in warnings
+    for w in notice_copy.get("warnings") or []:
+        if isinstance(w, dict) and w.get("code") in (
+            "GROUNDING_ELLIPSIS_QUOTE",
+            "GROUNDING_INVALID_PAGE",
+            "GROUNDING_UNVERIFIED_QUOTE",
+            "DEADLINE_RELATIVE",
+            "DEADLINE_UNPARSEABLE",
+            "DEADLINE_CONFLICTING_DATES",
+            "DOCUMENT_CONDITIONAL_OR_ALTERNATIVE",
+        ):
+            technical_notes.append(w)
+        else:
+            user_warnings.append(w)
 
     def verify_field_quote(field_data: Any, field_name: str) -> None:
         """Verify evidence quote is present verbatim on the referenced source page."""
@@ -145,13 +161,16 @@ def post_process_notice(
         if isinstance(quote, str) and "..." in quote:
             field_data["status"] = "uncertain"
             notice_copy["needs_verification"] = True
-            warnings.append(
+            msg = (
+                f"Grounding warning: Quote for '{field_name}' contains ellipsis '...' "
+                "and is not a single contiguous passage."
+            )
+            logger.warning("%s (code=GROUNDING_ELLIPSIS_QUOTE)", msg)
+            technical_notes.append(
                 {
                     "code": "GROUNDING_ELLIPSIS_QUOTE",
-                    "warning_text": (
-                        f"Grounding warning: Quote for '{field_name}' contains ellipsis '...' "
-                        "and is not a single contiguous passage."
-                    ),
+                    "note": msg,
+                    "warning_text": msg,
                     "severity": "warning",
                     "evidence_quote": str(quote)[:100],
                     "source_page": page if type(page) is int else None,
@@ -163,11 +182,16 @@ def post_process_notice(
         if not (type(page) is int and 1 <= page <= total_pages):
             field_data["status"] = "uncertain"
             notice_copy["needs_verification"] = True
-            warnings.append(
+            msg = (
+                f"Grounding warning: Field '{field_name}' references page {page}, "
+                f"but notice has {total_pages} page(s)."
+            )
+            logger.warning("%s (code=GROUNDING_INVALID_PAGE)", msg)
+            technical_notes.append(
                 {
                     "code": "GROUNDING_INVALID_PAGE",
-                    "warning_text": f"Grounding warning: Field '{field_name}' references page {page}, "
-                    f"but notice has {total_pages} page(s).",
+                    "note": msg,
+                    "warning_text": msg,
                     "severity": "critical",
                     "evidence_quote": str(quote)[:100] if quote else None,
                     "source_page": page if type(page) is int else None,
@@ -182,10 +206,15 @@ def post_process_notice(
         if norm_quote not in page_text:
             field_data["status"] = "uncertain"
             notice_copy["needs_verification"] = True
-            warnings.append(
+            msg = f"Grounding warning: Verbatim quote for '{field_name}' not found on page {page}."
+            logger.warning(
+                "%s (code=GROUNDING_UNVERIFIED_QUOTE, quote='%s')", msg, str(quote)[:100]
+            )
+            technical_notes.append(
                 {
                     "code": "GROUNDING_UNVERIFIED_QUOTE",
-                    "warning_text": f"Grounding warning: Verbatim quote for '{field_name}' not found on page {page}.",
+                    "note": msg,
+                    "warning_text": msg,
                     "severity": "warning",
                     "evidence_quote": str(quote)[:100],
                     "source_page": page,
@@ -274,10 +303,13 @@ def post_process_notice(
                 )
             dl["status"] = "uncertain"
             notice_copy["needs_verification"] = True
-            warnings.append(
+            msg = f"Deadline '{label}' contains relative date '{raw_date}'."
+            logger.warning("%s (code=DEADLINE_RELATIVE)", msg)
+            technical_notes.append(
                 {
                     "code": "DEADLINE_RELATIVE",
-                    "warning_text": f"Deadline '{label}' contains relative date '{raw_date}'.",
+                    "note": msg,
+                    "warning_text": msg,
                     "severity": "warning",
                     "evidence_quote": dl.get("evidence_quote"),
                     "source_page": dl.get("source_page"),
@@ -291,10 +323,13 @@ def post_process_notice(
                 )
             dl["status"] = "ambiguous"
             notice_copy["needs_verification"] = True
-            warnings.append(
+            msg = f"Deadline '{label}' contains unparseable date '{raw_date}'."
+            logger.warning("%s (code=DEADLINE_UNPARSEABLE)", msg)
+            technical_notes.append(
                 {
                     "code": "DEADLINE_UNPARSEABLE",
-                    "warning_text": f"Deadline '{label}' contains unparseable date '{raw_date}'.",
+                    "note": msg,
+                    "warning_text": msg,
                     "severity": "warning",
                     "evidence_quote": dl.get("evidence_quote"),
                     "source_page": dl.get("source_page"),
@@ -327,9 +362,13 @@ def post_process_notice(
             dl["status"] = "conflicting"
 
         notice_copy["needs_verification"] = True
-        warnings.append(
+        logger.warning(
+            "Deadline conflict detected: %s (code=DEADLINE_CONFLICTING_DATES)", conflict_reason
+        )
+        technical_notes.append(
             {
                 "code": "DEADLINE_CONFLICTING_DATES",
+                "note": conflict_reason,
                 "warning_text": conflict_reason,
                 "severity": "warning",
                 "evidence_quote": None,
@@ -365,13 +404,16 @@ def post_process_notice(
 
         if is_conditional_or_alt:
             notice_copy["needs_verification"] = True
-            warnings.append(
+            msg = (
+                f"Document '{doc_name}' appears conditional or an alternative route "
+                f"(quote: '{quote[:100]}') and was moved from required documents to technical notes for review."
+            )
+            logger.warning("%s (code=DOCUMENT_CONDITIONAL_OR_ALTERNATIVE)", msg)
+            technical_notes.append(
                 {
                     "code": "DOCUMENT_CONDITIONAL_OR_ALTERNATIVE",
-                    "warning_text": (
-                        f"Document '{doc_name}' appears conditional or an alternative route "
-                        f"(quote: '{quote[:100]}') and was moved from required documents to warnings for review."
-                    ),
+                    "note": msg,
+                    "warning_text": msg,
                     "severity": "warning",
                     "evidence_quote": doc.get("evidence_quote"),
                     "source_page": doc.get("source_page"),
@@ -403,13 +445,16 @@ def post_process_notice(
 
             if has_may:
                 notice_copy["needs_verification"] = True
-                warnings.append(
+                msg = (
+                    f"Document '{doc_name}' appears conditional or an alternative route "
+                    f"(quote: '{quote[:100]}') and was moved from required documents to technical notes for review."
+                )
+                logger.warning("%s (code=DOCUMENT_CONDITIONAL_OR_ALTERNATIVE)", msg)
+                technical_notes.append(
                     {
                         "code": "DOCUMENT_CONDITIONAL_OR_ALTERNATIVE",
-                        "warning_text": (
-                            f"Document '{doc_name}' appears conditional or an alternative route "
-                            f"(quote: '{quote[:100]}') and was moved from required documents to warnings for review."
-                        ),
+                        "note": msg,
+                        "warning_text": msg,
                         "severity": "warning",
                         "evidence_quote": doc.get("evidence_quote"),
                         "source_page": doc.get("source_page"),
@@ -435,11 +480,20 @@ def post_process_notice(
             if pen.get("amount") is None:
                 pen["amount"] = "not_found"
 
-    # If any warnings exist or validation report had errors, set needs_verification
-    if len(warnings) > 0 or not validation_report.get("is_valid"):
+    # 7. Verify user-facing notice warnings
+    for warn in user_warnings:
+        if isinstance(warn, dict):
+            verify_field_quote(
+                warn,
+                f"warning: {warn.get('warning_text') or warn.get('message') or 'unnamed'}",
+            )
+
+    # If any technical notes or warnings exist or validation report had errors, set needs_verification
+    if len(technical_notes) > 0 or len(user_warnings) > 0 or not validation_report.get("is_valid"):
         notice_copy["needs_verification"] = True
 
-    notice_copy["warnings"] = warnings
+    notice_copy["warnings"] = user_warnings
+    notice_copy["technical_notes"] = technical_notes
     return notice_copy
 
 
@@ -591,4 +645,5 @@ def process_notice(
         "needs_verification": needs_verification,
         "message": status_message,
         "prompt_version": PROMPT_VERSION,
+        "technical_notes": grounded_notice.get("technical_notes", []),
     }

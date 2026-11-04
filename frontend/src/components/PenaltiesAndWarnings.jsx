@@ -112,7 +112,10 @@ export function PenaltiesAndWarnings({
           {warnings && warnings.length > 0 && (
             <div className="space-y-3">
               {warnings.map((warn, idx) => {
-                const message = typeof warn === "string" ? warn : warn.message || warn.text || "";
+                const message =
+                  typeof warn === "string"
+                    ? warn
+                    : warn.warning_text || warn.message || warn.text || "";
                 const code = typeof warn === "object" ? warn.code : null;
                 const page = typeof warn === "object" ? warn.source_page || warn.evidence?.page : null;
                 const quote = typeof warn === "object" ? warn.evidence_quote || warn.evidence?.quote : null;

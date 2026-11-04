@@ -310,7 +310,7 @@
     },
     "warnings": {
       "type": "array",
-      "description": "Important conditions, cautions, or uncertainties noted in the notice.",
+      "description": "User-facing warnings, conditions, or cautions stated directly in the notice text for the recipient (e.g. 'Cash payments above Rs. 10,000 are not accepted').",
       "items": {
         "type": "object",
         "required": ["warning_text", "evidence_quote", "source_page"],
@@ -342,6 +342,49 @@
               { "type": "null" }
             ],
             "description": "1-indexed page number or null."
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "technical_notes": {
+      "type": "array",
+      "description": "System-generated technical checks (grounding, document-filter, ellipsis, relative-date notes) for diagnostics.",
+      "items": {
+        "type": "object",
+        "required": ["code", "severity"],
+        "properties": {
+          "code": {
+            "type": "string",
+            "description": "Technical check code, e.g. GROUNDING_UNVERIFIED_QUOTE, DOCUMENT_CONDITIONAL_OR_ALTERNATIVE, DEADLINE_RELATIVE."
+          },
+          "note": {
+            "type": "string",
+            "description": "Diagnostic explanation of the technical check."
+          },
+          "warning_text": {
+            "type": "string",
+            "description": "Diagnostic explanation (alias for note)."
+          },
+          "message": {
+            "type": "string",
+            "description": "Diagnostic explanation (alias for note)."
+          },
+          "severity": {
+            "type": "string",
+            "enum": ["info", "warning", "critical"]
+          },
+          "evidence_quote": {
+            "type": ["string", "null"],
+            "description": "Quote associated with this check, if applicable."
+          },
+          "source_page": {
+            "oneOf": [
+              { "type": "integer", "minimum": 1 },
+              { "type": "string", "enum": ["not_found", "uncertain"] },
+              { "type": "null" }
+            ],
+            "description": "Page number associated with this check, if applicable."
           }
         },
         "additionalProperties": false

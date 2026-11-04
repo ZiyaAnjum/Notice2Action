@@ -85,9 +85,11 @@ def test_pipeline_hallucinated_quote_flagged() -> None:
     assert result_notice["deadlines"][0]["status"] == "uncertain"
     assert result_notice["required_documents"][0]["status"] == "uncertain"
 
-    # Warning must be recorded
-    warnings = result_notice.get("warnings") or []
-    assert any("Grounding warning" in w.get("warning_text", "") for w in warnings)
+    # Technical grounding note must be recorded in technical_notes, not in warnings
+    tech_notes = result_notice.get("technical_notes") or []
+    assert any("Grounding warning" in n.get("warning_text", "") for n in tech_notes)
+    user_warnings = result_notice.get("warnings") or []
+    assert not any("Grounding warning" in w.get("warning_text", "") for w in user_warnings)
 
 
 def test_pipeline_retry_and_repair() -> None:
@@ -575,8 +577,10 @@ def test_pipeline_evidence_quote_with_ellipsis_treated_as_ungrounded() -> None:
     assert res["needs_verification"] is True
     assert res["result"]["notice_title"]["status"] == "uncertain"
 
-    warnings = res["result"]["warnings"]
-    assert any(w.get("code") == "GROUNDING_ELLIPSIS_QUOTE" for w in warnings)
+    tech_notes = res["result"]["technical_notes"]
+    assert any(n.get("code") == "GROUNDING_ELLIPSIS_QUOTE" for n in tech_notes)
+    user_warnings = res["result"].get("warnings") or []
+    assert not any(w.get("code") == "GROUNDING_ELLIPSIS_QUOTE" for w in user_warnings)
 
 
 def test_pipeline_relative_consequence_deadline_preserved_with_original_wording() -> None:
@@ -703,8 +707,10 @@ def test_pipeline_staged_deadlines_not_a_conflict() -> None:
     assert deadlines[1]["is_ambiguous_or_conflicting"] is False
     assert deadlines[1]["status"] == "found"
 
-    # No conflict warning should be emitted
-    warnings = res["result"]["warnings"]
+    # No conflict diagnostic should be emitted
+    tech_notes = res["result"]["technical_notes"]
+    assert not any(n.get("code") == "DEADLINE_CONFLICTING_DATES" for n in tech_notes)
+    warnings = res["result"].get("warnings") or []
     assert not any(w.get("code") == "DEADLINE_CONFLICTING_DATES" for w in warnings)
 
 
@@ -752,16 +758,18 @@ def test_pipeline_required_documents_conditional_items_moved_to_warnings() -> No
     assert len(docs) == 1
     assert docs[0]["name"] == "Income Certificate"
 
-    # Conditional and alternative items must be moved to warnings
-    doc_warnings = [
-        w
-        for w in res["result"]["warnings"]
-        if w.get("code") == "DOCUMENT_CONDITIONAL_OR_ALTERNATIVE"
+    # Conditional and alternative items must be moved to technical_notes
+    doc_notes = [
+        n
+        for n in res["result"]["technical_notes"]
+        if n.get("code") == "DOCUMENT_CONDITIONAL_OR_ALTERNATIVE"
     ]
-    assert len(doc_warnings) == 2
-    warning_texts = " ".join(w["warning_text"] for w in doc_warnings)
-    assert "Payment Receipt" in warning_texts
-    assert "Self-Declaration" in warning_texts
+    assert len(doc_notes) == 2
+    note_texts = " ".join(n["note"] for n in doc_notes)
+    assert "Payment Receipt" in note_texts
+    assert "Self-Declaration" in note_texts
+    user_warnings = res["result"].get("warnings") or []
+    assert not any(w.get("code") == "DOCUMENT_CONDITIONAL_OR_ALTERNATIVE" for w in user_warnings)
 
 
 def test_pipeline_no_deadlines_summary_if_deadline_missed() -> None:
@@ -845,16 +853,18 @@ def test_pipeline_explicitly_optional_document_retained_with_label() -> None:
     assert docs[1]["is_required"] is False
     assert docs[1]["label"] == "Suggested, not required"
 
-    # Conditional and alternative items must be moved to warnings
-    doc_warnings = [
-        w
-        for w in res["result"]["warnings"]
-        if w.get("code") == "DOCUMENT_CONDITIONAL_OR_ALTERNATIVE"
+    # Conditional and alternative items must be moved to technical_notes
+    doc_notes = [
+        n
+        for n in res["result"]["technical_notes"]
+        if n.get("code") == "DOCUMENT_CONDITIONAL_OR_ALTERNATIVE"
     ]
-    assert len(doc_warnings) == 2
-    warning_texts = " ".join(w["warning_text"] for w in doc_warnings)
-    assert "Payment Receipt" in warning_texts
-    assert "Self-Declaration" in warning_texts
+    assert len(doc_notes) == 2
+    note_texts = " ".join(n["note"] for n in doc_notes)
+    assert "Payment Receipt" in note_texts
+    assert "Self-Declaration" in note_texts
+    user_warnings = res["result"].get("warnings") or []
+    assert not any(w.get("code") == "DOCUMENT_CONDITIONAL_OR_ALTERNATIVE" for w in user_warnings)
 
 
 def test_pipeline_optional_document_with_may_in_quote_retained() -> None:
@@ -955,12 +965,56 @@ def test_pipeline_eligibility_action_step_at_start_and_option_steps() -> None:
 
 
 def test_prompt_version_and_system_prompt_rules() -> None:
-    """Verify that PROMPT_VERSION is 1.4.0 and includes rules for optional documents,
-    eligibility action step, and alternatives vs sequence.
+    """Verify that PROMPT_VERSION is 1.4.1 and includes rules for optional documents,
+    eligibility action step, alternatives vs sequence, combined action step quote rule,
+    and user-facing warnings only.
     """
-    assert PROMPT_VERSION == "1.4.0"
+    assert PROMPT_VERSION == "1.4.1"
     prompt = build_system_prompt()
     assert "Suggested, not required" in prompt
     assert "Check that you meet the conditions in the notice" in prompt
     assert "Option 1" in prompt
     assert "If this applies to you" in prompt
+    assert "single sentence that states the action itself" in prompt
+    assert "Cash payments above Rs. 10,000 are not accepted" in prompt
+
+
+def test_pipeline_user_facing_warnings_preserved_and_technical_notes_separated() -> None:
+    """Verify that user-facing notice warnings remain in 'warnings', while technical
+    checks (grounding, document filter) are recorded in 'technical_notes'.
+    """
+    canned_data = get_base_scholarship_canned_data()
+    grounded_quote = "State Higher Education Directorate, Scholarship Cell"
+
+    # User-facing warning stated in notice
+    canned_data["warnings"] = [
+        {
+            "warning_text": "Cash payments above Rs. 10,000 are not accepted",
+            "evidence_quote": grounded_quote,
+            "source_page": 1,
+        }
+    ]
+
+    # Ungrounded title to trigger technical grounding check
+    canned_data["notice_title"]["evidence_quote"] = "Non-existent ungrounded title text"
+
+    fake_client = FakeLLMClient(canned_data)
+    pdf_path = FIXTURES_DIR / "scholarship_or_college.pdf"
+
+    res = process_notice(pdf_path, client=fake_client)
+
+    assert res["status"] == "success"
+    assert res["needs_verification"] is True
+
+    # User-facing warning must remain in warnings
+    user_warnings = res["result"]["warnings"]
+    assert len(user_warnings) == 1
+    assert user_warnings[0]["warning_text"] == "Cash payments above Rs. 10,000 are not accepted"
+
+    # Technical check must be in technical_notes
+    tech_notes = res["result"]["technical_notes"]
+    assert any(n.get("code") == "GROUNDING_UNVERIFIED_QUOTE" for n in tech_notes)
+    assert not any(n.get("code") == "GROUNDING_UNVERIFIED_QUOTE" for n in user_warnings)
+
+    # Response envelope must also carry technical_notes
+    assert len(res["technical_notes"]) == len(tech_notes)

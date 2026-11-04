@@ -226,8 +226,73 @@ describe("NoticeDashboardPage", () => {
     const verifyBadges = screen.getAllByText(/Please verify/i);
     expect(verifyBadges.length).toBeGreaterThanOrEqual(1);
 
+    // Plain tooltip/text: "We could not match this exactly to your notice. Please check the original."
+    const ungroundedNotes = screen.getAllByText(
+      /We could not match this exactly to your notice\. Please check the original\./i
+    );
+    expect(ungroundedNotes.length).toBeGreaterThanOrEqual(1);
+
     // Ambiguity reason
     expect(screen.getByText(/Notice date is missing or not stated\./i)).toBeInTheDocument();
+  });
+
+  it("renders technical_notes inside collapsed 'Technical details' and user warnings in warnings section", async () => {
+    api.getNotice.mockResolvedValueOnce({
+      id: "notice-tech-notes",
+      status: "processed",
+      needs_verification: true,
+      result: {
+        notice_title: { value: "Electricity Disconnection Warning", status: "found" },
+        warnings: [
+          {
+            warning_text: "Cash payments above Rs. 10,000 are not accepted",
+            evidence_quote: "Cash payments above Rs. 10,000 are not accepted",
+            source_page: 1,
+          },
+        ],
+        technical_notes: [
+          {
+            code: "GROUNDING_UNVERIFIED_QUOTE",
+            note: "Grounding warning: Verbatim quote for 'action_step: 1' not found on page 1.",
+            severity: "warning",
+            source_page: 1,
+          },
+          {
+            code: "DOCUMENT_CONDITIONAL_OR_ALTERNATIVE",
+            note: "Document 'Payment Receipt' appears conditional or an alternative route and was moved to technical notes.",
+            severity: "warning",
+            source_page: 1,
+          },
+        ],
+      },
+      checklist: [],
+      reminders: [],
+    });
+
+    render(
+      <MemoryRouter initialEntries={["/notices/notice-tech-notes"]}>
+        <Routes>
+          <Route path="/notices/:id" element={<NoticeDashboardPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText(/Electricity Disconnection Warning/i)).toBeInTheDocument();
+    });
+
+    // User-facing warning must be visible in warnings section
+    expect(
+      screen.getByText(/Cash payments above Rs\. 10,000 are not accepted/i)
+    ).toBeInTheDocument();
+
+    // Technical notes section must be collapsed under "Technical details"
+    expect(screen.getByText(/Technical details \(2\)/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Verbatim quote for 'action_step: 1' not found on page 1\./i)
+    ).toBeInTheDocument();
+    expect(screen.getByText(/\[GROUNDING_UNVERIFIED_QUOTE\]/i)).toBeInTheDocument();
+    expect(screen.getByText(/\[DOCUMENT_CONDITIONAL_OR_ALTERNATIVE\]/i)).toBeInTheDocument();
   });
 
   it("handles checklist status change with optimistic update and rollback on error", async () => {

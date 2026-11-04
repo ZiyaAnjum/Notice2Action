@@ -23,7 +23,7 @@ from validation.validator import SCHEMA_PATH
 logger = logging.getLogger(__name__)
 
 MAX_EXTRACTION_RETRIES = 2
-PROMPT_VERSION = "1.4.0"
+PROMPT_VERSION = "1.4.1"
 
 
 def load_notice_schema() -> dict[str, Any]:
@@ -54,6 +54,10 @@ def build_system_prompt() -> str:
         "If one quote cannot support the item, use the shortest sentence that does.\n"
         "   - Every evidence_quote must be ONE contiguous passage copied exactly from a single page, with NO ellipsis ('...'), "
         "NO joining of separate sentences, and NO paraphrase.\n"
+        "   - For action steps that combine several facts, the evidence_quote must be the single sentence that states the "
+        "action itself (for example 'You can pay online through the company app or website, at any authorised collection centre, "
+        "or by cheque at the sub-division office.'), not a sentence about the amount or a heading. One contiguous sentence, "
+        "character for character.\n"
         "   - Cite the exact 1-indexed source_page where that quote appears (e.g. 1, 2).\n"
         "3. DEADLINES, ROLES, AND CONFLICTS:\n"
         "   - Add a 'role' field to each deadline, one of: 'primary' (the main deadline), 'extended' (a later date that "
@@ -89,6 +93,10 @@ def build_system_prompt() -> str:
         "look like a sequence.\n"
         "   - CONDITIONAL STEP: Keep any conditional step (such as 'If you have already paid, ignore the notice or send the "
         "receipt to the sub-division office') as its own labelled step starting with 'If this applies to you'.\n"
+        "   - COMBINED ACTION STEPS: For action steps that combine several facts, the evidence_quote must be the single "
+        "sentence that states the action itself (for example 'You can pay online through the company app or website, "
+        "at any authorised collection centre, or by cheque at the sub-division office.'), not a sentence about the amount "
+        "or a heading. One contiguous sentence, character for character.\n"
         "   - Ordered step-by-step compliance actions must be strictly derived from notice instructions.\n"
         "7. PLAIN LANGUAGE SUMMARY:\n"
         "   - The five summary parts (what_is_this, why_it_matters, what_to_do, where_to_do_it, and if_deadline_missed) "
@@ -99,7 +107,11 @@ def build_system_prompt() -> str:
         "   - Do NOT infer cause and effect or add advice not in the notice (for example, do not say that paying before a "
         "date prevents disconnection unless the notice explicitly says so).\n"
         "   - Where the notice is unclear, conflicting, or does not specify details, say so in plain words.\n"
-        "8. STRICT JSON OUTPUT:\n"
+        "8. USER-FACING WARNINGS ONLY:\n"
+        "   - The 'warnings' list must contain ONLY explicit cautionary conditions or warnings stated directly in the notice "
+        "text for the user (for example 'Cash payments above Rs. 10,000 are not accepted').\n"
+        "   - Do not invent warnings, and do not put technical processing notes into warnings.\n"
+        "9. STRICT JSON OUTPUT:\n"
         "   - Return ONLY raw JSON strictly conforming to schemas/notice_output.schema.json.\n"
         "   - Do not include explanations, code block fences, or text outside the JSON object."
     )

@@ -375,6 +375,7 @@ export function NoticeDashboardPage() {
   // Processed Status (Core Dashboard View, FR-08)
   // -------------------------------------------------------------
   const result = notice.result || {};
+  const technicalNotes = result.technical_notes || notice.technical_notes || [];
 
   // Title & Issuer
   const noticeTitle =
@@ -533,6 +534,61 @@ export function NoticeDashboardPage() {
         documentQuality={result.document_quality}
         onShowSource={handleOpenSource}
       />
+
+      {/* Collapsed Technical Details Section */}
+      {technicalNotes && technicalNotes.length > 0 && (
+        <section aria-labelledby="technical-details-heading" className="mt-2">
+          <details className="group rounded-2xl bg-slate-50 border border-slate-300 p-4 sm:p-5 text-slate-700">
+            <summary className="cursor-pointer font-extrabold text-sm sm:text-base text-slate-800 hover:text-slate-950 flex items-center justify-between focus:outline-hidden focus:ring-2 focus:ring-indigo-600 rounded p-1">
+              <span id="technical-details-heading">Technical details ({technicalNotes.length})</span>
+              <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider group-open:hidden">
+                Show details
+              </span>
+              <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider hidden group-open:inline">
+                Hide details
+              </span>
+            </summary>
+            <div className="mt-4 space-y-3 pt-3 border-t border-slate-200">
+              <p className="text-xs sm:text-sm text-slate-600">
+                These are technical validation checks and grounding diagnostics recorded during notice processing:
+              </p>
+              <ul className="space-y-2 list-none m-0 p-0">
+                {technicalNotes.map((note, idx) => {
+                  const message =
+                    typeof note === "string"
+                      ? note
+                      : note.note || note.warning_text || note.message || "";
+                  const code = typeof note === "object" ? note.code : null;
+                  const page = typeof note === "object" ? note.source_page : null;
+
+                  return (
+                    <li
+                      key={idx}
+                      className="p-3 rounded-xl bg-white border border-slate-200 text-xs sm:text-sm text-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-2"
+                    >
+                      <div className="flex flex-wrap items-center gap-2 flex-1">
+                        {code && (
+                          <span className="font-mono text-xs font-bold text-slate-900 bg-slate-100 px-2 py-0.5 rounded border border-slate-300 flex-shrink-0">
+                            [{code}]
+                          </span>
+                        )}
+                        <span className="text-slate-800 leading-relaxed font-medium">
+                          {message}
+                        </span>
+                      </div>
+                      {page && (
+                        <span className="text-xs text-slate-500 flex-shrink-0">
+                          Page {page}
+                        </span>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          </details>
+        </section>
+      )}
 
       {/* Disclaimer */}
       <footer className="p-5 rounded-2xl bg-slate-100 border border-slate-300 text-center space-y-1 text-xs sm:text-sm text-slate-600">

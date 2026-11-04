@@ -87,7 +87,14 @@ export function ActionStepList({ steps = [], submissionChannel, onShowSource }) 
                     <p className="text-base font-bold text-slate-900 leading-relaxed">
                       {stepText}
                     </p>
-                    {isUncertain && <UncertainBadge />}
+                    {isUncertain && (
+                      <div className="flex flex-wrap items-center gap-2 pt-1">
+                        <UncertainBadge />
+                        <span className="text-xs text-amber-900 font-medium">
+                          We could not match this exactly to your notice. Please check the original.
+                        </span>
+                      </div>
+                    )}
                   </div>
                 </div>
 

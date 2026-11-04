@@ -110,7 +110,14 @@ export function DeadlineCard({ deadlines = [], onRemind, onShowSource }) {
                         Consequence
                       </span>
                     )}
-                    {isUncertain && <UncertainBadge />}
+                    {isUncertain && (
+                      <div className="flex flex-wrap items-center gap-2">
+                        <UncertainBadge />
+                        <span className="text-xs text-amber-900 font-medium">
+                          We could not match this exactly to your notice. Please check the original.
+                        </span>
+                      </div>
+                    )}
                   </div>
 
                   <h3 className="text-xl sm:text-2xl font-extrabold text-slate-900 leading-snug">
