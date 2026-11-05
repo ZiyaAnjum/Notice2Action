@@ -146,17 +146,24 @@ def test_pipeline_unreadable_refusal_without_llm() -> None:
     assert fake_client.call_count == 0
 
 
-def test_pipeline_out_of_scope_refusal_without_llm() -> None:
-    """Verify out-of-scope document (recipe) is refused without calling the LLM."""
-    fake_client = FakeLLMClient(["{}"])
+def test_pipeline_out_of_scope_refusal_without_extraction() -> None:
+    """Verify out-of-scope document (recipe) is refused via triage without calling structured extraction."""
+    triage_resp = {
+        "is_actionable_notice": False,
+        "category": "not_a_notice",
+        "confidence": 0.99,
+        "reason": "Document is a culinary recipe, not an official notice.",
+    }
+    fake_client = FakeLLMClient([triage_resp])
     pdf_path = FIXTURES_DIR / "recipe_unrelated.pdf"
 
     res = process_notice(pdf_path, client=fake_client)
 
     assert res["status"] == "out_of_scope"
     assert res["result"] is None
-    # Crucial assertion: LLM client was never called!
-    assert fake_client.call_count == 0
+    # Triage call was made, but full structured extraction was never called!
+    assert fake_client.call_count == 1
+    assert "triage" in fake_client.calls[0]["system_prompt"].lower()
 
 
 def test_pipeline_missing_deadline_is_not_found() -> None:
@@ -969,7 +976,7 @@ def test_prompt_version_and_system_prompt_rules() -> None:
     eligibility action step, alternatives vs sequence, combined action step quote rule,
     and user-facing warnings only.
     """
-    assert PROMPT_VERSION == "1.4.1"
+    assert PROMPT_VERSION == "1.5.0"
     prompt = build_system_prompt()
     assert "Suggested, not required" in prompt
     assert "Check that you meet the conditions in the notice" in prompt
@@ -1018,3 +1025,108 @@ def test_pipeline_user_facing_warnings_preserved_and_technical_notes_separated()
 
     # Response envelope must also carry technical_notes
     assert len(res["technical_notes"]) == len(tech_notes)
+
+
+def test_pipeline_triage_skipped_when_rule_based_confident() -> None:
+    """Verify that when the rule-based classifier is confident (>= 0.85) on a tested category,
+    LLM triage is skipped entirely and trust_level is set to 'tested'."""
+    canned_data = get_base_scholarship_canned_data()
+    fake_client = FakeLLMClient(canned_data)
+
+    # scholarship_or_college.pdf scores 0.98 confidence in RuleBasedClassifier
+    pdf_path = FIXTURES_DIR / "scholarship_or_college.pdf"
+    res = process_notice(pdf_path, client=fake_client)
+
+    assert res["status"] == "success"
+    assert res["category"] == "scholarship_or_college"
+    assert res["trust_level"] == "tested"
+    assert res["result"]["trust_level"] == "tested"
+
+    # Only 1 call was made to FakeLLMClient: extraction call (triage call was skipped)
+    assert fake_client.call_count == 1
+    # Verify the prompt was the extraction prompt, not triage
+    assert "triage" not in fake_client.calls[0]["system_prompt"].lower()
+
+
+def test_pipeline_general_mode_sets_trust_level_and_needs_verification() -> None:
+    """Verify that an actionable notice in a general-mode category (e.g. insurance_or_health)
+    executes the full extraction pipeline with trust_level='general' and forces needs_verification=True."""
+    canned_data = get_base_scholarship_canned_data()
+    canned_data["category"] = "insurance_or_health"
+    canned_data["needs_verification"] = False  # Initially false, must be forced True
+
+    triage_response = {
+        "is_actionable_notice": True,
+        "category": "insurance_or_health",
+        "confidence": 0.92,
+        "reason": "Health insurance policy premium renewal notice with payment deadline",
+    }
+
+    fake_client = FakeLLMClient(responses=[triage_response, canned_data])
+
+    # recipe_unrelated.pdf has confidence 0.0 in rule-based classifier, so triage will run
+    pdf_path = FIXTURES_DIR / "recipe_unrelated.pdf"
+    res = process_notice(pdf_path, client=fake_client)
+
+    assert res["status"] == "success"
+    assert res["category"] == "insurance_or_health"
+    assert res["trust_level"] == "general"
+    assert res["needs_verification"] is True
+    assert res["result"]["trust_level"] == "general"
+    assert res["result"]["needs_verification"] is True
+    assert "less tested" in res["message"]
+    assert fake_client.call_count == 2
+
+
+def test_pipeline_not_a_notice_refusal() -> None:
+    """Verify that a document classified as not_a_notice (or is_actionable_notice=False)
+    is refused with status 'out_of_scope' and a plain-language explanation using the triage reason."""
+    triage_response = {
+        "is_actionable_notice": False,
+        "category": "not_a_notice",
+        "confidence": 0.99,
+        "reason": "This document is a culinary recipe for chocolate chip cookies, not an actionable official notice.",
+    }
+
+    fake_client = FakeLLMClient(responses=[triage_response])
+    pdf_path = FIXTURES_DIR / "recipe_unrelated.pdf"
+
+    res = process_notice(pdf_path, client=fake_client)
+
+    assert res["status"] == "out_of_scope"
+    assert res["category"] == "other_out_of_scope"
+    assert "culinary recipe for chocolate chip cookies" in res["message"]
+    # No extraction call was made
+    assert fake_client.call_count == 1
+    assert "triage" in fake_client.calls[0]["system_prompt"].lower()
+
+
+def test_pipeline_triage_failure_falls_back_to_rule_based() -> None:
+    """Verify that if LLM triage fails (timeout, 503, invalid JSON), the pipeline gracefully
+    falls back to the rule-based classifier result without crashing."""
+    # Simulate a triage failure with an LLMError (e.g. 503 Service Unavailable)
+    triage_error = LLMError("Service unavailable", status_code=503, retries_exhausted=True)
+    canned_data = get_base_scholarship_canned_data()
+
+    fake_client = FakeLLMClient(responses=[triage_error, canned_data])
+
+    pdf_path = FIXTURES_DIR / "recipe_unrelated.pdf"
+    res = process_notice(pdf_path, client=fake_client)
+
+    # Since triage failed and rule-based was other_out_of_scope, pipeline safely falls back to out_of_scope refusal
+    assert res["status"] == "out_of_scope"
+    assert res["category"] == "other_out_of_scope"
+    assert "not an official notice within the supported categories" in res["message"]
+
+
+def test_pipeline_scanned_unreadable_refused_before_triage() -> None:
+    """Verify that scanned or image-only PDFs are refused immediately by readability check
+    WITHOUT making any triage or extraction LLM calls."""
+    fake_client = FakeLLMClient([])
+    pdf_path = FIXTURES_DIR / "scanned_image_only.pdf"
+
+    res = process_notice(pdf_path, client=fake_client)
+
+    assert res["status"] == "needs_clearer_document"
+    assert res["category"] == "other_out_of_scope"
+    assert fake_client.call_count == 0

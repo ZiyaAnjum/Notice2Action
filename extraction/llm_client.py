@@ -446,7 +446,18 @@ class FakeLLMClient(BaseLLMClient):
         """Record the call and return the next canned response or raise configured exception."""
         self.calls.append({"system_prompt": system_prompt, "user_prompt": user_prompt})
 
+        is_triage = "triage" in system_prompt.lower()
+
         if not self._responses:
+            if is_triage:
+                return json.dumps(
+                    {
+                        "is_actionable_notice": True,
+                        "category": "scholarship_or_college",
+                        "confidence": 0.95,
+                        "reason": "Default mock triage response",
+                    }
+                )
             # Default fallback mock response
             return json.dumps(
                 {
@@ -500,6 +511,47 @@ class FakeLLMClient(BaseLLMClient):
                     "extracted_at": "2026-10-23T00:00:00Z",
                 }
             )
+
+        # If triage call but the queued response is clearly an extraction response,
+        # synthesize a triage response and preserve the extraction response for the next call.
+        if is_triage and self._responses:
+            candidate = self._responses[0]
+            if (
+                isinstance(candidate, str)
+                and ("plain_language_summary" in candidate or "notice_title" in candidate)
+                and "is_actionable_notice" not in candidate
+            ):
+                try:
+                    cand_obj = json.loads(candidate)
+                    cat = cand_obj.get("category", "scholarship_or_college")
+                except Exception:
+                    cat = "scholarship_or_college"
+                is_act = cat not in ("other_out_of_scope", "not_a_notice")
+                t_cat = "not_a_notice" if not is_act else cat
+                return json.dumps(
+                    {
+                        "is_actionable_notice": is_act,
+                        "category": t_cat,
+                        "confidence": 0.95,
+                        "reason": "Synthesized mock triage from extraction response",
+                    }
+                )
+            elif (
+                isinstance(candidate, dict)
+                and ("plain_language_summary" in candidate or "notice_title" in candidate)
+                and "is_actionable_notice" not in candidate
+            ):
+                cat = candidate.get("category", "scholarship_or_college")
+                is_act = cat not in ("other_out_of_scope", "not_a_notice")
+                t_cat = "not_a_notice" if not is_act else cat
+                return json.dumps(
+                    {
+                        "is_actionable_notice": is_act,
+                        "category": t_cat,
+                        "confidence": 0.95,
+                        "reason": "Synthesized mock triage from extraction response",
+                    }
+                )
 
         resp = self._responses.pop(0) if len(self._responses) > 1 else self._responses[0]
 

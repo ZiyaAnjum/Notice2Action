@@ -12,6 +12,7 @@ Flow:
 
 import logging
 import re
+import time
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any
@@ -29,7 +30,15 @@ from extraction.llm_client import (
     sanitize_message,
 )
 from extraction.llm_extractor import PROMPT_VERSION, extract_notice_with_llm
-from validation.validator import normalize_text, validate_notice
+from extraction.triage import (
+    RULE_BASED_CONFIDENCE_THRESHOLD,
+    triage_notice,
+)
+from validation.validator import (
+    TESTED_CATEGORIES,
+    normalize_text,
+    validate_notice,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -559,25 +568,98 @@ def process_notice(
             "Please provide a clearer digital PDF document.",
         }
 
-    # Step 3: Refusal Check - Out-of-Scope Classification (NO LLM CALL)
-    classification = classify_notice(pages)
-    category = classification["category"]
+    # Step 3: Two-step Triage (Fast Rule-based guess -> LLM triage if ambiguous or new category)
+    rb_classification = classify_notice(pages)
+    rb_category = rb_classification.get("category")
+    rb_confidence = float(rb_classification.get("confidence", 0.0) or 0.0)
 
-    if category == "other_out_of_scope":
-        return {
-            "status": "out_of_scope",
-            "category": "other_out_of_scope",
-            "result": None,
-            "validation_report": {
-                "is_valid": False,
-                "schema_compliant": False,
-                "errors": ["Document is outside the 5 supported official notice categories."],
-                "warnings": [],
-            },
-            "needs_verification": False,
-            "message": "This document is not an official notice within the supported categories "
-            "(scholarship_or_college, bank, utility, tax_or_payment, government_scheme).",
-        }
+    triage_time_ms = 0
+    triage_reason: str | None = None
+
+    # Step 3a: Skip LLM triage if rule-based classifier is confident on a tested category
+    if rb_category in TESTED_CATEGORIES and rb_confidence >= RULE_BASED_CONFIDENCE_THRESHOLD:
+        category = rb_category
+        trust_level = "tested"
+        logger.info(
+            "Rule-based classifier confident (cat=%s, conf=%.2f >= %.2f). Skipping LLM triage.",
+            rb_category,
+            rb_confidence,
+            RULE_BASED_CONFIDENCE_THRESHOLD,
+        )
+    else:
+        # Step 3b: Execute LLM triage on first 2 pages
+        t0_triage = time.perf_counter()
+        triage_res = triage_notice(pages, client=client)
+        triage_time_ms = int((time.perf_counter() - t0_triage) * 1000)
+
+        if triage_res["status"] == "success":
+            triage_cat = triage_res["category"]
+            is_actionable = triage_res["is_actionable_notice"]
+            triage_reason = (
+                triage_res.get("reason")
+                or "Document could not be recognized as an actionable official notice."
+            )
+
+            logger.info(
+                "LLM triage completed in %d ms (cat=%s, is_actionable=%s, conf=%.2f)",
+                triage_time_ms,
+                triage_cat,
+                is_actionable,
+                triage_res.get("confidence", 0.0),
+            )
+
+            if not is_actionable or triage_cat == "not_a_notice":
+                # Refuse out-of-scope non-notices with plain-language explanation
+                return {
+                    "status": "out_of_scope",
+                    "category": "other_out_of_scope",
+                    "trust_level": None,
+                    "result": None,
+                    "validation_report": {
+                        "is_valid": False,
+                        "schema_compliant": False,
+                        "errors": [triage_reason],
+                        "warnings": [],
+                    },
+                    "needs_verification": False,
+                    "message": f"This document cannot be processed as an actionable official notice. {triage_reason}",
+                    "triage_time_ms": triage_time_ms,
+                }
+            elif triage_cat in TESTED_CATEGORIES:
+                category = triage_cat
+                trust_level = "tested"
+            else:
+                # Any other actionable category runs in general mode
+                category = triage_cat
+                trust_level = "general"
+        else:
+            # Triage call failed (timeout, invalid JSON, service busy): fall back to rule-based classifier
+            logger.warning(
+                "LLM triage failed (%s) after %d ms. Falling back to rule-based classification.",
+                triage_res.get("error"),
+                triage_time_ms,
+            )
+            if rb_category in TESTED_CATEGORIES:
+                category = rb_category
+                trust_level = "tested"
+            else:
+                return {
+                    "status": "out_of_scope",
+                    "category": "other_out_of_scope",
+                    "trust_level": None,
+                    "result": None,
+                    "validation_report": {
+                        "is_valid": False,
+                        "schema_compliant": False,
+                        "errors": [
+                            "Document could not be identified as a supported official notice category."
+                        ],
+                        "warnings": [],
+                    },
+                    "needs_verification": False,
+                    "message": "This document is not an official notice within the supported categories.",
+                    "triage_time_ms": triage_time_ms,
+                }
 
     # Step 4: LLM Structured Extraction
     extraction_res = extract_notice_with_llm(pages, category, client=client)
@@ -629,8 +711,19 @@ def process_notice(
     # Update document_quality based on readability
     grounded_notice["document_quality"] = "good" if readability["status"] == "good" else "poor_scan"
 
+    # Enforce general mode requirements
+    if trust_level == "general":
+        grounded_notice["needs_verification"] = True
+
+    grounded_notice["trust_level"] = trust_level
+
     needs_verification = grounded_notice.get("needs_verification", False)
-    if needs_verification:
+    if trust_level == "general":
+        status_message = (
+            "Notice processed in general mode. This type of notice is less tested. "
+            "Please check every item against your original notice."
+        )
+    elif needs_verification:
         status_message = (
             "Notice processed. Please check the highlighted items against your original notice."
         )
@@ -640,10 +733,12 @@ def process_notice(
     return {
         "status": "success",
         "category": category,
+        "trust_level": trust_level,
         "result": grounded_notice,
         "validation_report": validation_report,
         "needs_verification": needs_verification,
         "message": status_message,
         "prompt_version": PROMPT_VERSION,
         "technical_notes": grounded_notice.get("technical_notes", []),
+        "triage_time_ms": triage_time_ms,
     }

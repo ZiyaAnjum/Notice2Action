@@ -390,6 +390,11 @@
         "additionalProperties": false
       }
     },
+    "trust_level": {
+      "type": "string",
+      "enum": ["tested", "general"],
+      "description": "Trust tier for this notice type: 'tested' for core categories, 'general' for expanded general-mode categories."
+    },
     "needs_verification": {
       "type": "boolean",
       "description": "Overall flag set to true if any extracted item is uncertain, ambiguous, conflicting, or unverified."
@@ -415,6 +420,10 @@
         "utility",
         "tax_or_payment",
         "government_scheme",
+        "insurance_or_health",
+        "legal_or_court",
+        "employment",
+        "other_official_notice",
         "other_out_of_scope"
       ],
       "description": "Canonical classification categories for official notices."

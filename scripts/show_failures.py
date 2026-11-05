@@ -65,19 +65,21 @@ def inspect_notice_failures(notice_eval: dict[str, Any]) -> list[str]:
         findings.append("  [DEADLINE GAP] Missed Ground-Truth Deadlines:")
         for idx, m in enumerate(missed_dl, 1):
             findings.append(
-                f"    {idx}. Date: {m.get('date')} | Wording: \"{m.get('original_wording')}\" | Desc: {m.get('description')}"
+                f'    {idx}. Date: {m.get("date")} | Wording: "{m.get("original_wording")}" | Desc: {m.get("description")}'
             )
 
     if invented_dl:
         findings.append("  [HALLUCINATION] Invented / False Positive Deadlines:")
         for idx, inv in enumerate(invented_dl, 1):
             findings.append(
-                f"    {idx}. Date: {inv.get('date')} | Wording: \"{inv.get('original_wording') or inv.get('description')}\""
+                f'    {idx}. Date: {inv.get("date")} | Wording: "{inv.get("original_wording") or inv.get("description")}"'
             )
             findings.append(
-                f"       Citation: Page {inv.get('source_page')} | Quote: \"{inv.get('evidence_quote')}\""
+                f'       Citation: Page {inv.get("source_page")} | Quote: "{inv.get("evidence_quote")}"'
             )
-            findings.append("       Reason: No corresponding deadline exists in ground-truth annotation.")
+            findings.append(
+                "       Reason: No corresponding deadline exists in ground-truth annotation."
+            )
 
     # 4. Documents check
     docs = notice_eval.get("documents", {})
@@ -88,13 +90,13 @@ def inspect_notice_failures(notice_eval: dict[str, Any]) -> list[str]:
         findings.append("  [DOCUMENT GAP] Missed Required Documents:")
         for idx, doc in enumerate(unmatched_gt_docs, 1):
             doc_str = doc if isinstance(doc, str) else doc.get("name")
-            findings.append(f"    {idx}. \"{doc_str}\"")
+            findings.append(f'    {idx}. "{doc_str}"')
 
     if unmatched_pred_docs:
         findings.append("  [DOCUMENT EXTRA] Unmatched Predicted Documents:")
         for idx, doc in enumerate(unmatched_pred_docs, 1):
             doc_str = doc if isinstance(doc, str) else doc.get("name")
-            findings.append(f"    {idx}. \"{doc_str}\"")
+            findings.append(f'    {idx}. "{doc_str}"')
 
     # 5. Action Steps check
     steps = notice_eval.get("action_steps", {})
@@ -105,23 +107,27 @@ def inspect_notice_failures(notice_eval: dict[str, Any]) -> list[str]:
         findings.append("  [ACTION STEP GAP] Missed Action Steps:")
         for idx, step in enumerate(unmatched_gt_steps, 1):
             s_str = step if isinstance(step, str) else step.get("action") or step.get("description")
-            findings.append(f"    {idx}. \"{s_str}\"")
+            findings.append(f'    {idx}. "{s_str}"')
 
     if unmatched_pred_steps:
         findings.append("  [ACTION STEP EXTRA] Unmatched Predicted Steps:")
         for idx, step in enumerate(unmatched_pred_steps, 1):
             s_str = step if isinstance(step, str) else step.get("action") or step.get("description")
-            findings.append(f"    {idx}. \"{s_str}\"")
+            findings.append(f'    {idx}. "{s_str}"')
 
     # 6. Submission channel
     if notice_eval.get("submission_channel_match") is False:
-        findings.append("  [CHANNEL MISMATCH] Submission channel was not matched with expected portal/location.")
+        findings.append(
+            "  [CHANNEL MISMATCH] Submission channel was not matched with expected portal/location."
+        )
 
     # 7. Unsupported critical instructions
     grounding = notice_eval.get("grounding", {})
     unsupported = grounding.get("unsupported_items", [])
     if unsupported:
-        findings.append(f"  [UNSUPPORTED CRITICAL] {len(unsupported)} ungrounded instruction(s) marked 'found':")
+        findings.append(
+            f"  [UNSUPPORTED CRITICAL] {len(unsupported)} ungrounded instruction(s) marked 'found':"
+        )
         for idx, item in enumerate(unsupported, 1):
             findings.append(
                 f"    {idx}. Field: {item.get('field')} | Status: {item.get('status')} | Reason: {item.get('reason')}"
@@ -192,9 +198,13 @@ def main() -> None:
 
     print("\n" + "=" * 75)
     if failure_count == 0:
-        print(f"[OK] No failures or discrepancies detected across {len(per_notice)} evaluated notice(s).")
+        print(
+            f"[OK] No failures or discrepancies detected across {len(per_notice)} evaluated notice(s)."
+        )
     else:
-        print(f"[WARN] {failure_count} of {len(per_notice)} notice(s) exhibited discrepancies or gaps.")
+        print(
+            f"[WARN] {failure_count} of {len(per_notice)} notice(s) exhibited discrepancies or gaps."
+        )
     print("=" * 75)
 
 

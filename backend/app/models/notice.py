@@ -42,12 +42,18 @@ class NoticeModel(Base):
 
     def to_dict(self) -> dict[str, Any]:
         """Convert Notice model instance to dictionary representation."""
+        trust_level = (
+            self.result_json.get("trust_level", "tested")
+            if isinstance(self.result_json, dict)
+            else "tested"
+        )
         return {
             "id": self.id,
             "original_filename": self.original_filename,
             "stored_path": self.stored_path,
             "status": self.status,
             "category": self.category,
+            "trust_level": trust_level,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "result_json": self.result_json,
             "needs_verification": self.needs_verification,

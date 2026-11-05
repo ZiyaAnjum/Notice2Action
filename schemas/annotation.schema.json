@@ -27,7 +27,24 @@
     },
     "expected_category": {
       "type": "string",
-      "description": "Ground-truth notice category (e.g. tax_or_payment, bank, utility, scholarship_or_college, government_scheme, other_out_of_scope)."
+      "enum": [
+        "scholarship_or_college",
+        "bank",
+        "utility",
+        "tax_or_payment",
+        "government_scheme",
+        "insurance_or_health",
+        "legal_or_court",
+        "employment",
+        "other_official_notice",
+        "other_out_of_scope"
+      ],
+      "description": "Ground-truth notice category (e.g. tax_or_payment, bank, utility, scholarship_or_college, government_scheme, insurance_or_health, legal_or_court, employment, other_official_notice, other_out_of_scope)."
+    },
+    "expected_trust_level": {
+      "type": "string",
+      "enum": ["tested", "general"],
+      "description": "Expected trust tier for the notice category ('tested' for the 5 core categories, 'general' for general mode)."
     },
     "expected_status": {
       "type": "string",

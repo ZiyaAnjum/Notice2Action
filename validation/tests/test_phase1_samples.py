@@ -35,6 +35,10 @@ def test_schema_file_exists_and_is_valid() -> None:
         "utility",
         "tax_or_payment",
         "government_scheme",
+        "insurance_or_health",
+        "legal_or_court",
+        "employment",
+        "other_official_notice",
         "other_out_of_scope",
     ]
     assert schema_dict["$defs"]["CategoryEnum"]["enum"] == expected_categories

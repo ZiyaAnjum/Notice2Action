@@ -23,7 +23,7 @@ from validation.validator import SCHEMA_PATH
 logger = logging.getLogger(__name__)
 
 MAX_EXTRACTION_RETRIES = 2
-PROMPT_VERSION = "1.4.1"
+PROMPT_VERSION = "1.5.0"
 
 
 def load_notice_schema() -> dict[str, Any]:

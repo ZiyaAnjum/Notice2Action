@@ -385,5 +385,3 @@ def test_gemini_client_404_without_fallback_raises_immediately() -> None:
     assert exc_info.value.status_code == 404
     assert exc_info.value.retries_exhausted is False
     assert call_count == 1
-
-

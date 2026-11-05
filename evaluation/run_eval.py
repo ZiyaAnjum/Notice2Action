@@ -51,9 +51,7 @@ def build_fake_canned_notice(
     Evidence quotes and page numbers are sourced from critical_evidence_passages
     to verify grounding against the real PDF text.
     """
-    ev_passages = {
-        p.get("field"): p for p in annotation.get("critical_evidence_passages", [])
-    }
+    ev_passages = {p.get("field"): p for p in annotation.get("critical_evidence_passages", [])}
 
     title_ev = ev_passages.get("notice_title") or {}
     deadline_ev = ev_passages.get("deadline") or {}
@@ -203,8 +201,23 @@ def generate_markdown_report(
     targets = eval_summary.get("targets_vs_measured", {})
     per_notice = eval_summary.get("per_notice", [])
     sample_size = eval_summary.get("sample_size", 0)
+    by_trust = eval_summary.get("by_trust_level") or summary.get("by_trust_level") or {}
 
     lines: list[str] = []
+
+    # Prominent fake mode banner if running offline in mock/fake mode
+    if run_meta.get("mode") == "deterministic_fake" or run_meta.get("is_fake"):
+        lines.append("# ⚠️ FAKE MODE, NOT REAL RESULTS ⚠️")
+        lines.append(
+            "> **WARNING**: This evaluation report was generated using canned mock responses (FakeLLMClient)."
+        )
+        lines.append(
+            "> It does NOT represent real LLM accuracy, real extraction performance, or true model benchmarks."
+        )
+        lines.append("")
+        lines.append("---")
+        lines.append("")
+
     lines.append("# Notice to Action - Evaluation Benchmark Report")
     lines.append("")
     lines.append(f"- **Execution Timestamp**: {run_meta.get('timestamp')}")
@@ -229,15 +242,23 @@ def generate_markdown_report(
     for key, info in targets.items():
         name = key.replace("_", " ").title()
         status = "PASSED" if info.get("passed") else "FAILED"
-        lines.append(f"| **{name}** | {info.get('target')} | {info.get('measured')} | **{status}** |")
+        lines.append(
+            f"| **{name}** | {info.get('target')} | {info.get('measured')} | **{status}** |"
+        )
     lines.append("")
 
     # 2. Classification & Refusals
     lines.append("## 2. Classification & Scope Refusal Performance")
     lines.append("")
-    lines.append(f"- **Classification Accuracy**: {summary.get('classification_accuracy', 0) * 100:.1f}% ({summary.get('classification_correct', 0)}/{summary.get('classification_total', 0)})")
-    lines.append(f"- **Correct Refusal Rate**: {summary.get('correct_refusal_rate', 0) * 100:.1f}% ({summary.get('correct_refusals', 0)}/{summary.get('total_refusal_cases', 0)} unreadable/out-of-scope cases refused without LLM)")
-    lines.append(f"- **False Refusal Rate**: {summary.get('false_refusal_rate', 0) * 100:.1f}% ({summary.get('false_refusals', 0)}/{summary.get('total_supported_cases', 0)} supported notices wrongly refused)")
+    lines.append(
+        f"- **Classification Accuracy**: {summary.get('classification_accuracy', 0) * 100:.1f}% ({summary.get('classification_correct', 0)}/{summary.get('classification_total', 0)})"
+    )
+    lines.append(
+        f"- **Correct Refusal Rate**: {summary.get('correct_refusal_rate', 0) * 100:.1f}% ({summary.get('correct_refusals', 0)}/{summary.get('total_refusal_cases', 0)} unreadable/out-of-scope cases refused without LLM)"
+    )
+    lines.append(
+        f"- **False Refusal Rate**: {summary.get('false_refusal_rate', 0) * 100:.1f}% ({summary.get('false_refusals', 0)}/{summary.get('total_supported_cases', 0)} supported notices wrongly refused)"
+    )
     lines.append("")
     lines.append("### Confusion Matrix")
     lines.append("")
@@ -251,6 +272,41 @@ def generate_markdown_report(
         for exp_c in sorted(conf.keys()):
             row_vals = [str(conf[exp_c].get(p_c, 0)) for p_c in all_cats]
             lines.append(f"| **{exp_c}** | " + " | ".join(row_vals) + " |")
+    lines.append("")
+
+    # 2b. Trust-Tier Performance (Tested vs General Mode)
+    lines.append("### Trust-Tier Breakdown (Tested vs. General Mode)")
+    lines.append("")
+    lines.append(
+        "General-mode accuracy is tracked separately and never mixed into core tested-category numbers."
+    )
+    lines.append("")
+    lines.append(
+        "| Trust Tier | Notices | Cat. Accuracy | Deadline Prec. | Deadline Recall | Action Prec. | Action Recall | Grounding |"
+    )
+    lines.append("|---|---|---|---|---|---|---|---|")
+
+    t_sum = by_trust.get("tested")
+    if t_sum and t_sum.get("total_notices", 0) > 0:
+        lines.append(
+            f"| **Tested Tier** | {t_sum['total_notices']} | {t_sum['classification_accuracy'] * 100:.1f}% | "
+            f"{t_sum['deadline_precision'] * 100:.1f}% | {t_sum['deadline_recall'] * 100:.1f}% | "
+            f"{t_sum['combined_action_precision'] * 100:.1f}% | {t_sum['combined_action_recall'] * 100:.1f}% | "
+            f"{t_sum['grounding_rate'] * 100:.1f}% |"
+        )
+    else:
+        lines.append("| **Tested Tier** | 0 | N/A | N/A | N/A | N/A | N/A | N/A |")
+
+    g_sum = by_trust.get("general")
+    if g_sum and g_sum.get("total_notices", 0) > 0:
+        lines.append(
+            f"| **General Mode** | {g_sum['total_notices']} | {g_sum['classification_accuracy'] * 100:.1f}% | "
+            f"{g_sum['deadline_precision'] * 100:.1f}% | {g_sum['deadline_recall'] * 100:.1f}% | "
+            f"{g_sum['combined_action_precision'] * 100:.1f}% | {g_sum['combined_action_recall'] * 100:.1f}% | "
+            f"{g_sum['grounding_rate'] * 100:.1f}% |"
+        )
+    else:
+        lines.append("| **General Mode** | 0 | N/A | N/A | N/A | N/A | N/A | N/A |")
     lines.append("")
 
     # 3. Extraction Quality
@@ -276,10 +332,18 @@ def generate_markdown_report(
         f"{summary.get('document_fn', 0) + summary.get('action_step_fn', 0)} | - |"
     )
     lines.append("")
-    lines.append(f"- **Submission Channel Match Rate**: {summary.get('submission_channel_match_rate', 0) * 100:.1f}%")
-    lines.append(f"- **Evidence Grounding Rate**: {summary.get('grounding_rate', 0) * 100:.1f}% ({summary.get('quotes_verified', 0)}/{summary.get('quotes_checked', 0)} quotes verified against PDF text)")
-    lines.append(f"- **Unsupported Critical Instructions**: **{summary.get('unsupported_critical_count', 0)}** (PRD Target = 0)")
-    lines.append(f"- **Uncertainty Handling Adherence**: {summary.get('uncertainty_adherence_rate', 0) * 100:.1f}%")
+    lines.append(
+        f"- **Submission Channel Match Rate**: {summary.get('submission_channel_match_rate', 0) * 100:.1f}%"
+    )
+    lines.append(
+        f"- **Evidence Grounding Rate**: {summary.get('grounding_rate', 0) * 100:.1f}% ({summary.get('quotes_verified', 0)}/{summary.get('quotes_checked', 0)} quotes verified against PDF text)"
+    )
+    lines.append(
+        f"- **Unsupported Critical Instructions**: **{summary.get('unsupported_critical_count', 0)}** (PRD Target = 0)"
+    )
+    lines.append(
+        f"- **Uncertainty Handling Adherence**: {summary.get('uncertainty_adherence_rate', 0) * 100:.1f}%"
+    )
     lines.append("")
 
     # 4. Latency
@@ -295,7 +359,9 @@ def generate_markdown_report(
     # 5. Per-Notice Breakdown
     lines.append("## 5. Per-Notice Evaluation Summary")
     lines.append("")
-    lines.append("| Notice ID | Exp. Category | Pred. Category | Category Match | Status | Deadlines (TP/FP/FN) | Grounding Rate | Time (s) |")
+    lines.append(
+        "| Notice ID | Exp. Category | Pred. Category | Category Match | Status | Deadlines (TP/FP/FN) | Grounding Rate | Time (s) |"
+    )
     lines.append("|---|---|---|---|---|---|---|---|")
     for item in per_notice:
         nid = item.get("notice_id")
@@ -306,9 +372,15 @@ def generate_markdown_report(
         dl = item.get("deadlines", {})
         dl_str = f"{dl.get('tp', 0)}/{dl.get('fp', 0)}/{dl.get('fn', 0)}"
         gr = item.get("grounding", {})
-        gr_str = f"{gr.get('grounding_rate', 1.0) * 100:.0f}%" if gr.get("quotes_checked", 0) > 0 else "N/A"
+        gr_str = (
+            f"{gr.get('grounding_rate', 1.0) * 100:.0f}%"
+            if gr.get("quotes_checked", 0) > 0
+            else "N/A"
+        )
         t_sec = item.get("elapsed_time_sec", 0.0)
-        lines.append(f"| `{nid}` | `{ec}` | `{pc}` | {cm} | `{st}` | {dl_str} | {gr_str} | {t_sec:.2f}s |")
+        lines.append(
+            f"| `{nid}` | `{ec}` | `{pc}` | {cm} | `{st}` | {dl_str} | {gr_str} | {t_sec:.2f}s |"
+        )
     lines.append("")
 
     # 6. Failure & Discrepancy Breakdown
@@ -316,13 +388,17 @@ def generate_markdown_report(
     for item in per_notice:
         reasons = []
         if not item.get("category_match"):
-            reasons.append(f"Category mismatch: expected '{item.get('expected_category')}', got '{item.get('predicted_category')}'")
+            reasons.append(
+                f"Category mismatch: expected '{item.get('expected_category')}', got '{item.get('predicted_category')}'"
+            )
         if item.get("deadlines", {}).get("fp", 0) > 0:
             reasons.append(f"{item['deadlines']['fp']} invented deadline(s)")
         if item.get("deadlines", {}).get("fn", 0) > 0:
             reasons.append(f"{item['deadlines']['fn']} missed deadline(s)")
         if item.get("grounding", {}).get("unsupported_count", 0) > 0:
-            reasons.append(f"{item['grounding']['unsupported_count']} unsupported critical instruction(s)")
+            reasons.append(
+                f"{item['grounding']['unsupported_count']} unsupported critical instruction(s)"
+            )
         if reasons:
             failures.append((item.get("notice_id"), reasons))
 
@@ -382,7 +458,9 @@ def run_evaluation(
 
         pdf_path = PROJECT_ROOT / raw_pdf_path
         if not pdf_path.exists():
-            print(f"[{idx}/{len(annotation_files)}] [SKIP] {notice_id}: PDF not found at {pdf_path}")
+            print(
+                f"[{idx}/{len(annotation_files)}] [SKIP] {notice_id}: PDF not found at {pdf_path}"
+            )
             continue
 
         pdf_hash = compute_pdf_sha256(pdf_path)
@@ -399,9 +477,13 @@ def run_evaluation(
                     cached_data = json.load(cf)
                     pipeline_res = cached_data.get("pipeline_result")
                     elapsed_sec = cached_data.get("elapsed_time_sec", 0.0)
-                    print(f"[{idx}/{len(annotation_files)}] [CACHE] {notice_id} (hash={pdf_hash[:8]})")
+                    print(
+                        f"[{idx}/{len(annotation_files)}] [CACHE] {notice_id} (hash={pdf_hash[:8]})"
+                    )
             except Exception as e:
-                print(f"[{idx}/{len(annotation_files)}] [WARN] Cache read failed for {notice_id}: {e}")
+                print(
+                    f"[{idx}/{len(annotation_files)}] [WARN] Cache read failed for {notice_id}: {e}"
+                )
 
         # Compute pipeline prediction if not loaded from cache
         if pipeline_res is None:
@@ -438,7 +520,9 @@ def run_evaluation(
                     print(f"[WARN] Failed to write cache for {notice_id}: {e}")
 
             status_tag = "MOCK" if use_fake else "LIVE"
-            print(f"[{idx}/{len(annotation_files)}] [{status_tag}] {notice_id} ({elapsed_sec:.2f}s)")
+            print(
+                f"[{idx}/{len(annotation_files)}] [{status_tag}] {notice_id} ({elapsed_sec:.2f}s)"
+            )
 
         # Extract page texts for ground-truth quote validation
         pages = extract_pages(pdf_path)
@@ -463,14 +547,23 @@ def run_evaluation(
         "timestamp": datetime.now().isoformat(),
         "prompt_version": PROMPT_VERSION,
         "mode": "deterministic_fake" if use_fake else "real_llm",
+        "is_fake": use_fake,
         "model": "FakeLLMClient" if use_fake else (os.getenv("LLM_MODEL") or "gemini-1.5-flash"),
         "sample_size": len(per_notice_evals),
     }
 
-    full_results = {
-        "metadata": run_meta,
-        **aggregated,
-    }
+    if use_fake:
+        full_results = {
+            "banner": "FAKE MODE, NOT REAL RESULTS",
+            "warning": "FAKE MODE, NOT REAL RESULTS: This evaluation run was executed using canned mock responses (FakeLLMClient).",
+            "metadata": run_meta,
+            **aggregated,
+        }
+    else:
+        full_results = {
+            "metadata": run_meta,
+            **aggregated,
+        }
 
     # Save latest.json
     latest_json_path = results_dir / "latest.json"
