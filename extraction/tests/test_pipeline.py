@@ -976,7 +976,8 @@ def test_prompt_version_and_system_prompt_rules() -> None:
     eligibility action step, alternatives vs sequence, combined action step quote rule,
     and user-facing warnings only.
     """
-    assert PROMPT_VERSION == "1.5.0"
+    assert PROMPT_VERSION == "1.6.0"
+    assert "MULTILINGUAL AND NON-ENGLISH NOTICES" in build_system_prompt()
     prompt = build_system_prompt()
     assert "Suggested, not required" in prompt
     assert "Check that you meet the conditions in the notice" in prompt

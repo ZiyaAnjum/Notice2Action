@@ -11,17 +11,24 @@ Flow:
 """
 
 import logging
+import os
 import re
 import time
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
+import validation.validator as validator
 from extraction.classifier import classify_notice
 from extraction.extractor import (
     ExtractionError,
     check_document_readability,
     extract_pages,
+)
+from extraction.language import (
+    detect_document_language,
+    unicode_normalize_text,
+    unicode_normalize_whitespace,
 )
 from extraction.llm_client import (
     FRIENDLY_BUSY_MESSAGE,
@@ -36,9 +43,16 @@ from extraction.triage import (
 )
 from validation.validator import (
     TESTED_CATEGORIES,
-    normalize_text,
     validate_notice,
 )
+
+# Ensure validator uses Unicode-safe NFC normalization for Indic text and diacritics
+validator.normalize_text = unicode_normalize_text
+validator.normalize_whitespace = unicode_normalize_whitespace
+
+# Configurable processing budgets
+DEFAULT_CHAR_BUDGET = 12000
+DEFAULT_TOTAL_TIME_BUDGET_SEC = 60.0
 
 logger = logging.getLogger(__name__)
 
@@ -113,6 +127,195 @@ def parse_date_string(date_str: str | None) -> tuple[bool, bool, str | None]:
     return False, False, None
 
 
+def chunk_pages(
+    pages: list[dict[str, Any]],
+    char_budget: int = DEFAULT_CHAR_BUDGET,
+) -> list[list[dict[str, Any]]]:
+    """Group whole pages into chunks where total characters per chunk do not exceed char_budget.
+
+    Never truncates pages or splits a page across chunks. If a single page exceeds the budget,
+    it forms its own single-page chunk.
+
+    Args:
+        pages: List of page dictionaries with 'text' and 'page_number'.
+        char_budget: Maximum character budget per chunk prompt.
+
+    Returns:
+        List of whole-page chunks (each chunk is a list of page dicts).
+    """
+    if not pages:
+        return []
+
+    chunks: list[list[dict[str, Any]]] = []
+    current_chunk: list[dict[str, Any]] = []
+    current_chars = 0
+
+    for page in pages:
+        page_text = page.get("text", "")
+        page_len = len(page_text)
+
+        # If adding this page exceeds the budget and current chunk has pages, start a new chunk
+        if current_chunk and (current_chars + page_len > char_budget):
+            chunks.append(current_chunk)
+            current_chunk = [page]
+            current_chars = page_len
+        else:
+            current_chunk.append(page)
+            current_chars += page_len
+
+    if current_chunk:
+        chunks.append(current_chunk)
+
+    return chunks
+
+
+def merge_chunk_results(
+    chunk_results: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Merge extracted structured notice chunks into a single unified notice.
+
+    Deduplicates deadlines, documents, and action steps by normalized text,
+    retaining source_page and evidence_quote for each item.
+    """
+    if not chunk_results:
+        return {}
+    if len(chunk_results) == 1:
+        return dict(chunk_results[0])
+
+    merged = dict(chunk_results[0])
+
+    # 1. Header and critical top-level fields: take first found non-empty value
+    for field in ("notice_title", "issuing_organisation", "affected_party", "main_purpose"):
+        cur_val = merged.get(field)
+        if not cur_val or cur_val.get("status") == "not_found" or not cur_val.get("text"):
+            for other in chunk_results[1:]:
+                oth_val = other.get(field)
+                if oth_val and oth_val.get("status") != "not_found" and oth_val.get("text"):
+                    merged[field] = oth_val
+                    break
+
+    # 2. Submission channel: take first found with channel specified
+    cur_sub = merged.get("submission_channel")
+    if not cur_sub or cur_sub.get("status") == "not_found" or not cur_sub.get("channel"):
+        for other in chunk_results[1:]:
+            oth_sub = other.get("submission_channel")
+            if oth_sub and oth_sub.get("status") != "not_found" and oth_sub.get("channel"):
+                merged["submission_channel"] = oth_sub
+                break
+
+    # 3. Plain language summary: merge missing ("not_found") parts
+    cur_sum = merged.get("plain_language_summary") or {}
+    if isinstance(cur_sum, dict):
+        merged_sum = dict(cur_sum)
+        for part in (
+            "what_is_this",
+            "why_it_matters",
+            "what_to_do",
+            "where_to_do_it",
+            "if_deadline_missed",
+        ):
+            if merged_sum.get(part) in ("not_found", None, ""):
+                for other in chunk_results[1:]:
+                    oth_sum = other.get("plain_language_summary") or {}
+                    if isinstance(oth_sum, dict) and oth_sum.get(part) not in ("not_found", None, ""):
+                        merged_sum[part] = oth_sum.get(part)
+                        break
+        merged["plain_language_summary"] = merged_sum
+
+    # 4. Deadlines deduplication by normalized (date, description)
+    seen_deadlines: dict[tuple[str, str], dict[str, Any]] = {}
+    for cr in chunk_results:
+        for dl in cr.get("deadlines") or []:
+            if not isinstance(dl, dict):
+                continue
+            d_key = (
+                unicode_normalize_text(str(dl.get("date") or "")),
+                unicode_normalize_text(str(dl.get("description") or "")),
+            )
+            if d_key not in seen_deadlines:
+                seen_deadlines[d_key] = dl
+            else:
+                existing = seen_deadlines[d_key]
+                if not existing.get("evidence_quote") and dl.get("evidence_quote"):
+                    seen_deadlines[d_key] = dl
+
+    merged["deadlines"] = list(seen_deadlines.values())
+
+    # 5. Required documents deduplication by normalized document name
+    seen_docs: dict[str, dict[str, Any]] = {}
+    for cr in chunk_results:
+        for doc in cr.get("required_documents") or []:
+            if not isinstance(doc, dict):
+                continue
+            name_key = unicode_normalize_text(str(doc.get("name") or ""))
+            if not name_key:
+                continue
+            if name_key not in seen_docs:
+                seen_docs[name_key] = doc
+            else:
+                existing = seen_docs[name_key]
+                if not existing.get("evidence_quote") and doc.get("evidence_quote"):
+                    seen_docs[name_key] = doc
+
+    merged["required_documents"] = list(seen_docs.values())
+
+    # 6. Action steps deduplication by normalized action text and renumbering
+    seen_steps: dict[str, dict[str, Any]] = {}
+    for cr in chunk_results:
+        for step in cr.get("action_steps") or []:
+            if not isinstance(step, dict):
+                continue
+            act_text = str(step.get("action") or step.get("description") or "")
+            step_key = unicode_normalize_text(act_text)
+            if not step_key:
+                continue
+            if step_key not in seen_steps:
+                seen_steps[step_key] = step
+            else:
+                existing = seen_steps[step_key]
+                if not existing.get("evidence_quote") and step.get("evidence_quote"):
+                    seen_steps[step_key] = step
+
+    deduped_steps = list(seen_steps.values())
+    for idx, s in enumerate(deduped_steps):
+        s["order"] = idx + 1
+    merged["action_steps"] = deduped_steps
+
+    # 7. Penalties deduplication by description
+    seen_pens: dict[str, dict[str, Any]] = {}
+    for cr in chunk_results:
+        for pen in cr.get("penalties") or []:
+            if not isinstance(pen, dict):
+                continue
+            p_desc = str(pen.get("description") or "")
+            p_key = unicode_normalize_text(p_desc)
+            if not p_key:
+                continue
+            if p_key not in seen_pens:
+                seen_pens[p_key] = pen
+            else:
+                existing = seen_pens[p_key]
+                if not existing.get("evidence_quote") and pen.get("evidence_quote"):
+                    seen_pens[p_key] = pen
+
+    merged["penalties"] = list(seen_pens.values())
+
+    # 8. User-facing warnings deduplication
+    seen_warns: dict[str, dict[str, Any]] = {}
+    for cr in chunk_results:
+        for w in cr.get("warnings") or []:
+            if not isinstance(w, dict):
+                continue
+            w_text = str(w.get("warning_text") or w.get("message") or "")
+            w_key = unicode_normalize_text(w_text)
+            if w_key and w_key not in seen_warns:
+                seen_warns[w_key] = w
+
+    merged["warnings"] = list(seen_warns.values())
+
+    return merged
+
+
 def post_process_notice(
     notice: dict[str, Any],
     pages: list[dict[str, Any]],
@@ -133,7 +336,7 @@ def post_process_notice(
         Grounded and post-processed notice dictionary.
     """
     notice_copy = dict(notice)
-    normalized_pages = [normalize_text(p.get("text", "")) for p in pages]
+    normalized_pages = [unicode_normalize_text(p.get("text", "")) for p in pages]
     total_pages = len(normalized_pages)
 
     user_warnings: list[dict[str, Any]] = []
@@ -209,7 +412,7 @@ def post_process_notice(
             return
 
         # Check verbatim quote grounding
-        norm_quote = normalize_text(str(quote))
+        norm_quote = unicode_normalize_text(str(quote))
         page_text = normalized_pages[page - 1]
 
         if norm_quote not in page_text:
@@ -515,10 +718,11 @@ def process_notice(
     Flow:
     1. Extract page texts from PDF.
     2. Check document readability; refuse unreadable/scanned docs without calling LLM.
-    3. Classify document; refuse out-of-scope documents without calling LLM.
-    4. Call LLM structured extraction with self-repair retry loop.
-    5. Validate schema and evidence quote grounding.
-    6. Post-process to ground unverified quotes, validate dates, and flag warnings.
+    3. Detect document language; flag non-English documents.
+    4. Two-step triage / classification (rule-based + LLM triage).
+    5. Call LLM structured extraction (chunked for long documents over character budget).
+    6. Validate schema and evidence quote grounding.
+    7. Post-process to ground unverified quotes, validate dates, and flag warnings.
 
     Args:
         file_path: Path to target PDF file.
@@ -528,6 +732,12 @@ def process_notice(
         Structured result dict:
         {status, category, result, validation_report, needs_verification, message, prompt_version}
     """
+    start_time = time.perf_counter()
+    char_budget = int(os.getenv("LLM_PROMPT_CHAR_BUDGET", str(DEFAULT_CHAR_BUDGET)))
+    total_time_budget = float(
+        os.getenv("PIPELINE_TOTAL_TIMEOUT_SEC", str(DEFAULT_TOTAL_TIME_BUDGET_SEC))
+    )
+
     path = Path(file_path)
 
     # Step 1: Extract pages
@@ -567,6 +777,11 @@ def process_notice(
             "message": "The uploaded document contains unreadable or scanned pages without usable text. "
             "Please provide a clearer digital PDF document.",
         }
+
+    # Language Detection (script-based lightweight detector)
+    lang_info = detect_document_language(pages)
+    is_english = lang_info.get("is_english", True)
+    detected_language = lang_info.get("language", "en")
 
     # Step 3: Two-step Triage (Fast Rule-based guess -> LLM triage if ambiguous or new category)
     rb_classification = classify_notice(pages)
@@ -661,45 +876,91 @@ def process_notice(
                     "triage_time_ms": triage_time_ms,
                 }
 
-    # Step 4: LLM Structured Extraction
-    extraction_res = extract_notice_with_llm(pages, category, client=client)
+    # Step 4: LLM Structured Extraction (with whole-page chunking for long documents)
+    page_chunks = chunk_pages(pages, char_budget=char_budget)
+    is_long_document = len(page_chunks) > 1
 
-    if extraction_res["status"] != "success" or not extraction_res["data"]:
-        is_busy = extraction_res.get("is_busy", False)
-        status_code = extraction_res.get("status_code")
-        raw_error = extraction_res.get("error") or "LLM extraction failed."
-        safe_error = sanitize_message(raw_error)
+    chunk_results: list[dict[str, Any]] = []
 
-        if is_busy or (status_code in RETRYABLE_STATUS_CODES):
-            user_message = FRIENDLY_BUSY_MESSAGE
-            logger.error(
-                "Pipeline extraction failed due to temporary AI service error: %s (status=%s)",
-                safe_error,
-                status_code,
+    for chunk_idx, chunk in enumerate(page_chunks):
+        # Total time budget check before each chunk execution
+        elapsed = time.perf_counter() - start_time
+        if elapsed >= total_time_budget:
+            timeout_msg = (
+                f"The document is too large or processing exceeded the {int(total_time_budget)}-second time budget. "
+                "Please retry or provide a shorter excerpt."
             )
-        else:
-            user_message = f"Structured extraction failed: {safe_error}"
             logger.error(
-                "Pipeline extraction failed: %s (status=%s)",
-                safe_error,
-                status_code,
+                "Document processing exceeded total time budget (%.2fs >= %.2fs) before chunk %d/%d",
+                elapsed,
+                total_time_budget,
+                chunk_idx + 1,
+                len(page_chunks),
             )
+            return {
+                "status": "extraction_failed",
+                "category": category,
+                "trust_level": trust_level,
+                "detected_language": detected_language,
+                "result": None,
+                "validation_report": {
+                    "is_valid": False,
+                    "schema_compliant": False,
+                    "errors": [timeout_msg],
+                    "warnings": [],
+                },
+                "needs_verification": True,
+                "message": timeout_msg,
+                "error_code": "DOCUMENT_PROCESSING_TIMEOUT",
+                "failure_reason": "too_slow",
+            }
 
-        return {
-            "status": "extraction_failed",
-            "category": category,
-            "result": None,
-            "validation_report": {
-                "is_valid": False,
-                "schema_compliant": False,
-                "errors": [user_message],
-                "warnings": [],
-            },
-            "needs_verification": True,
-            "message": user_message,
-        }
+        extraction_res = extract_notice_with_llm(chunk, category, client=client)
 
-    extracted_data = extraction_res["data"]
+        if extraction_res["status"] != "success" or not extraction_res["data"]:
+            is_busy = extraction_res.get("is_busy", False)
+            status_code = extraction_res.get("status_code")
+            raw_error = extraction_res.get("error") or "LLM extraction failed."
+            safe_error = sanitize_message(raw_error)
+
+            if is_busy or (status_code in RETRYABLE_STATUS_CODES):
+                user_message = FRIENDLY_BUSY_MESSAGE
+                logger.error(
+                    "Pipeline extraction failed due to temporary AI service error: %s (status=%s)",
+                    safe_error,
+                    status_code,
+                )
+            else:
+                user_message = f"Structured extraction failed: {safe_error}"
+                logger.error(
+                    "Pipeline extraction failed: %s (status=%s)",
+                    safe_error,
+                    status_code,
+                )
+
+            return {
+                "status": "extraction_failed",
+                "category": category,
+                "trust_level": trust_level,
+                "detected_language": detected_language,
+                "result": None,
+                "validation_report": {
+                    "is_valid": False,
+                    "schema_compliant": False,
+                    "errors": [user_message],
+                    "warnings": [],
+                },
+                "needs_verification": True,
+                "message": user_message,
+            }
+
+        chunk_results.append(extraction_res["data"])
+
+    # Merge extracted chunk data if document was partitioned
+    if is_long_document:
+        extracted_data = merge_chunk_results(chunk_results)
+    else:
+        extracted_data = chunk_results[0]
 
     # Step 5: Schema and Evidence Grounding Validation
     page_texts = [p.get("text", "") for p in pages]
@@ -716,9 +977,47 @@ def process_notice(
         grounded_notice["needs_verification"] = True
 
     grounded_notice["trust_level"] = trust_level
+    grounded_notice["detected_language"] = detected_language
+
+    # Long document handling: add user-facing note and set needs_verification
+    if is_long_document:
+        grounded_notice["needs_verification"] = True
+        grounded_notice.setdefault("warnings", []).insert(
+            0,
+            {
+                "warning_text": "This is a long document; please check all items.",
+                "evidence_quote": None,
+                "source_page": None,
+                "code": "LONG_DOCUMENT_CHUNKED",
+                "severity": "info",
+            },
+        )
+
+    # Language handling: add user-facing note and set needs_verification if not English
+    if not is_english:
+        grounded_notice["needs_verification"] = True
+        grounded_notice.setdefault("warnings", []).insert(
+            0,
+            {
+                "warning_text": "This notice is not in English. These notices are less tested. Please check every item.",
+                "evidence_quote": None,
+                "source_page": None,
+                "code": "NON_ENGLISH_NOTICE",
+                "severity": "warning",
+            },
+        )
 
     needs_verification = grounded_notice.get("needs_verification", False)
-    if trust_level == "general":
+    if not is_english:
+        status_message = (
+            "Notice processed. This notice is not in English and is less tested. "
+            "Please check every item against your original notice."
+        )
+    elif is_long_document:
+        status_message = (
+            "Notice processed. This is a long document; please check all items against your original notice."
+        )
+    elif trust_level == "general":
         status_message = (
             "Notice processed in general mode. This type of notice is less tested. "
             "Please check every item against your original notice."
@@ -734,6 +1033,7 @@ def process_notice(
         "status": "success",
         "category": category,
         "trust_level": trust_level,
+        "detected_language": detected_language,
         "result": grounded_notice,
         "validation_report": validation_report,
         "needs_verification": needs_verification,

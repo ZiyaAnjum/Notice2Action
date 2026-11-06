@@ -23,7 +23,7 @@ from validation.validator import SCHEMA_PATH
 logger = logging.getLogger(__name__)
 
 MAX_EXTRACTION_RETRIES = 2
-PROMPT_VERSION = "1.5.0"
+PROMPT_VERSION = "1.6.0"
 
 
 def load_notice_schema() -> dict[str, Any]:
@@ -111,7 +111,13 @@ def build_system_prompt() -> str:
         "   - The 'warnings' list must contain ONLY explicit cautionary conditions or warnings stated directly in the notice "
         "text for the user (for example 'Cash payments above Rs. 10,000 are not accepted').\n"
         "   - Do not invent warnings, and do not put technical processing notes into warnings.\n"
-        "9. STRICT JSON OUTPUT:\n"
+        "9. MULTILINGUAL AND NON-ENGLISH NOTICES:\n"
+        "   - If the notice is written in a language other than English (such as Hindi, Kannada, Tamil, Marathi), "
+        "write all explanations, plain_language_summary, action_steps descriptions, and field text in English.\n"
+        "   - However, KEEP ALL evidence_quote fields in their ORIGINAL verbatim language and script, exactly as printed "
+        "in the notice. Do NOT translate evidence quotes.\n"
+        "   - Every evidence_quote must match the original text character-for-character in the original language and script.\n"
+        "10. STRICT JSON OUTPUT:\n"
         "   - Return ONLY raw JSON strictly conforming to schemas/notice_output.schema.json.\n"
         "   - Do not include explanations, code block fences, or text outside the JSON object."
     )

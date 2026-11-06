@@ -395,6 +395,10 @@
       "enum": ["tested", "general"],
       "description": "Trust tier for this notice type: 'tested' for core categories, 'general' for expanded general-mode categories."
     },
+    "detected_language": {
+      "type": "string",
+      "description": "Detected primary language or script code of the notice (e.g. 'en', 'hi', 'kn')."
+    },
     "needs_verification": {
       "type": "boolean",
       "description": "Overall flag set to true if any extracted item is uncertain, ambiguous, conflicting, or unverified."
