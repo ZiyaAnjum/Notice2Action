@@ -259,17 +259,11 @@ class NoticeService:
         checklist = [item.to_dict() for item in notice.checklist_items]
         reminders = [r.to_dict() for r in notice.reminders]
 
-        trust_level = (
-            notice.result_json.get("trust_level", "tested")
-            if isinstance(notice.result_json, dict)
-            else "tested"
-        )
         return {
             "id": notice.id,
             "original_filename": notice.original_filename,
             "status": notice.status,
             "category": notice.category,
-            "trust_level": trust_level,
             "created_at": notice.created_at.isoformat() if notice.created_at else "",
             "needs_verification": notice.needs_verification,
             "message": notice.message,

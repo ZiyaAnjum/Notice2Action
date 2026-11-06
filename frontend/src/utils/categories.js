@@ -3,75 +3,24 @@
  */
 
 export const CATEGORY_LABELS = {
-  // Core tested categories
-  scholarship_or_college: "Scholarship & Education",
-  bank: "Banking & Finance",
-  utility: "Utilities & Services",
-  tax_or_payment: "Tax & Revenue",
-  government_scheme: "Government Benefits & Schemes",
-  // Expanded general mode categories
-  insurance_or_health: "Insurance & Health",
-  legal_or_court: "Court & Legal",
-  employment: "Employment & Workplace",
-  other_official_notice: "Other Official Notice",
-  // Out of scope
-  other_out_of_scope: "Unsupported Document",
-  // Legacy / scaffold keys for compatibility
   tax_revenue: "Tax & Revenue",
   court_legal: "Court & Legal",
-  health_medical: "Insurance & Health",
+  health_medical: "Health & Medical",
   housing_tenancy: "Housing & Tenancy",
-  government_benefits: "Government Benefits & Schemes",
+  government_benefits: "Government Benefits",
   utility_services: "Utilities & Services",
+  // Common supplementary categories
+  scholarship_or_college: "Scholarship & Education",
   banking_finance: "Banking & Finance",
 };
 
 export const SUPPORTED_CATEGORIES = [
-  {
-    key: "scholarship_or_college",
-    label: "Scholarship & Education",
-    description: "Merit scholarships, college renewals, and fee circulars (Tested)",
-  },
-  {
-    key: "bank",
-    label: "Banking & Finance",
-    description: "Account alerts, KYC renewals, and loan notifications (Tested)",
-  },
-  {
-    key: "utility",
-    label: "Utilities & Services",
-    description: "Electricity, water, gas, and reconnection notices (Tested)",
-  },
-  {
-    key: "tax_or_payment",
-    label: "Tax & Revenue",
-    description: "Property tax, municipal tax, and revenue demand notices (Tested)",
-  },
-  {
-    key: "government_scheme",
-    label: "Government Benefits & Schemes",
-    description: "Welfare scheme eligibility and subsidy circulars (Tested)",
-  },
-  {
-    key: "insurance_or_health",
-    label: "Insurance & Health",
-    description: "Health policies, insurance renewals, and claim directives (General Mode)",
-  },
-  {
-    key: "legal_or_court",
-    label: "Court & Legal",
-    description: "Court summons, advocate notices, and legal compliance (General Mode)",
-  },
-  {
-    key: "employment",
-    label: "Employment & Workplace",
-    description: "Employment notices and statutory workplace circulars (General Mode)",
-  },
-  {
-    key: "other_official_notice",
-    label: "Other Official Notices",
-    description: "Other actionable government or institutional circulars (General Mode)",
-  },
+  { key: "tax_revenue", label: "Tax & Revenue", description: "Tax assessments, refunds, and filing demands" },
+  { key: "court_legal", label: "Court & Legal", description: "Summons, hearing dates, and legal notices" },
+  { key: "health_medical", label: "Health & Medical", description: "Medical appointments, coverage, and health bills" },
+  { key: "housing_tenancy", label: "Housing & Tenancy", description: "Rent notices, leases, and tenancy updates" },
+  { key: "government_benefits", label: "Government Benefits", description: "Pension, welfare, social security, and grants" },
+  { key: "utility_services", label: "Utilities & Services", description: "Electricity, water, gas, and telecoms bills" },
 ];
 
 /**

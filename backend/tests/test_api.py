@@ -147,17 +147,11 @@ def test_upload_validation_errors(client: TestClient) -> None:
 
 
 def test_scanned_and_recipe_refusal_without_llm(client: TestClient) -> None:
-    """Verify scanned refuses without LLM, and out-of-scope files refuse via triage without full extraction."""
-    triage_recipe = {
-        "is_actionable_notice": False,
-        "category": "not_a_notice",
-        "confidence": 0.99,
-        "reason": "Document is a culinary recipe, not an actionable official notice.",
-    }
-    fake_llm = FakeLLMClient([triage_recipe])
+    """Verify scanned and out-of-scope files refuse early without calling LLM."""
+    fake_llm = FakeLLMClient(["{}"])
     app.dependency_overrides[get_llm] = lambda: fake_llm
 
-    # 1. Scanned / image-only PDF (refused before any LLM call)
+    # 1. Scanned / image-only PDF
     scan_path = FIXTURES_DIR / "scanned_image_only.pdf"
     with open(scan_path, "rb") as f:
         res_scan = client.post(
@@ -170,10 +164,8 @@ def test_scanned_and_recipe_refusal_without_llm(client: TestClient) -> None:
     scan_detail = client.get(f"/api/notices/{scan_id}").json()
     assert scan_detail["status"] == "needs_clearer_document"
     assert scan_detail["needs_verification"] is True
-    # Scanned PDF made 0 calls to LLM
-    assert fake_llm.call_count == 0
 
-    # 2. Recipe out-of-scope PDF (triaged as not_a_notice, 1 triage call, no extraction)
+    # 2. Recipe out-of-scope PDF
     recipe_path = FIXTURES_DIR / "recipe_unrelated.pdf"
     with open(recipe_path, "rb") as f:
         res_recipe = client.post(
@@ -186,9 +178,8 @@ def test_scanned_and_recipe_refusal_without_llm(client: TestClient) -> None:
     recipe_detail = client.get(f"/api/notices/{recipe_id}").json()
     assert recipe_detail["status"] == "out_of_scope"
 
-    # Crucial assertion: Triage was called once, full extraction was never called!
-    assert fake_llm.call_count == 1
-    assert "triage" in fake_llm.calls[0]["system_prompt"].lower()
+    # Crucial assertion: LLM was never called for either refusal
+    assert fake_llm.call_count == 0
 
 
 def test_checklist_patch_and_validation(client: TestClient) -> None:

@@ -403,32 +403,11 @@ export function NoticeDashboardPage() {
 
   const categoryLabel = getCategoryLabel(notice.category || result.category);
   const pdfFileUrl = getNoticeFileUrl(id);
-  const isGeneralTrust = notice.trust_level === "general" || result.trust_level === "general";
 
   return (
     <main className="max-w-6xl mx-auto px-4 sm:px-6 py-8 sm:py-12 space-y-8">
-      {/* General Mode Banner (shown when trust_level is 'general') */}
-      {isGeneralTrust && (
-        <div
-          role="alert"
-          aria-live="polite"
-          data-testid="general-mode-banner"
-          className="p-5 sm:p-6 bg-amber-50 border-3 border-amber-400 rounded-2xl shadow-sm flex items-start gap-3.5 text-amber-950"
-        >
-          <AlertTriangle className="w-7 h-7 text-amber-700 flex-shrink-0 mt-0.5" aria-hidden="true" />
-          <div className="space-y-1">
-            <h2 className="text-lg sm:text-xl font-black">
-              This type of notice is less tested. Please check every item against your original notice.
-            </h2>
-            <p className="text-sm sm:text-base font-medium text-amber-900 leading-relaxed">
-              We extracted the information below in general mode. Since this category is less tested than our core notice types, please review all dates, requirements, and amounts carefully against your original document.
-            </p>
-          </div>
-        </div>
-      )}
-
-      {/* Prominent Verification Alert Banner (if needs_verification is true and not general mode) */}
-      {notice.needs_verification && !isGeneralTrust && (
+      {/* Prominent Verification Alert Banner (if needs_verification is true) */}
+      {notice.needs_verification && (
         <div
           role="alert"
           aria-live="polite"

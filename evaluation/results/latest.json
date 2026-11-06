@@ -1,18 +1,14 @@
 {
-  "banner": "FAKE MODE, NOT REAL RESULTS",
-  "warning": "FAKE MODE, NOT REAL RESULTS: This evaluation run was executed using canned mock responses (FakeLLMClient).",
   "metadata": {
-    "timestamp": "2026-11-04T22:33:58.812275",
-    "prompt_version": "1.5.0",
+    "timestamp": "2026-10-25T21:12:38.123485",
+    "prompt_version": "1.0.0",
     "mode": "deterministic_fake",
-    "is_fake": true,
     "model": "FakeLLMClient",
     "sample_size": 3
   },
-  "prompt_version": "1.5.0",
+  "prompt_version": "1.0.0",
   "sample_size": 3,
   "summary": {
-    "total_notices": 3,
     "classification_accuracy": 1.0,
     "classification_correct": 3,
     "classification_total": 3,
@@ -27,13 +23,11 @@
     "per_category": {
       "other_out_of_scope": {
         "total": 2,
-        "correct": 2,
-        "accuracy": 1.0
+        "correct": 2
       },
       "tax_or_payment": {
         "total": 1,
-        "correct": 1,
-        "accuracy": 1.0
+        "correct": 1
       }
     },
     "correct_refusal_rate": 1.0,
@@ -70,125 +64,9 @@
     "processing_time": {
       "mean_sec": 0.02,
       "median_sec": 0.02,
-      "max_sec": 0.02,
+      "max_sec": 0.03,
       "count_over_60s": 0
-    },
-    "by_trust_level": {
-      "tested": {
-        "total_notices": 1,
-        "classification_accuracy": 1.0,
-        "classification_correct": 1,
-        "classification_total": 1,
-        "confusion_matrix": {
-          "tax_or_payment": {
-            "tax_or_payment": 1
-          }
-        },
-        "per_category": {
-          "tax_or_payment": {
-            "total": 1,
-            "correct": 1,
-            "accuracy": 1.0
-          }
-        },
-        "correct_refusal_rate": 1.0,
-        "correct_refusals": 0,
-        "total_refusal_cases": 0,
-        "false_refusal_rate": 0.0,
-        "false_refusals": 0,
-        "total_supported_cases": 1,
-        "deadline_precision": 1.0,
-        "deadline_recall": 1.0,
-        "deadline_tp": 1,
-        "deadline_fp": 0,
-        "deadline_fn": 0,
-        "invented_deadlines": [],
-        "document_precision": 1.0,
-        "document_recall": 1.0,
-        "document_tp": 2,
-        "document_fp": 0,
-        "document_fn": 0,
-        "action_step_precision": 1.0,
-        "action_step_recall": 1.0,
-        "action_step_tp": 3,
-        "action_step_fp": 0,
-        "action_step_fn": 0,
-        "combined_action_precision": 1.0,
-        "combined_action_recall": 1.0,
-        "submission_channel_match_rate": 1.0,
-        "grounding_rate": 1.0,
-        "quotes_verified": 10,
-        "quotes_checked": 10,
-        "unsupported_critical_count": 0,
-        "unsupported_offenders": [],
-        "uncertainty_adherence_rate": 1.0,
-        "processing_time": {
-          "mean_sec": 0.02,
-          "median_sec": 0.02,
-          "max_sec": 0.02,
-          "count_over_60s": 0
-        }
-      },
-      "general": null
     }
-  },
-  "by_trust_level": {
-    "tested": {
-      "total_notices": 1,
-      "classification_accuracy": 1.0,
-      "classification_correct": 1,
-      "classification_total": 1,
-      "confusion_matrix": {
-        "tax_or_payment": {
-          "tax_or_payment": 1
-        }
-      },
-      "per_category": {
-        "tax_or_payment": {
-          "total": 1,
-          "correct": 1,
-          "accuracy": 1.0
-        }
-      },
-      "correct_refusal_rate": 1.0,
-      "correct_refusals": 0,
-      "total_refusal_cases": 0,
-      "false_refusal_rate": 0.0,
-      "false_refusals": 0,
-      "total_supported_cases": 1,
-      "deadline_precision": 1.0,
-      "deadline_recall": 1.0,
-      "deadline_tp": 1,
-      "deadline_fp": 0,
-      "deadline_fn": 0,
-      "invented_deadlines": [],
-      "document_precision": 1.0,
-      "document_recall": 1.0,
-      "document_tp": 2,
-      "document_fp": 0,
-      "document_fn": 0,
-      "action_step_precision": 1.0,
-      "action_step_recall": 1.0,
-      "action_step_tp": 3,
-      "action_step_fp": 0,
-      "action_step_fn": 0,
-      "combined_action_precision": 1.0,
-      "combined_action_recall": 1.0,
-      "submission_channel_match_rate": 1.0,
-      "grounding_rate": 1.0,
-      "quotes_verified": 10,
-      "quotes_checked": 10,
-      "unsupported_critical_count": 0,
-      "unsupported_offenders": [],
-      "uncertainty_adherence_rate": 1.0,
-      "processing_time": {
-        "mean_sec": 0.02,
-        "median_sec": 0.02,
-        "max_sec": 0.02,
-        "count_over_60s": 0
-      }
-    },
-    "general": null
   },
   "targets_vs_measured": {
     "classification_accuracy": {
@@ -225,11 +103,9 @@
   "per_notice": [
     {
       "notice_id": "recipe_unrelated",
-      "elapsed_time_sec": 0.02,
+      "elapsed_time_sec": 0.03,
       "expected_category": "other_out_of_scope",
       "predicted_category": "other_out_of_scope",
-      "expected_trust_level": null,
-      "predicted_trust_level": null,
       "category_match": true,
       "expected_status": "out_of_scope",
       "predicted_status": "out_of_scope",
@@ -281,8 +157,6 @@
       "elapsed_time_sec": 0.01,
       "expected_category": "other_out_of_scope",
       "predicted_category": "other_out_of_scope",
-      "expected_trust_level": null,
-      "predicted_trust_level": null,
       "category_match": true,
       "expected_status": "needs_clearer_document",
       "predicted_status": "needs_clearer_document",
@@ -334,8 +208,6 @@
       "elapsed_time_sec": 0.02,
       "expected_category": "tax_or_payment",
       "predicted_category": "tax_or_payment",
-      "expected_trust_level": "tested",
-      "predicted_trust_level": "tested",
       "category_match": true,
       "expected_status": "processed",
       "predicted_status": "success",
@@ -365,8 +237,7 @@
               "confidence": 0.95,
               "is_ambiguous_or_conflicting": false,
               "ambiguity_reason": null,
-              "status": "found",
-              "role": "primary"
+              "status": "found"
             },
             "match_type": "exact_date",
             "score": 1.0

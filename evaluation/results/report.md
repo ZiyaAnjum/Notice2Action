@@ -1,13 +1,7 @@
-# ⚠️ FAKE MODE, NOT REAL RESULTS ⚠️
-> **WARNING**: This evaluation report was generated using canned mock responses (FakeLLMClient).
-> It does NOT represent real LLM accuracy, real extraction performance, or true model benchmarks.
-
----
-
 # Notice to Action - Evaluation Benchmark Report
 
-- **Execution Timestamp**: 2026-11-04T22:33:58.812275
-- **Prompt Version**: `1.5.0`
+- **Execution Timestamp**: 2026-10-25T21:12:38.123485
+- **Prompt Version**: `1.0.0`
 - **Evaluation Mode**: `deterministic_fake`
 - **Model / Provider**: `FakeLLMClient`
 - **Test Suite Size**: 3 notices
@@ -39,15 +33,6 @@
 | **other_out_of_scope** | 2 | 0 |
 | **tax_or_payment** | 0 | 1 |
 
-### Trust-Tier Breakdown (Tested vs. General Mode)
-
-General-mode accuracy is tracked separately and never mixed into core tested-category numbers.
-
-| Trust Tier | Notices | Cat. Accuracy | Deadline Prec. | Deadline Recall | Action Prec. | Action Recall | Grounding |
-|---|---|---|---|---|---|---|---|
-| **Tested Tier** | 1 | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% |
-| **General Mode** | 0 | N/A | N/A | N/A | N/A | N/A | N/A |
-
 ## 3. Information Extraction Quality
 
 | Extraction Category | Precision | Recall | TP | FP | FN | Invented Count |
@@ -66,14 +51,14 @@ General-mode accuracy is tracked separately and never mixed into core tested-cat
 
 - **Mean**: 0.02s
 - **Median**: 0.02s
-- **Max**: 0.02s
+- **Max**: 0.03s
 - **Over 60 seconds**: 0
 
 ## 5. Per-Notice Evaluation Summary
 
 | Notice ID | Exp. Category | Pred. Category | Category Match | Status | Deadlines (TP/FP/FN) | Grounding Rate | Time (s) |
 |---|---|---|---|---|---|---|---|
-| `recipe_unrelated` | `other_out_of_scope` | `other_out_of_scope` | YES | `out_of_scope` | 0/0/0 | N/A | 0.02s |
+| `recipe_unrelated` | `other_out_of_scope` | `other_out_of_scope` | YES | `out_of_scope` | 0/0/0 | N/A | 0.03s |
 | `scanned_image_only` | `other_out_of_scope` | `other_out_of_scope` | YES | `needs_clearer_document` | 0/0/0 | N/A | 0.01s |
 | `tax_or_payment` | `tax_or_payment` | `tax_or_payment` | YES | `success` | 1/0/0 | 100% | 0.02s |
 
