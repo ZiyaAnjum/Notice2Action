@@ -92,12 +92,37 @@ class BaseLLMClient(ABC):
         """
         pass
 
+    def transcribe_image(
+        self,
+        image_bytes: bytes,
+        mime_type: str = "image/png",
+        prompt: str | None = None,
+    ) -> str:
+        """Transcribe verbatim text from an image using vision capabilities.
+
+        Args:
+            image_bytes: Raw binary bytes of the rendered page image.
+            mime_type: Image MIME type (e.g. 'image/png').
+            prompt: Optional transcription guidance prompt.
+
+        Returns:
+            Verbatim transcribed text without summaries or interpretations.
+
+        Raises:
+            LLMError: If the vision request fails or credentials are missing.
+        """
+        raise NotImplementedError("Vision transcription is not supported by this provider.")
+
 
 class GeminiLLMClient(BaseLLMClient):
     """Google Gemini API client using structured JSON output mode at temperature 0."""
 
     DEFAULT_MODEL = "gemini-1.5-flash"
     DEFAULT_BACKOFF_DELAYS = (2.0, 5.0, 10.0)
+    DEFAULT_VISION_PROMPT = (
+        "Transcribe the complete, verbatim text of this official notice page image exactly as written. "
+        "Do not summarize, explain, or interpret. Output only the verbatim extracted text."
+    )
 
     def __init__(
         self,
@@ -168,8 +193,65 @@ class GeminiLLMClient(BaseLLMClient):
         raw_text = parts[0].get("text", "")
         return clean_json_markdown(raw_text)
 
-    def generate_json(self, system_prompt: str, user_prompt: str) -> str:
-        """Call Gemini generateContent with exponential backoff and optional fallback model."""
+    def _post_generate_vision_content(
+        self, target_model: str, image_bytes: bytes, mime_type: str, prompt: str
+    ) -> str:
+        """Execute single generateContent HTTP request sending image to Gemini vision model."""
+        import base64
+
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{target_model}:generateContent"
+        headers = {
+            "Content-Type": "application/json",
+            "x-goog-api-key": self.api_key,
+        }
+
+        b64_img = base64.b64encode(image_bytes).decode("ascii")
+
+        payload = {
+            "contents": [
+                {
+                    "role": "user",
+                    "parts": [
+                        {
+                            "inline_data": {
+                                "mime_type": mime_type,
+                                "data": b64_img,
+                            }
+                        },
+                        {"text": prompt},
+                    ],
+                }
+            ],
+            "generationConfig": {
+                "temperature": 0.0,
+            },
+        }
+
+        with httpx.Client(timeout=self.timeout, transport=self.transport) as client:
+            response = client.post(url, headers=headers, json=payload)
+
+        if response.status_code != 200:
+            safe_body = sanitize_message(response.text, self.api_key)
+            raise LLMError(
+                f"Gemini API returned status {response.status_code}: {safe_body}",
+                status_code=response.status_code,
+            )
+
+        data = response.json()
+        candidates = data.get("candidates") or []
+        if not candidates:
+            raise LLMError("Gemini API returned no candidates in the vision response.")
+
+        first_candidate = candidates[0]
+        parts = first_candidate.get("content", {}).get("parts", [])
+        if not parts:
+            return ""
+
+        raw_text = parts[0].get("text", "")
+        return raw_text.strip()
+
+    def _execute_with_retry(self, operation: Callable[[str], str]) -> str:
+        """Execute an operation against Gemini with exponential backoff and optional fallback model."""
         if not self.api_key:
             raise LLMError(
                 "Gemini API key is not configured. Please set the LLM_API_KEY or "
@@ -184,7 +266,7 @@ class GeminiLLMClient(BaseLLMClient):
 
         for attempt in range(max_attempts):
             try:
-                res = self._post_generate_content(self.model, system_prompt, user_prompt)
+                res = operation(self.model)
                 logger.info("Model '%s' answered successfully.", self.model)
                 return res
             except httpx.TimeoutException as exc:
@@ -220,7 +302,7 @@ class GeminiLLMClient(BaseLLMClient):
                             fallback,
                         )
                         try:
-                            res = self._post_generate_content(fallback, system_prompt, user_prompt)
+                            res = operation(fallback)
                             logger.info("Model '%s' answered successfully.", fallback)
                             return res
                         except Exception as fb_exc:
@@ -306,7 +388,7 @@ class GeminiLLMClient(BaseLLMClient):
             fallback = self.fallback_model.strip()
             logger.info("Attempting fallback model '%s' once...", fallback)
             try:
-                res = self._post_generate_content(fallback, system_prompt, user_prompt)
+                res = operation(fallback)
                 logger.info("Model '%s' answered successfully.", fallback)
                 return res
             except Exception as exc:
@@ -331,6 +413,26 @@ class GeminiLLMClient(BaseLLMClient):
             status_code=last_status_code,
             is_timeout=last_is_timeout,
             retries_exhausted=True,
+        )
+
+    def generate_json(self, system_prompt: str, user_prompt: str) -> str:
+        """Call Gemini generateContent with exponential backoff and optional fallback model."""
+        return self._execute_with_retry(
+            lambda model: self._post_generate_content(model, system_prompt, user_prompt)
+        )
+
+    def transcribe_image(
+        self,
+        image_bytes: bytes,
+        mime_type: str = "image/png",
+        prompt: str | None = None,
+    ) -> str:
+        """Transcribe verbatim text from an image with exponential backoff and optional fallback model."""
+        target_prompt = prompt or self.DEFAULT_VISION_PROMPT
+        return self._execute_with_retry(
+            lambda model: self._post_generate_vision_content(
+                model, image_bytes, mime_type, target_prompt
+            )
         )
 
 
@@ -415,13 +517,26 @@ class FakeLLMClient(BaseLLMClient):
         self,
         responses: list[Any] | Any | None = None,
         model: str = "fake-model",
+        vision_responses: list[Any] | Any | None = None,
     ) -> None:
         self.model = model
         self.calls: list[dict[str, str]] = []
+        self.vision_calls: list[dict[str, Any]] = []
         self._responses: list[Any] = []
+        self._vision_responses: list[Any] = []
 
         if responses is not None:
             self.set_responses(responses)
+        if vision_responses is not None:
+            self.set_vision_responses(vision_responses)
+
+    def set_vision_responses(self, responses: list[Any] | Any) -> None:
+        """Reset or configure canned vision OCR responses queue."""
+        self._vision_responses = []
+        if isinstance(responses, list):
+            self._vision_responses.extend(responses)
+        else:
+            self._vision_responses.append(responses)
 
     def set_responses(self, responses: list[Any] | Any) -> None:
         """Reset or configure canned responses queue."""
@@ -566,6 +681,35 @@ class FakeLLMClient(BaseLLMClient):
             logger.info("Model '%s' answered successfully.", self.model)
             return str(val)
         logger.info("Model '%s' answered successfully.", self.model)
+        return str(resp)
+
+    def transcribe_image(
+        self,
+        image_bytes: bytes,
+        mime_type: str = "image/png",
+        prompt: str | None = None,
+    ) -> str:
+        """Mock transcription response for vision OCR."""
+        self.vision_calls.append({"mime_type": mime_type, "prompt": prompt, "size": len(image_bytes)})
+        self.calls.append({"system_prompt": "vision_transcription", "user_prompt": prompt or ""})
+
+        if not self._vision_responses:
+            return "Mock verbatim text extracted from scanned notice page."
+
+        resp = (
+            self._vision_responses.pop(0)
+            if len(self._vision_responses) > 1
+            else self._vision_responses[0]
+        )
+        if isinstance(resp, type) and issubclass(resp, Exception):
+            raise resp("FakeLLMClient simulated vision failure")
+        if isinstance(resp, Exception):
+            raise resp
+        if callable(resp):
+            val = resp(image_bytes, mime_type, prompt)
+            if isinstance(val, Exception):
+                raise val
+            return str(val)
         return str(resp)
 
 

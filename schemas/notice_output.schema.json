@@ -399,6 +399,10 @@
       "type": "string",
       "description": "Detected primary language or script code of the notice (e.g. 'en', 'hi', 'kn')."
     },
+    "ocr_used": {
+      "type": "boolean",
+      "description": "Flag indicating whether OCR fallback was used for scanned or image pages."
+    },
     "needs_verification": {
       "type": "boolean",
       "description": "Overall flag set to true if any extracted item is uncertain, ambiguous, conflicting, or unverified."

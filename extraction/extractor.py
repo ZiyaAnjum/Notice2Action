@@ -4,14 +4,28 @@ Uses PyMuPDF (fitz) for fast, robust page-by-page text extraction with
 whitespace normalization and optional fallback to OCR when images lack text.
 """
 
-import io
-import shutil
+import logging
+import os
+import time
 from pathlib import Path
 from typing import Any
 
 import pymupdf
 
+from extraction.llm_client import BaseLLMClient, get_llm_client
+from extraction.ocr import (
+    DEFAULT_GEMINI_DPI,
+    DEFAULT_GEMINI_MAX_PAGES,
+    DEFAULT_TESSERACT_DPI,
+    check_ocr_quality,
+    get_ocr_mode,
+    ocr_page_gemini_vision,
+    ocr_page_tesseract,
+    repair_ocr_spacing,
+)
 from validation.validator import normalize_whitespace
+
+logger = logging.getLogger(__name__)
 
 # Constants for document ingestion constraints
 MAX_FILE_SIZE_BYTES = 25 * 1024 * 1024  # 25 MB limit
@@ -40,7 +54,7 @@ class ExtractionInvalidFormatError(ValueError, ExtractionError):
 
 
 def try_ocr_page(page: Any) -> str | None:
-    """Attempt OCR on a page image using pytesseract if library and binary exist.
+    """Attempt OCR on a page image at 200 DPI using Tesseract.
 
     Args:
         page: PyMuPDF Page object.
@@ -48,35 +62,29 @@ def try_ocr_page(page: Any) -> str | None:
     Returns:
         Extracted OCR string if successful, or None if OCR is not available.
     """
-    try:
-        import pytesseract
-        from PIL import Image
-
-        # Ensure tesseract system binary is on PATH
-        if not shutil.which("tesseract"):
-            return None
-
-        # Render page to raster pixmap for OCR
-        pix = page.get_pixmap(dpi=150)
-        img = Image.open(io.BytesIO(pix.tobytes("png")))
-        ocr_text = pytesseract.image_to_string(img)
-        return ocr_text
-    except Exception:
-        # Pytesseract not installed, tesseract binary missing, or OCR failure
-        return None
+    text, _ = ocr_page_tesseract(page, dpi=200)
+    return text
 
 
 def extract_pages(
     file_path: str | Path,
     max_pages: int = MAX_PAGE_COUNT,
     max_size_bytes: int = MAX_FILE_SIZE_BYTES,
+    client: BaseLLMClient | None = None,
+    ocr_mode: str | None = None,
+    start_time: float | None = None,
+    total_time_budget: float | None = None,
 ) -> list[dict[str, Any]]:
-    """Extract normalized text per page from a PDF document.
+    """Extract normalized text per page from a PDF document with optional OCR fallback.
 
     Args:
         file_path: Path to target PDF file.
         max_pages: Maximum allowable page count.
         max_size_bytes: Maximum permitted file size in bytes.
+        client: Optional BaseLLMClient for gemini_vision OCR fallback.
+        ocr_mode: Optional OCR mode ('off' | 'tesseract' | 'gemini_vision'). Defaults to env OCR_MODE.
+        start_time: Pipeline start timestamp for budget accounting.
+        total_time_budget: Total time budget limit in seconds.
 
     Returns:
         List of dicts: {page_number (1-indexed), text, method ("text" | "ocr" | "unreadable"), char_count}
@@ -138,6 +146,10 @@ def extract_pages(
                 f"Document contains {page_count} pages, which exceeds the maximum limit of {max_pages} pages."
             )
 
+        active_ocr_mode = (ocr_mode or get_ocr_mode()).lower().strip()
+        max_vision_pages = int(os.getenv("OCR_GEMINI_MAX_PAGES", str(DEFAULT_GEMINI_MAX_PAGES)))
+        vision_pages_count = 0
+
         pages: list[dict[str, Any]] = []
 
         for page_idx in range(page_count):
@@ -149,34 +161,145 @@ def extract_pages(
             cleaned_text = normalize_whitespace(raw_text)
 
             if len(cleaned_text.strip()) >= MIN_USABLE_CHAR_COUNT:
+                # Digital text present: never run OCR on pages that already have usable text
                 pages.append(
                     {
                         "page_number": page_num,
                         "text": cleaned_text,
+                        "display_text": cleaned_text,
                         "method": "text",
                         "char_count": len(cleaned_text),
                         "status": "ok",
                     }
                 )
             else:
-                # Page has no usable digital text: attempt OCR fallback if available
-                ocr_text = try_ocr_page(page)
-                if (
-                    ocr_text
-                    and len(normalize_whitespace(ocr_text).strip()) >= MIN_USABLE_CHAR_COUNT
-                ):
-                    cleaned_ocr = normalize_whitespace(ocr_text)
+                # Scanned or image-only page lacking usable digital text
+                if active_ocr_mode == "off":
                     pages.append(
                         {
                             "page_number": page_num,
-                            "text": cleaned_ocr,
-                            "method": "ocr",
-                            "char_count": len(cleaned_ocr),
-                            "status": "ok",
+                            "text": "",
+                            "method": "unreadable",
+                            "char_count": 0,
+                            "status": "needs a clearer document",
                         }
                     )
+                elif active_ocr_mode == "tesseract":
+                    ocr_text, err = ocr_page_tesseract(page, dpi=DEFAULT_TESSERACT_DPI)
+                    if ocr_text:
+                        is_usable, reason = check_ocr_quality(ocr_text)
+                        if is_usable:
+                            cleaned_ocr = normalize_whitespace(ocr_text)
+                            repaired_ocr = repair_ocr_spacing(cleaned_ocr)
+                            pages.append(
+                                {
+                                    "page_number": page_num,
+                                    "text": cleaned_ocr,
+                                    "display_text": repaired_ocr,
+                                    "method": "ocr",
+                                    "char_count": len(cleaned_ocr),
+                                    "status": "ok",
+                                }
+                            )
+                        else:
+                            pages.append(
+                                {
+                                    "page_number": page_num,
+                                    "text": "",
+                                    "method": "unreadable",
+                                    "char_count": 0,
+                                    "status": "needs a clearer document",
+                                    "ocr_error": reason,
+                                }
+                            )
+                    else:
+                        pages.append(
+                            {
+                                "page_number": page_num,
+                                "text": "",
+                                "method": "unreadable",
+                                "char_count": 0,
+                                "status": "needs a clearer document",
+                                "ocr_error": err or "Tesseract extraction returned empty output.",
+                            }
+                        )
+                elif active_ocr_mode == "gemini_vision":
+                    if vision_pages_count >= max_vision_pages:
+                        cap_msg = (
+                            f"OCR page limit reached (max {max_vision_pages} pages). "
+                            "Remaining scanned pages were skipped."
+                        )
+                        pages.append(
+                            {
+                                "page_number": page_num,
+                                "text": "",
+                                "method": "unreadable",
+                                "char_count": 0,
+                                "status": "needs a clearer document",
+                                "ocr_cap_hit": True,
+                                "ocr_error": cap_msg,
+                            }
+                        )
+                    else:
+                        # Check time budget against pipeline total timeout
+                        if start_time is not None and total_time_budget is not None:
+                            if time.perf_counter() - start_time >= total_time_budget:
+                                pages.append(
+                                    {
+                                        "page_number": page_num,
+                                        "text": "",
+                                        "method": "unreadable",
+                                        "char_count": 0,
+                                        "status": "needs a clearer document",
+                                        "ocr_error": "Document processing exceeded total time budget.",
+                                    }
+                                )
+                                continue
+
+                        vision_pages_count += 1
+                        v_client = client or get_llm_client()
+                        ocr_text, err = ocr_page_gemini_vision(page, v_client, dpi=DEFAULT_GEMINI_DPI)
+                        if ocr_text:
+                            is_usable, reason = check_ocr_quality(ocr_text)
+                            if is_usable:
+                                cleaned_ocr = normalize_whitespace(ocr_text)
+                                repaired_ocr = repair_ocr_spacing(cleaned_ocr)
+                                pages.append(
+                                    {
+                                        "page_number": page_num,
+                                        "text": cleaned_ocr,
+                                        "display_text": repaired_ocr,
+                                        "method": "ocr",
+                                        "char_count": len(cleaned_ocr),
+                                        "status": "ok",
+                                    }
+                                )
+                            else:
+                                pages.append(
+                                    {
+                                        "page_number": page_num,
+                                        "text": "",
+                                        "method": "unreadable",
+                                        "char_count": 0,
+                                        "status": "needs a clearer document",
+                                        "ocr_error": reason,
+                                    }
+                                )
+                        else:
+                            pages.append(
+                                {
+                                    "page_number": page_num,
+                                    "text": "",
+                                    "method": "unreadable",
+                                    "char_count": 0,
+                                    "status": "needs a clearer document",
+                                    "ocr_error": err or "Gemini vision extraction returned empty output.",
+                                }
+                            )
                 else:
-                    # OCR unavailable or failed: mark as unreadable without crashing
+                    logger.warning(
+                        "Unknown OCR_MODE '%s'. Defaulting to off (unreadable).", active_ocr_mode
+                    )
                     pages.append(
                         {
                             "page_number": page_num,
@@ -201,7 +324,7 @@ def check_document_readability(pages: list[dict[str, Any]]) -> dict[str, Any]:
 
     Returns:
         Dict containing status ("good" | "needs a clearer document"), readable_page_count,
-        and unreadable_page_count.
+        unreadable_page_count, and unreadable_page_numbers list.
     """
     total = len(pages)
     if total == 0:
@@ -210,24 +333,28 @@ def check_document_readability(pages: list[dict[str, Any]]) -> dict[str, Any]:
             "is_readable": False,
             "readable_pages": 0,
             "unreadable_pages": 0,
+            "unreadable_page_numbers": [],
         }
 
-    unreadable_count = sum(1 for p in pages if p.get("method") == "unreadable")
-    readable_count = total - unreadable_count
+    unreadable_page_numbers = [p["page_number"] for p in pages if p.get("method") == "unreadable"]
+    readable_count = total - len(unreadable_page_numbers)
 
-    if unreadable_count > 0:
+    # Document is completely unreadable only if zero pages could be read
+    if readable_count == 0:
         return {
             "status": "needs a clearer document",
-            "is_readable": readable_count > 0,
-            "readable_pages": readable_count,
-            "unreadable_pages": unreadable_count,
+            "is_readable": False,
+            "readable_pages": 0,
+            "unreadable_pages": total,
+            "unreadable_page_numbers": unreadable_page_numbers,
         }
 
     return {
         "status": "good",
         "is_readable": True,
         "readable_pages": readable_count,
-        "unreadable_pages": 0,
+        "unreadable_pages": len(unreadable_page_numbers),
+        "unreadable_page_numbers": unreadable_page_numbers,
     }
 
 

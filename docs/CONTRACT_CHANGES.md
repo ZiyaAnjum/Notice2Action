@@ -298,3 +298,143 @@ Five realistic programmatic test fixtures are available in [`tests/fixtures/`](f
   3. The **entire right column** top-to-bottom.
   It does **not** interleave lines horizontally across column gutters, ensuring that text semantics within each column remain coherent for LLM extraction.
 
+
+
+---
+
+# Phase 7c: OCR Fallback for Scanned & Image-Only Notices
+
+Phase 7c introduces an optical character recognition (OCR) fallback subsystem to process scanned or image-only PDF documents that lack digital text streams.
+
+By default (`OCR_MODE=off`), Notice to Action maintains its safe refusal policy and refuses scanned documents with `status: "needs_clearer_document"` without invoking OCR or calling the LLM. When enabled, two OCR backends are supported:
+- `OCR_MODE=tesseract`: Fast, local, private open-source OCR via `pytesseract` and Tesseract-OCR rendered at 200 DPI.
+- `OCR_MODE=gemini_vision`: Multimodal cloud OCR using Gemini's vision transcription.
+
+Complete setup instructions for local Tesseract on Windows and Gemini Vision are detailed in [`extraction/OCR_SETUP.md`](file:///c:/Users/user/Notice2Action/extraction/OCR_SETUP.md).
+
+---
+
+## 1. Schema & Warning Contracts
+
+### 1.1 Result Property: `ocr_used`
+- Added to [`schemas/notice_output.schema.json`](file:///c:/Users/user/Notice2Action/schemas/notice_output.schema.json) under top-level properties:
+  ```json
+  "ocr_used": {
+    "type": "boolean",
+    "description": "True if optical character recognition (OCR) was utilized to extract text from scanned or image-only pages."
+  }
+  ```
+- Returned in the pipeline response dict (`res["ocr_used"]`) and inside the result payload (`res["result"]["ocr_used"]`).
+- Default: `false`. Whenever any page in the document is read via OCR (Tesseract or Gemini Vision), `ocr_used` is set to `true`, and `needs_verification` is set to `true`.
+
+### 1.2 User-Facing Warning Codes
+1. **`OCR_USED`**:
+   - Injected into `warnings` whenever `ocr_used: true`:
+     ```json
+     {
+       "code": "OCR_USED",
+       "warning_text": "This notice was read from a scan. Please check all details against your original.",
+       "severity": "warning",
+       "evidence_quote": null,
+       "source_page": null
+     }
+     ```
+2. **`PARTIAL_PAGE_UNREADABLE`**:
+   - In mixed documents where some pages have usable text (or successful OCR) but other pages are completely unreadable:
+     ```json
+     {
+       "code": "PARTIAL_PAGE_UNREADABLE",
+       "warning_text": "Page(s) 2 could not be read clearly and were skipped.",
+       "severity": "warning",
+       "evidence_quote": null,
+       "source_page": null
+     }
+     ```
+3. **`OCR_PAGE_CAP_REACHED`**:
+   - In `gemini_vision` mode, if a document has more scanned pages than `OCR_GEMINI_MAX_PAGES` (default: 5):
+     ```json
+     {
+       "code": "OCR_PAGE_CAP_REACHED",
+       "warning_text": "OCR page limit reached (max 5 pages). Remaining scanned pages were skipped.",
+       "severity": "warning",
+       "evidence_quote": null,
+       "source_page": null
+     }
+     ```
+
+---
+
+## 2. Member 2 (M2): Backend & Environment Configuration
+
+### Responsibilities
+Support passing OCR configuration environment variables and propagate `ocr_used` through backend models and endpoints.
+
+### Environment Variables for Backend / Deployment
+| Variable | Default | Permitted Values | Purpose |
+| :--- | :--- | :--- | :--- |
+| `OCR_MODE` | `off` | `off`, `tesseract`, `gemini_vision` | Active OCR fallback engine. Defaults to `off` (refusal). |
+| `OCR_GEMINI_MAX_PAGES` | `5` | Integer $\ge 1$ | Maximum number of pages transcribed via Gemini vision per document. |
+| `OCR_DPI` | `200` | Integer $\ge 150$ | Pixmap rendering resolution for scanned pages (default 200 DPI). |
+| `OCR_MIN_CHARS` | `30` | Integer $\ge 10$ | Threshold character count for usable page text. |
+| `OCR_MIN_ALPHA_RATIO` | `0.40` | Float $0.0 - 1.0$ | Minimum ratio of alphanumeric characters (filters noise/garbage). |
+| `PIPELINE_TOTAL_TIMEOUT_SEC` | `60` | Integer $\ge 10$ | Total end-to-end execution timeout across all extraction & vision calls. |
+
+### Backend API Updates
+- When serializing notice records in `NoticeModel.to_dict()` and `NoticeService.get_notice_detail()`, pass `ocr_used`:
+  ```python
+  ocr_used = (
+      self.result_json.get("ocr_used", False)
+      if isinstance(self.result_json, dict)
+      else False
+  )
+  ```
+- Pass `ocr_used` in API JSON payloads so the client UI can display scan indicators.
+
+---
+
+## 3. Member 3 (M3): Frontend Warning Presentation
+
+### Responsibilities
+Display OCR indicators and handle scan-related warnings in the notice detail dashboard.
+
+### UI Presentation Guidelines
+1. **Scanned Document Warning Badge / Banner**:
+   - When `notice.ocr_used === true` (or `result.ocr_used === true`):
+     - Display an amber scan warning badge or alert:
+       ```
+       [Scan Fallback] This notice was read from a scan. Please check all details against your original.
+       ```
+     - Highlight the `needs_verification` status indicator.
+2. **Partial Page Warning (`PARTIAL_PAGE_UNREADABLE`)**:
+   - Render in the warnings list with an alert icon to inform users which pages were skipped:
+     ```
+     Page(s) 2 could not be read clearly and were skipped.
+     ```
+3. **Setup Guide Link**:
+   - If a document is refused because Tesseract is missing when `OCR_MODE=tesseract`, the API returns a setup guidance message pointing to [`extraction/OCR_SETUP.md`](file:///c:/Users/user/Notice2Action/extraction/OCR_SETUP.md).
+
+
+---
+
+## 4. Phase 7c Polish: Enhanced OCR Quality & Spacing Architecture
+
+### 4.1 Resolution & PSM Selection
+- **Tesseract Resolution**: Upgraded to 300 DPI (`DEFAULT_TESSERACT_DPI = 300`) for sharper character edge resolution on scanned notices, while keeping Gemini Vision at 200 DPI (`DEFAULT_GEMINI_DPI = 200`) to conserve bandwidth and latency.
+- **Dual PSM Evaluation (`--psm 6` vs `--psm 4`)**:
+  - `ocr_page_tesseract` executes pytesseract with both `--psm 6` (uniform text block) and `--psm 4` (single column of variable sizes).
+  - Evaluates both candidates with `score_ocr_candidate` on:
+    1. Share of dictionary-like natural language words.
+    2. Alphanumeric character ratio (filtering non-alphanumeric noise).
+    3. Total alphanumeric character count (retaining text from multi-column layouts without dropped sections).
+  - The superior candidate is retained, and the selection decision is logged.
+
+### 4.2 Spacing Repair & Grounding Separation
+- **`repair_ocr_spacing(text)`**: Cleans punctuation spacing artifacts (e.g. `word , ` $\rightarrow$ `word, `), repairs hyphenated line breaks (`renew-\nal` $\rightarrow$ `renewal`), inserts missing spaces after sentence punctuation (`notice.All` $\rightarrow$ `notice. All`), and removes space inside brackets (`( 10 Dec )` $\rightarrow$ `(10 Dec)`).
+- **Separation Contract**:
+  - `page["text"]` retains the **verbatim, un-repaired OCR output**. Quote grounding (`verify_field_quote`) checks strictly against `page["text"]` character-for-character to prevent false-positive grounding failures.
+  - `page["display_text"]` stores the spacing-repaired text for human display (in `scripts/ocr_smoke.py` and UI components).
+  - `plain_language_summary` fields (`what_is_this`, `why_it_matters`, etc.) receive spacing repair during post-processing for clean human presentation.
+
+### 4.3 Manual Smoke Script Enhancements ([`scripts/ocr_smoke.py`](file:///c:/Users/user/Notice2Action/scripts/ocr_smoke.py))
+- Added `--full-text` flag to print complete extracted text per page without the 300-character preview truncation.
+- Enhanced `--full` output to display `needs_verification`, `plain_language_summary` (5 parts), `required_documents` (name, is_required, quote, page, status), and `action_steps` (order, action, quote, page).

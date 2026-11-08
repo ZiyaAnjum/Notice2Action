@@ -21,6 +21,7 @@ from typing import Any
 import validation.validator as validator
 from extraction.classifier import classify_notice
 from extraction.extractor import (
+    MIN_USABLE_CHAR_COUNT,
     ExtractionError,
     check_document_readability,
     extract_pages,
@@ -37,6 +38,7 @@ from extraction.llm_client import (
     sanitize_message,
 )
 from extraction.llm_extractor import PROMPT_VERSION, extract_notice_with_llm
+from extraction.ocr import repair_ocr_spacing
 from extraction.triage import (
     RULE_BASED_CONFIDENCE_THRESHOLD,
     triage_notice,
@@ -433,6 +435,7 @@ def post_process_notice(
                 }
             )
 
+    is_ocr = any(p.get("method") == "ocr" for p in pages)
     # 0. Normalize plain_language_summary parts to plain strings and retain evidence separately
     summary = notice_copy.get("plain_language_summary")
     if isinstance(summary, dict):
@@ -447,7 +450,8 @@ def post_process_notice(
             val = summary.get(key)
             if isinstance(val, dict):
                 text_val = val.get("text")
-                summary[key] = str(text_val) if text_val is not None else ""
+                raw_str = str(text_val) if text_val is not None else ""
+                summary[key] = repair_ocr_spacing(raw_str) if is_ocr else raw_str
                 ev_quote = val.get("evidence_quote")
                 src_page = val.get("source_page")
                 if ev_quote or src_page:
@@ -455,6 +459,8 @@ def post_process_notice(
                         "evidence_quote": ev_quote,
                         "source_page": src_page,
                     }
+            elif isinstance(val, str) and is_ocr:
+                summary[key] = repair_ocr_spacing(val)
         if summary_evidence:
             notice_copy["plain_language_summary_evidence"] = summary_evidence
 
@@ -712,6 +718,7 @@ def post_process_notice(
 def process_notice(
     file_path: str | Path,
     client: BaseLLMClient | None = None,
+    ocr_mode: str | None = None,
 ) -> dict[str, Any]:
     """Execute the complete end-to-end notice processing pipeline.
 
@@ -727,6 +734,8 @@ def process_notice(
     Args:
         file_path: Path to target PDF file.
         client: Optional BaseLLMClient implementation for dependency injection in tests.
+        ocr_mode: Optional OCR fallback mode ('off' | 'tesseract' | 'gemini_vision').
+            Defaults to OCR_MODE environment variable or 'off'.
 
     Returns:
         Structured result dict:
@@ -740,9 +749,15 @@ def process_notice(
 
     path = Path(file_path)
 
-    # Step 1: Extract pages
+    # Step 1: Extract pages (with OCR fallback for scanned pages when OCR_MODE is enabled)
     try:
-        pages = extract_pages(path)
+        pages = extract_pages(
+            path,
+            ocr_mode=ocr_mode,
+            client=client,
+            start_time=start_time,
+            total_time_budget=total_time_budget,
+        )
     except ExtractionError as err:
         return {
             "status": "needs_clearer_document",
@@ -758,9 +773,16 @@ def process_notice(
             "message": f"Document could not be processed: {err.message}",
         }
 
-    # Step 2: Refusal Check - Readability / Image-only Scans (NO LLM CALL)
+    # Step 2: Refusal Check - Readability / Image-only Scans
     readability = check_document_readability(pages)
-    if readability["readable_pages"] == 0 or readability["status"] == "needs a clearer document":
+    if readability["readable_pages"] == 0:
+        ocr_err = next((p["ocr_error"] for p in pages if p.get("ocr_error")), None)
+        err_msg = ocr_err or "Document contains no usable digital text (scanned or image-only without OCR)."
+        refusal_user_msg = (
+            ocr_err
+            if ocr_err and "Tesseract" in ocr_err
+            else "The uploaded document contains unreadable or scanned pages without usable text. Please provide a clearer digital PDF document."
+        )
         return {
             "status": "needs_clearer_document",
             "category": "other_out_of_scope",
@@ -768,23 +790,33 @@ def process_notice(
             "validation_report": {
                 "is_valid": False,
                 "schema_compliant": False,
-                "errors": [
-                    "Document contains no usable digital text (scanned or image-only without OCR)."
-                ],
+                "errors": [err_msg],
                 "warnings": [],
             },
             "needs_verification": True,
-            "message": "The uploaded document contains unreadable or scanned pages without usable text. "
-            "Please provide a clearer digital PDF document.",
+            "message": refusal_user_msg,
         }
 
+    # Filter readable pages for downstream classification, triage, and LLM extraction
+    readable_pages = [
+        p
+        for p in pages
+        if p.get("method") in ("text", "ocr") and len(p.get("text", "").strip()) >= MIN_USABLE_CHAR_COUNT
+    ]
+    if not readable_pages:
+        readable_pages = pages
+
+    ocr_used = any(p.get("method") == "ocr" for p in pages)
+    unreadable_page_numbers = readability.get("unreadable_page_numbers") or []
+    ocr_cap_hit = any(p.get("ocr_cap_hit") for p in pages)
+
     # Language Detection (script-based lightweight detector)
-    lang_info = detect_document_language(pages)
+    lang_info = detect_document_language(readable_pages)
     is_english = lang_info.get("is_english", True)
     detected_language = lang_info.get("language", "en")
 
     # Step 3: Two-step Triage (Fast Rule-based guess -> LLM triage if ambiguous or new category)
-    rb_classification = classify_notice(pages)
+    rb_classification = classify_notice(readable_pages)
     rb_category = rb_classification.get("category")
     rb_confidence = float(rb_classification.get("confidence", 0.0) or 0.0)
 
@@ -804,7 +836,7 @@ def process_notice(
     else:
         # Step 3b: Execute LLM triage on first 2 pages
         t0_triage = time.perf_counter()
-        triage_res = triage_notice(pages, client=client)
+        triage_res = triage_notice(readable_pages, client=client)
         triage_time_ms = int((time.perf_counter() - t0_triage) * 1000)
 
         if triage_res["status"] == "success":
@@ -877,7 +909,7 @@ def process_notice(
                 }
 
     # Step 4: LLM Structured Extraction (with whole-page chunking for long documents)
-    page_chunks = chunk_pages(pages, char_budget=char_budget)
+    page_chunks = chunk_pages(readable_pages, char_budget=char_budget)
     is_long_document = len(page_chunks) > 1
 
     chunk_results: list[dict[str, Any]] = []
@@ -978,6 +1010,51 @@ def process_notice(
 
     grounded_notice["trust_level"] = trust_level
     grounded_notice["detected_language"] = detected_language
+    grounded_notice["ocr_used"] = ocr_used
+
+    # OCR handling: add user-facing warning and set needs_verification
+    if ocr_used:
+        grounded_notice["needs_verification"] = True
+        grounded_notice.setdefault("warnings", []).insert(
+            0,
+            {
+                "warning_text": "This notice was read from a scan. Please check all details against your original.",
+                "code": "OCR_USED",
+                "severity": "warning",
+                "evidence_quote": None,
+                "source_page": None,
+            },
+        )
+
+    # Partial unreadable pages handling: warn user naming skipped page numbers
+    if unreadable_page_numbers:
+        grounded_notice["needs_verification"] = True
+        page_list_str = ", ".join(str(n) for n in sorted(unreadable_page_numbers))
+        grounded_notice.setdefault("warnings", []).insert(
+            0,
+            {
+                "warning_text": f"Page(s) {page_list_str} could not be read clearly and were skipped.",
+                "code": "PARTIAL_PAGE_UNREADABLE",
+                "severity": "warning",
+                "evidence_quote": None,
+                "source_page": None,
+            },
+        )
+
+    # OCR cap hit handling
+    if ocr_cap_hit:
+        grounded_notice["needs_verification"] = True
+        max_gemini_pages = os.getenv("OCR_GEMINI_MAX_PAGES", "5")
+        grounded_notice.setdefault("warnings", []).insert(
+            0,
+            {
+                "warning_text": f"OCR page limit reached (max {max_gemini_pages} pages). Remaining scanned pages were skipped.",
+                "code": "OCR_PAGE_CAP_REACHED",
+                "severity": "warning",
+                "evidence_quote": None,
+                "source_page": None,
+            },
+        )
 
     # Long document handling: add user-facing note and set needs_verification
     if is_long_document:
@@ -1034,6 +1111,7 @@ def process_notice(
         "category": category,
         "trust_level": trust_level,
         "detected_language": detected_language,
+        "ocr_used": ocr_used,
         "result": grounded_notice,
         "validation_report": validation_report,
         "needs_verification": needs_verification,

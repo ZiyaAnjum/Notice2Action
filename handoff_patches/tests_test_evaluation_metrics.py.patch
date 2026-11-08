@@ -1,0 +1,189 @@
+diff --git a/tests/test_evaluation_metrics.py b/tests/test_evaluation_metrics.py
+index 2f4064d..6202620 100644
+--- a/tests/test_evaluation_metrics.py
++++ b/tests/test_evaluation_metrics.py
+@@ -261,10 +261,29 @@ def test_aggregate_evaluation_results() -> None:
+             "refusal_correct": None,
+             "false_refusal": False,
+             "deadlines": {"tp": 1, "fp": 0, "fn": 0, "matches": [], "invented_deadlines": []},
+-            "documents": {"tp": 2, "fp": 0, "fn": 0, "matches": [], "unmatched_gt": [], "unmatched_pred": []},
+-            "action_steps": {"tp": 3, "fp": 0, "fn": 0, "matches": [], "unmatched_gt": [], "unmatched_pred": []},
++            "documents": {
++                "tp": 2,
++                "fp": 0,
++                "fn": 0,
++                "matches": [],
++                "unmatched_gt": [],
++                "unmatched_pred": [],
++            },
++            "action_steps": {
++                "tp": 3,
++                "fp": 0,
++                "fn": 0,
++                "matches": [],
++                "unmatched_gt": [],
++                "unmatched_pred": [],
++            },
+             "submission_channel_match": True,
+-            "grounding": {"quotes_checked": 4, "quotes_verified": 4, "unsupported_count": 0, "unsupported_items": []},
++            "grounding": {
++                "quotes_checked": 4,
++                "quotes_verified": 4,
++                "unsupported_count": 0,
++                "unsupported_items": [],
++            },
+             "uncertainty_handled": None,
+         },
+         {
+@@ -279,10 +298,29 @@ def test_aggregate_evaluation_results() -> None:
+             "refusal_correct": True,
+             "false_refusal": None,
+             "deadlines": {"tp": 0, "fp": 0, "fn": 0, "matches": [], "invented_deadlines": []},
+-            "documents": {"tp": 0, "fp": 0, "fn": 0, "matches": [], "unmatched_gt": [], "unmatched_pred": []},
+-            "action_steps": {"tp": 0, "fp": 0, "fn": 0, "matches": [], "unmatched_gt": [], "unmatched_pred": []},
++            "documents": {
++                "tp": 0,
++                "fp": 0,
++                "fn": 0,
++                "matches": [],
++                "unmatched_gt": [],
++                "unmatched_pred": [],
++            },
++            "action_steps": {
++                "tp": 0,
++                "fp": 0,
++                "fn": 0,
++                "matches": [],
++                "unmatched_gt": [],
++                "unmatched_pred": [],
++            },
+             "submission_channel_match": True,
+-            "grounding": {"quotes_checked": 0, "quotes_verified": 0, "unsupported_count": 0, "unsupported_items": []},
++            "grounding": {
++                "quotes_checked": 0,
++                "quotes_verified": 0,
++                "unsupported_count": 0,
++                "unsupported_items": [],
++            },
+             "uncertainty_handled": None,
+         },
+     ]
+@@ -305,3 +343,118 @@ def test_aggregate_evaluation_results() -> None:
+     assert targets["required_action_recall"]["passed"] is True
+     assert targets["unsupported_critical_instructions"]["passed"] is True
+     assert targets["processing_time"]["passed"] is True
++
++
++def test_aggregate_evaluation_results_trust_level_partitioning() -> None:
++    """Verify that general-mode results are strictly partitioned and never contaminate tested-tier metrics."""
++    eval_list = [
++        # Tested tier notice: perfectly extracted
++        {
++            "notice_id": "tested-01",
++            "elapsed_time_sec": 1.2,
++            "expected_category": "tax_or_payment",
++            "predicted_category": "tax_or_payment",
++            "expected_trust_level": "tested",
++            "predicted_trust_level": "tested",
++            "category_match": True,
++            "expected_status": "processed",
++            "predicted_status": "processed",
++            "is_refusal_case": False,
++            "refusal_correct": None,
++            "false_refusal": False,
++            "deadlines": {"tp": 2, "fp": 0, "fn": 0, "matches": [], "invented_deadlines": []},
++            "documents": {
++                "tp": 1,
++                "fp": 0,
++                "fn": 0,
++                "matches": [],
++                "unmatched_gt": [],
++                "unmatched_pred": [],
++            },
++            "action_steps": {
++                "tp": 2,
++                "fp": 0,
++                "fn": 0,
++                "matches": [],
++                "unmatched_gt": [],
++                "unmatched_pred": [],
++            },
++            "submission_channel_match": True,
++            "grounding": {
++                "quotes_checked": 5,
++                "quotes_verified": 5,
++                "unsupported_count": 0,
++                "unsupported_items": [],
++            },
++            "uncertainty_handled": True,
++        },
++        # General mode notice: category mismatch and lower extraction accuracy
++        {
++            "notice_id": "general-01",
++            "elapsed_time_sec": 2.5,
++            "expected_category": "insurance_or_health",
++            "predicted_category": "other_official_notice",
++            "expected_trust_level": "general",
++            "predicted_trust_level": "general",
++            "category_match": False,
++            "expected_status": "processed",
++            "predicted_status": "processed",
++            "is_refusal_case": False,
++            "refusal_correct": None,
++            "false_refusal": False,
++            "deadlines": {"tp": 0, "fp": 2, "fn": 1, "matches": [], "invented_deadlines": []},
++            "documents": {
++                "tp": 0,
++                "fp": 1,
++                "fn": 1,
++                "matches": [],
++                "unmatched_gt": [],
++                "unmatched_pred": [],
++            },
++            "action_steps": {
++                "tp": 0,
++                "fp": 1,
++                "fn": 1,
++                "matches": [],
++                "unmatched_gt": [],
++                "unmatched_pred": [],
++            },
++            "submission_channel_match": False,
++            "grounding": {
++                "quotes_checked": 3,
++                "quotes_verified": 1,
++                "unsupported_count": 1,
++                "unsupported_items": [{"field": "deadline_1"}],
++            },
++            "uncertainty_handled": False,
++        },
++    ]
++
++    agg = aggregate_evaluation_results(eval_list, prompt_version="1.5.0")
++    by_trust = agg["by_trust_level"]
++
++    assert "tested" in by_trust
++    assert "general" in by_trust
++
++    tested = by_trust["tested"]
++    general = by_trust["general"]
++
++    # Tested tier metrics must be clean and not contaminated by general-mode failures
++    assert tested["total_notices"] == 1
++    assert tested["classification_accuracy"] == 1.0
++    assert tested["deadline_precision"] == 1.0
++    assert tested["combined_action_precision"] == 1.0
++    assert tested["unsupported_critical_count"] == 0
++
++    # General mode metrics are recorded separately
++    assert general["total_notices"] == 1
++    assert general["classification_accuracy"] == 0.0
++    assert general["deadline_precision"] == 0.0
++    assert general["unsupported_critical_count"] == 1
++
++    # PRD Target checks must be evaluated against the tested tier
++    targets = agg["targets_vs_measured"]
++    assert targets["classification_accuracy"]["passed"] is True
++    assert targets["critical_deadline_precision"]["passed"] is True
++    assert targets["required_action_precision"]["passed"] is True
++    assert targets["unsupported_critical_instructions"]["passed"] is True
