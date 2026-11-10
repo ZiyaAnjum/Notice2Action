@@ -498,6 +498,8 @@ export function NoticeDashboardPage() {
         deadlines={result.deadlines || []}
         onRemind={handleOpenReminder}
         onShowSource={handleOpenSource}
+        noticeTitle={noticeTitle}
+        noticeId={id}
       />
 
       {/* Summary: 5 Plain Language Question Headings */}

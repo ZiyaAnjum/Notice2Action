@@ -1,27 +1,76 @@
 /**
  * Category labels and metadata for official notices.
+ * Aligned with the canonical schema contract (schemas/notice_output.schema.json)
+ * and project requirements (PRD Section 2 and rules.md).
  */
 
 export const CATEGORY_LABELS = {
-  tax_revenue: "Tax & Revenue",
-  court_legal: "Court & Legal",
-  health_medical: "Health & Medical",
-  housing_tenancy: "Housing & Tenancy",
-  government_benefits: "Government Benefits",
-  utility_services: "Utilities & Services",
-  // Common supplementary categories
+  // Five canonical supported categories
   scholarship_or_college: "Scholarship & Education",
-  banking_finance: "Banking & Finance",
+  bank: "Banking & KYC",
+  utility: "Utilities & Services",
+  tax_or_payment: "Tax & Payment",
+  government_scheme: "Government Schemes",
+
+  // Out-of-scope / unsupported handling
+  other_out_of_scope: "Unsupported Notice",
+
+  // Shorthand and legacy aliases for backward compatibility
+  scholarship: "Scholarship & Education",
+  tax: "Tax & Payment",
+  tax_revenue: "Tax & Payment",
+  govt_scheme: "Government Schemes",
+  government_benefits: "Government Schemes",
+  utility_services: "Utilities & Services",
+  banking_finance: "Banking & KYC",
+  out_of_scope: "Unsupported Notice",
+  unsupported: "Unsupported Notice",
 };
 
 export const SUPPORTED_CATEGORIES = [
-  { key: "tax_revenue", label: "Tax & Revenue", description: "Tax assessments, refunds, and filing demands" },
-  { key: "court_legal", label: "Court & Legal", description: "Summons, hearing dates, and legal notices" },
-  { key: "health_medical", label: "Health & Medical", description: "Medical appointments, coverage, and health bills" },
-  { key: "housing_tenancy", label: "Housing & Tenancy", description: "Rent notices, leases, and tenancy updates" },
-  { key: "government_benefits", label: "Government Benefits", description: "Pension, welfare, social security, and grants" },
-  { key: "utility_services", label: "Utilities & Services", description: "Electricity, water, gas, and telecoms bills" },
+  {
+    key: "scholarship_or_college",
+    label: "Scholarship & Education",
+    description: "Financial aid circulars, college renewal mandates, and stipend applications",
+  },
+  {
+    key: "bank",
+    label: "Banking & KYC",
+    description: "Account KYC refresh notices, dormancy warnings, and re-KYC mandates",
+  },
+  {
+    key: "utility",
+    label: "Utilities & Services",
+    description: "Electricity, water, or gas disconnection warnings and meter notices",
+  },
+  {
+    key: "tax_or_payment",
+    label: "Tax & Payment",
+    description: "Municipal property tax notices, assessment demands, and advance tax alerts",
+  },
+  {
+    key: "government_scheme",
+    label: "Government Schemes",
+    description: "Direct benefit transfer (DBT) registrations and subsidy windows",
+  },
 ];
+
+export const OUT_OF_SCOPE_CATEGORY = {
+  key: "other_out_of_scope",
+  label: "Unsupported Notice",
+  description:
+    "Documents outside the 5 supported categories (e.g. recipes, commercial invoices, lease agreements, brochures)",
+};
+
+/**
+ * Checks whether a given category is one of the 5 canonical supported categories.
+ * @param {string|null} category
+ * @returns {boolean}
+ */
+export function isSupportedCategory(category) {
+  if (!category) return false;
+  return SUPPORTED_CATEGORIES.some((c) => c.key === category);
+}
 
 /**
  * Returns a human-friendly category label.

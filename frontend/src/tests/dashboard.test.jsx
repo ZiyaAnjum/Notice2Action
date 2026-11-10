@@ -65,9 +65,9 @@ describe("NoticeDashboardPage", () => {
     });
 
     // Check that supported categories are listed
-    expect(screen.getByText(/Tax & Revenue/i)).toBeInTheDocument();
-    expect(screen.getByText(/Court & Legal/i)).toBeInTheDocument();
-    expect(screen.getByText(/Government Benefits/i)).toBeInTheDocument();
+    expect(screen.getByText(/Tax & Payment/i)).toBeInTheDocument();
+    expect(screen.getByText(/Scholarship & Education/i)).toBeInTheDocument();
+    expect(screen.getByText(/Government Schemes/i)).toBeInTheDocument();
     expect(screen.queryByText(/Action Plan/i)).not.toBeInTheDocument();
   });
 
@@ -75,7 +75,7 @@ describe("NoticeDashboardPage", () => {
     api.getNotice.mockResolvedValueOnce({
       id: "notice-100",
       status: "processed",
-      category: "tax_revenue",
+      category: "tax_or_payment",
       needs_verification: true,
       result: {
         notice_title: { value: "Final Demand for Payment", status: "found" },
@@ -140,7 +140,7 @@ describe("NoticeDashboardPage", () => {
 
     // Issuing organisation & category
     expect(screen.getByText(/HM Revenue & Customs/i)).toBeInTheDocument();
-    expect(screen.getByText(/Tax & Revenue/i)).toBeInTheDocument();
+    expect(screen.getByText(/Tax & Payment/i)).toBeInTheDocument();
 
     // Needs verification banner
     expect(

@@ -25,7 +25,7 @@ describe("NoticesListPage", () => {
       {
         id: "notice-1",
         title: "Council Tax Demand",
-        category: "tax_revenue",
+        category: "tax_or_payment",
         status: "processed",
         deadline_summary: "Due in 14 days",
         needs_verification: true,
@@ -55,7 +55,7 @@ describe("NoticesListPage", () => {
     });
 
     // Notice card details
-    expect(screen.getByText(/Tax & Revenue/i)).toBeInTheDocument();
+    expect(screen.getByText(/Tax & Payment/i)).toBeInTheDocument();
     expect(screen.getByText(/Due in 14 days/i)).toBeInTheDocument();
     expect(screen.getByText(/Needs Verification/i)).toBeInTheDocument();
 

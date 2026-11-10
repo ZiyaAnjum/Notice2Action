@@ -1,5 +1,5 @@
 /**
- * Text processing and quote matching utilities.
+ * Text processing, quote matching, and date calculation utilities.
  */
 
 /**
@@ -88,14 +88,30 @@ export function findQuoteHighlight(pageText, quote) {
 }
 
 /**
- * Formats an ISO date string into a friendly, readable format.
+ * Formats a date string into a friendly, readable format.
+ * Accurately parses date-only YYYY-MM-DD values in local time to avoid timezone drift.
+ *
  * @param {string|null} dateStr
  * @returns {string}
  */
 export function formatDate(dateStr) {
   if (!dateStr) return "Not specified";
   try {
-    const d = new Date(dateStr);
+    const trimmed = String(dateStr).trim();
+    const dateOnlyMatch = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    let d;
+    if (dateOnlyMatch) {
+      d = new Date(Number(dateOnlyMatch[1]), Number(dateOnlyMatch[2]) - 1, Number(dateOnlyMatch[3]));
+      if (
+  d.getFullYear() !== Number(dateOnlyMatch[1]) ||
+  d.getMonth() !== Number(dateOnlyMatch[2]) - 1 ||
+  d.getDate() !== Number(dateOnlyMatch[3])
+) {
+  return dateStr;
+}
+    } else {
+      d = new Date(trimmed);
+    }
     if (isNaN(d.getTime())) return dateStr;
     return d.toLocaleDateString("en-US", {
       weekday: "short",
@@ -106,4 +122,101 @@ export function formatDate(dateStr) {
   } catch {
     return dateStr;
   }
+}
+
+/**
+ * Calculates countdown and urgency state for a given deadline date.
+ * Handles date-only values (YYYY-MM-DD) against local calendar midnight to prevent timezone skew.
+ *
+ * @param {string|null} dateStr - Target date string.
+ * @param {Date} [referenceDate=new Date()] - Baseline date (defaults to current time).
+ * @returns {{ daysRemaining: number, label: string, urgency: "critical"|"urgent"|"warning"|"normal"|"overdue", isOverdue: boolean } | null}
+ */
+export function getCountdownDetails(dateStr, referenceDate = new Date()) {
+  if (!dateStr || typeof dateStr !== "string") return null;
+
+  const trimmed = dateStr.trim();
+  const dateOnlyMatch = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  let targetDate;
+
+  if (dateOnlyMatch) {
+    const year = Number(dateOnlyMatch[1]);
+    const month = Number(dateOnlyMatch[2]) - 1;
+    const day = Number(dateOnlyMatch[3]);
+    targetDate = new Date(year, month, day);
+    if (
+  targetDate.getFullYear() !== year ||
+  targetDate.getMonth() !== month ||
+  targetDate.getDate() !== day
+) {
+  return null;
+}
+  } else {
+    targetDate = new Date(trimmed);
+    if (isNaN(targetDate.getTime())) return null;
+  }
+
+  // Compare on whole calendar days (local midnight) to avoid partial day artifacts
+  const targetMidnight = new Date(targetDate.getFullYear(), targetDate.getMonth(), targetDate.getDate());
+  const refMidnight = new Date(
+    referenceDate.getFullYear(),
+    referenceDate.getMonth(),
+    referenceDate.getDate()
+  );
+
+  const diffMs = targetMidnight.getTime() - refMidnight.getTime();
+  const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24));
+
+  if (diffDays < 0) {
+    const absDays = Math.abs(diffDays);
+    return {
+      daysRemaining: diffDays,
+      label: absDays === 1 ? "Overdue by 1 day" : `Overdue by ${absDays} days`,
+      urgency: "overdue",
+      isOverdue: true,
+    };
+  }
+
+  if (diffDays === 0) {
+    return {
+      daysRemaining: 0,
+      label: "Due today",
+      urgency: "critical",
+      isOverdue: false,
+    };
+  }
+
+  if (diffDays === 1) {
+    return {
+      daysRemaining: 1,
+      label: "Due tomorrow (1 day left)",
+      urgency: "critical",
+      isOverdue: false,
+    };
+  }
+
+  if (diffDays <= 3) {
+    return {
+      daysRemaining: diffDays,
+      label: `${diffDays} days left`,
+      urgency: "urgent",
+      isOverdue: false,
+    };
+  }
+
+  if (diffDays <= 7) {
+    return {
+      daysRemaining: diffDays,
+      label: `${diffDays} days left`,
+      urgency: "warning",
+      isOverdue: false,
+    };
+  }
+
+  return {
+    daysRemaining: diffDays,
+    label: `${diffDays} days left`,
+    urgency: "normal",
+    isOverdue: false,
+  };
 }

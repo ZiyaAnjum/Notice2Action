@@ -7,16 +7,16 @@ import { NoticeDashboardPage } from "./pages/NoticeDashboardPage";
 export default function App() {
   return (
     <BrowserRouter>
-      <div className="min-h-screen bg-slate-100 flex flex-col text-slate-900 font-sans antialiased selection:bg-indigo-600 selection:text-white">
-        <Header />
-        <div className="flex-1">
-          <Routes>
-            <Route path="/" element={<UploadPage />} />
-            <Route path="/notices" element={<NoticesListPage />} />
-            <Route path="/notices/:id" element={<NoticeDashboardPage />} />
-          </Routes>
-        </div>
-      </div>
-    </BrowserRouter>
-  );
+        <div className="min-h-screen mesh-gradient-canvas flex flex-col text-slate-900 font-sans antialiased selection:bg-royal-600 selection:text-white">
+          <Header />
+            <div className="flex-1 flex flex-col">
+              <Routes>
+                <Route path="/" element={<UploadPage />} />
+                <Route path="/notices" element={<NoticesListPage />} />
+                <Route path="/notices/:id" element={<NoticeDashboardPage />} />
+              </Routes>
+            </div>
+          </div>
+        </BrowserRouter>
+        );
 }

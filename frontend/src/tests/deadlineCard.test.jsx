@@ -1,5 +1,6 @@
 import { render, screen } from "@testing-library/react";
-import { describe, it, expect } from "vitest";
+import userEvent from "@testing-library/user-event";
+import { describe, it, expect, vi } from "vitest";
 import { DeadlineCard } from "../components/DeadlineCard";
 
 describe("DeadlineCard Component", () => {
@@ -30,7 +31,7 @@ describe("DeadlineCard Component", () => {
 
     // Extended deadline is labelled as a later date with a fee
     expect(screen.getByText("Later date with fee")).toBeInTheDocument();
-
+    expect(screen.getAllByRole("button", { name: /Add to Calendar/i })).toHaveLength(2);
     // Conflict and ambiguous badges must NOT be displayed
     expect(screen.queryByText(/Check which date applies/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/Ambiguous Deadline/i)).not.toBeInTheDocument();
@@ -82,5 +83,151 @@ describe("DeadlineCard Component", () => {
     render(<DeadlineCard deadlines={[]} />);
     expect(screen.getByText("No deadline was found in this notice.")).toBeInTheDocument();
   });
-});
 
+  it("renders Add to Calendar button and toggles download/web options", async () => {
+    const singleDeadline = [
+      {
+        description: "Pay municipal property tax",
+        iso_date: "2026-12-31",
+        original_wording: "Payment due by 31-12-2026",
+        role: "primary",
+        status: "found",
+      },
+    ];
+
+    render(
+      <DeadlineCard
+        deadlines={singleDeadline}
+        noticeTitle="Property Tax Demand"
+        noticeId="notice-123"
+      />
+    );
+
+    const calendarBtn = screen.getByRole("button", { name: /Add to Calendar/i });
+    expect(calendarBtn).toBeInTheDocument();
+
+    // Click to open calendar options menu
+    const user = userEvent.setup();
+    await user.click(calendarBtn);
+
+    expect(screen.getByText(/Download \.ics File/i)).toBeInTheDocument();
+    expect(screen.getByText(/Google Calendar/i)).toBeInTheDocument();
+    // Escape should close the menu
+await user.keyboard("{Escape}");
+expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+
+// Outside click should also close the menu
+await user.click(calendarBtn);
+await user.click(document.body);
+expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+  });
+    it("hides Add to Calendar for conflicting, ambiguous, and uncertain deadlines", () => {
+    const deadlines = [
+      {
+        description: "Conflicting deadline",
+        iso_date: "2026-11-18",
+        status: "conflicting",
+      },
+      {
+        description: "Ambiguous deadline",
+        iso_date: "2026-11-20",
+        status: "found",
+        is_ambiguous: true,
+      },
+      {
+        description: "Uncertain deadline",
+        iso_date: "2026-11-25",
+        status: "uncertain",
+      },
+    ];
+
+    render(<DeadlineCard deadlines={deadlines} />);
+
+    expect(
+      screen.queryByRole("button", { name: /Add to Calendar/i })
+    ).not.toBeInTheDocument();
+  });
+  it("hides countdowns for conflicting, ambiguous, and uncertain deadlines", () => {
+  const futureDate = new Date();
+  futureDate.setDate(futureDate.getDate() + 5);
+  const dateStr = futureDate.toISOString().split("T")[0];
+
+  const deadlines = [
+    {
+      description: "Conflicting deadline",
+      iso_date: dateStr,
+      status: "conflicting",
+    },
+    {
+      description: "Ambiguous deadline",
+      iso_date: dateStr,
+      status: "found",
+      is_ambiguous: true,
+    },
+    {
+      description: "Uncertain deadline",
+      iso_date: dateStr,
+      status: "uncertain",
+    },
+  ];
+
+  render(<DeadlineCard deadlines={deadlines} />);
+
+  expect(
+    screen.queryByText(/days left|due today|tomorrow|overdue/i)
+  ).not.toBeInTheDocument();
+});
+  it("renders countdown pill next to deadline date", () => {
+    // Generate date 5 days in the future from current real time
+    const futureDate = new Date();
+    futureDate.setDate(futureDate.getDate() + 5);
+    const dateStr = futureDate.toISOString().split("T")[0];
+
+    const deadlines = [
+      {
+        description: "Scholarship verification",
+        iso_date: dateStr,
+        original_wording: "Submit documents online within window",
+        role: "primary",
+        status: "found",
+      },
+    ];
+
+    render(<DeadlineCard deadlines={deadlines} />);
+
+    expect(screen.getByText(/5 days left/i)).toBeInTheDocument();
+  });
+
+  it("triggers onRemind and onShowSource callback buttons", async () => {
+    const mockRemind = vi.fn();
+    const mockShowSource = vi.fn();
+
+    const deadlines = [
+      {
+        description: "Disconnection cutoff",
+        iso_date: "2026-11-25",
+        original_wording: "Must pay before cutoff",
+        source_page: 2,
+        evidence_quote: "Must pay before cutoff",
+        status: "found",
+      },
+    ];
+
+    render(
+      <DeadlineCard
+        deadlines={deadlines}
+        onRemind={mockRemind}
+        onShowSource={mockShowSource}
+      />
+    );
+
+    const remindBtn = screen.getByRole("button", { name: /Remind Me/i });
+    const user = userEvent.setup();
+    await user.click(remindBtn);
+    expect(mockRemind).toHaveBeenCalledWith(expect.objectContaining({ description: "Disconnection cutoff" }));
+
+    const sourceBtn = screen.getByRole("button", { name: /Show Source/i });
+    await user.click(sourceBtn);
+    expect(mockShowSource).toHaveBeenCalledWith(2, "Must pay before cutoff");
+  });
+});
