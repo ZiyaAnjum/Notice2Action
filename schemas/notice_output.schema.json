@@ -61,36 +61,56 @@
       "properties": {
         "what_is_this": {
           "oneOf": [
-            { "$ref": "#/$defs/SummarySection" },
-            { "type": "string" }
+            {
+              "$ref": "#/$defs/SummarySection"
+            },
+            {
+              "type": "string"
+            }
           ],
           "description": "Clear explanation of what document this is, or 'not_found'."
         },
         "why_it_matters": {
           "oneOf": [
-            { "$ref": "#/$defs/SummarySection" },
-            { "type": "string" }
+            {
+              "$ref": "#/$defs/SummarySection"
+            },
+            {
+              "type": "string"
+            }
           ],
           "description": "Why this notice is important to the recipient, or 'not_found'."
         },
         "what_to_do": {
           "oneOf": [
-            { "$ref": "#/$defs/SummarySection" },
-            { "type": "string" }
+            {
+              "$ref": "#/$defs/SummarySection"
+            },
+            {
+              "type": "string"
+            }
           ],
           "description": "Required actionable response, or 'not_found'."
         },
         "where_to_do_it": {
           "oneOf": [
-            { "$ref": "#/$defs/SummarySection" },
-            { "type": "string" }
+            {
+              "$ref": "#/$defs/SummarySection"
+            },
+            {
+              "type": "string"
+            }
           ],
           "description": "Location, portal, or counter to take action, or 'not_found'."
         },
         "if_deadline_missed": {
           "oneOf": [
-            { "$ref": "#/$defs/SummarySection" },
-            { "type": "string" }
+            {
+              "$ref": "#/$defs/SummarySection"
+            },
+            {
+              "type": "string"
+            }
           ],
           "description": "Consequences if deadline is missed, or 'not_found'."
         }
@@ -112,7 +132,10 @@
         ],
         "properties": {
           "date": {
-            "type": ["string", "null"],
+            "type": [
+              "string",
+              "null"
+            ],
             "description": "Explicit due date (ISO string or raw date text) or 'not_found' / 'uncertain'."
           },
           "description": {
@@ -121,25 +144,54 @@
           },
           "role": {
             "type": "string",
-            "enum": ["primary", "extended", "consequence", "other"],
+            "enum": [
+              "primary",
+              "extended",
+              "consequence",
+              "other"
+            ],
             "description": "Role of this deadline: primary (the main deadline), extended (a later date that is allowed with a fee or penalty), consequence (a date or period triggered by something else, for example 'within 7 days of the due date'), or other."
           },
           "evidence_quote": {
-            "type": ["string", "null"],
+            "type": [
+              "string",
+              "null"
+            ],
             "description": "Verbatim quotation from the source text, or 'not_found' / 'uncertain'."
           },
           "source_page": {
             "oneOf": [
-              { "type": "integer", "minimum": 1 },
-              { "type": "string", "enum": ["not_found", "uncertain"] },
-              { "type": "null" }
+              {
+                "type": "integer",
+                "minimum": 1
+              },
+              {
+                "type": "string",
+                "enum": [
+                  "not_found",
+                  "uncertain"
+                ]
+              },
+              {
+                "type": "null"
+              }
             ],
             "description": "1-indexed page number containing the deadline, or 'not_found' / 'uncertain' / null."
           },
           "confidence": {
             "oneOf": [
-              { "type": "number", "minimum": 0.0, "maximum": 1.0 },
-              { "type": "string", "enum": ["not_found", "uncertain"] }
+              {
+                "type": "number",
+                "minimum": 0.0,
+                "maximum": 1.0
+              },
+              {
+                "type": "string",
+                "enum": [
+                  "not_found",
+                  "uncertain"
+                ]
+              }
             ],
             "description": "Extraction confidence score between 0.0 and 1.0, or 'not_found' / 'uncertain'."
           },
@@ -148,13 +200,26 @@
             "description": "Flag set to true if date is ambiguous (e.g. relative without base date) or contradictory across sections (FR-04)."
           },
           "ambiguity_reason": {
-            "type": ["string", "null"],
+            "type": [
+              "string",
+              "null"
+            ],
             "description": "Short explanation for why the deadline is marked ambiguous or conflicting."
           },
           "status": {
             "type": "string",
-            "enum": ["found", "uncertain", "ambiguous", "conflicting", "not_found"],
+            "enum": [
+              "found",
+              "uncertain",
+              "ambiguous",
+              "conflicting",
+              "not_found"
+            ],
             "description": "Deadline status indicator."
+          },
+          "grounded_loosely": {
+            "type": "boolean",
+            "description": "True if quote matched OCR text under relaxed whitespace-insensitive matching."
           }
         },
         "additionalProperties": false
@@ -182,25 +247,50 @@
             "description": "True if document is legally or procedurally mandatory; false if optional, recommended, or conditional."
           },
           "label": {
-            "type": ["string", "null"],
+            "type": [
+              "string",
+              "null"
+            ],
             "description": "Optional label for document requirements, e.g. 'Suggested, not required'."
           },
           "evidence_quote": {
-            "type": ["string", "null"],
+            "type": [
+              "string",
+              "null"
+            ],
             "description": "Verbatim quote where this document is mentioned, or 'not_found' / 'uncertain'."
           },
           "source_page": {
             "oneOf": [
-              { "type": "integer", "minimum": 1 },
-              { "type": "string", "enum": ["not_found", "uncertain"] },
-              { "type": "null" }
+              {
+                "type": "integer",
+                "minimum": 1
+              },
+              {
+                "type": "string",
+                "enum": [
+                  "not_found",
+                  "uncertain"
+                ]
+              },
+              {
+                "type": "null"
+              }
             ],
             "description": "1-indexed page number where document requirement appears, or 'not_found' / 'uncertain' / null."
           },
           "status": {
             "type": "string",
-            "enum": ["not_completed", "completed", "needs_verification"],
+            "enum": [
+              "not_completed",
+              "completed",
+              "needs_verification"
+            ],
             "description": "Current checklist status for the document."
+          },
+          "grounded_loosely": {
+            "type": "boolean",
+            "description": "True if quote matched OCR text under relaxed whitespace-insensitive matching."
           }
         },
         "additionalProperties": false
@@ -208,29 +298,58 @@
     },
     "submission_channel": {
       "type": "object",
-      "required": ["channel", "evidence_quote", "source_page"],
+      "required": [
+        "channel",
+        "evidence_quote",
+        "source_page"
+      ],
       "description": "Primary submission mode, portal URL, physical counter, or postal address.",
       "properties": {
         "channel": {
-          "type": ["string", "null"],
+          "type": [
+            "string",
+            "null"
+          ],
           "description": "Submission portal URL, counter address, or email, or 'not_found' / 'uncertain'."
         },
         "evidence_quote": {
-          "type": ["string", "null"],
+          "type": [
+            "string",
+            "null"
+          ],
           "description": "Verbatim quote indicating submission channel, or 'not_found' / 'uncertain'."
         },
         "source_page": {
           "oneOf": [
-            { "type": "integer", "minimum": 1 },
-            { "type": "string", "enum": ["not_found", "uncertain"] },
-            { "type": "null" }
+            {
+              "type": "integer",
+              "minimum": 1
+            },
+            {
+              "type": "string",
+              "enum": [
+                "not_found",
+                "uncertain"
+              ]
+            },
+            {
+              "type": "null"
+            }
           ],
           "description": "1-indexed page number specifying the submission channel, or 'not_found' / 'uncertain' / null."
         },
         "status": {
           "type": "string",
-          "enum": ["found", "uncertain", "not_found"],
+          "enum": [
+            "found",
+            "uncertain",
+            "not_found"
+          ],
           "description": "Verification status."
+        },
+        "grounded_loosely": {
+          "type": "boolean",
+          "description": "True if quote matched OCR text under relaxed whitespace-insensitive matching."
         }
       },
       "additionalProperties": false
@@ -240,32 +359,62 @@
       "description": "Financial penalties, late fees, interest, or consequences specified in notice.",
       "items": {
         "type": "object",
-        "required": ["description", "evidence_quote", "source_page"],
+        "required": [
+          "description",
+          "evidence_quote",
+          "source_page"
+        ],
         "properties": {
           "description": {
             "type": "string",
             "description": "Description of penalty or consequence, or 'not_found' / 'uncertain'."
           },
           "amount": {
-            "type": ["string", "number", "null"],
+            "type": [
+              "string",
+              "number",
+              "null"
+            ],
             "description": "Stated penalty amount or rate, or null / 'not_found' / 'uncertain'."
           },
           "evidence_quote": {
-            "type": ["string", "null"],
+            "type": [
+              "string",
+              "null"
+            ],
             "description": "Verbatim quote describing the penalty, or 'not_found' / 'uncertain'."
           },
           "source_page": {
             "oneOf": [
-              { "type": "integer", "minimum": 1 },
-              { "type": "string", "enum": ["not_found", "uncertain"] },
-              { "type": "null" }
+              {
+                "type": "integer",
+                "minimum": 1
+              },
+              {
+                "type": "string",
+                "enum": [
+                  "not_found",
+                  "uncertain"
+                ]
+              },
+              {
+                "type": "null"
+              }
             ],
             "description": "1-indexed page number describing penalty, or 'not_found' / 'uncertain' / null."
           },
           "status": {
             "type": "string",
-            "enum": ["found", "uncertain", "not_found"],
+            "enum": [
+              "found",
+              "uncertain",
+              "not_found"
+            ],
             "description": "Verification status."
+          },
+          "grounded_loosely": {
+            "type": "boolean",
+            "description": "True if quote matched OCR text under relaxed whitespace-insensitive matching."
           }
         },
         "additionalProperties": false
@@ -276,7 +425,12 @@
       "description": "Chronological ordered sequence of action steps for the recipient.",
       "items": {
         "type": "object",
-        "required": ["order", "action", "evidence_quote", "source_page"],
+        "required": [
+          "order",
+          "action",
+          "evidence_quote",
+          "source_page"
+        ],
         "properties": {
           "order": {
             "type": "integer",
@@ -288,21 +442,43 @@
             "description": "Direct, actionable instruction strictly derived from notice text, or 'not_found' / 'uncertain'."
           },
           "evidence_quote": {
-            "type": ["string", "null"],
+            "type": [
+              "string",
+              "null"
+            ],
             "description": "Verbatim quote instructing this action, or 'not_found' / 'uncertain'."
           },
           "source_page": {
             "oneOf": [
-              { "type": "integer", "minimum": 1 },
-              { "type": "string", "enum": ["not_found", "uncertain"] },
-              { "type": "null" }
+              {
+                "type": "integer",
+                "minimum": 1
+              },
+              {
+                "type": "string",
+                "enum": [
+                  "not_found",
+                  "uncertain"
+                ]
+              },
+              {
+                "type": "null"
+              }
             ],
             "description": "1-indexed page number containing the instruction, or 'not_found' / 'uncertain' / null."
           },
           "status": {
             "type": "string",
-            "enum": ["found", "uncertain", "not_found"],
+            "enum": [
+              "found",
+              "uncertain",
+              "not_found"
+            ],
             "description": "Verification status."
+          },
+          "grounded_loosely": {
+            "type": "boolean",
+            "description": "True if quote matched OCR text under relaxed whitespace-insensitive matching."
           }
         },
         "additionalProperties": false
@@ -313,7 +489,11 @@
       "description": "User-facing warnings, conditions, or cautions stated directly in the notice text for the recipient (e.g. 'Cash payments above Rs. 10,000 are not accepted').",
       "items": {
         "type": "object",
-        "required": ["warning_text", "evidence_quote", "source_page"],
+        "required": [
+          "warning_text",
+          "evidence_quote",
+          "source_page"
+        ],
         "properties": {
           "warning_text": {
             "type": "string",
@@ -329,19 +509,41 @@
           },
           "severity": {
             "type": "string",
-            "enum": ["info", "warning", "critical"]
+            "enum": [
+              "info",
+              "warning",
+              "critical"
+            ]
           },
           "evidence_quote": {
-            "type": ["string", "null"],
+            "type": [
+              "string",
+              "null"
+            ],
             "description": "Verbatim quote supporting the warning, or 'not_found' / 'uncertain' / null."
           },
           "source_page": {
             "oneOf": [
-              { "type": "integer", "minimum": 1 },
-              { "type": "string", "enum": ["not_found", "uncertain"] },
-              { "type": "null" }
+              {
+                "type": "integer",
+                "minimum": 1
+              },
+              {
+                "type": "string",
+                "enum": [
+                  "not_found",
+                  "uncertain"
+                ]
+              },
+              {
+                "type": "null"
+              }
             ],
             "description": "1-indexed page number or null."
+          },
+          "grounded_loosely": {
+            "type": "boolean",
+            "description": "True if quote matched OCR text under relaxed whitespace-insensitive matching."
           }
         },
         "additionalProperties": false
@@ -352,7 +554,10 @@
       "description": "System-generated technical checks (grounding, document-filter, ellipsis, relative-date notes) for diagnostics.",
       "items": {
         "type": "object",
-        "required": ["code", "severity"],
+        "required": [
+          "code",
+          "severity"
+        ],
         "properties": {
           "code": {
             "type": "string",
@@ -372,17 +577,35 @@
           },
           "severity": {
             "type": "string",
-            "enum": ["info", "warning", "critical"]
+            "enum": [
+              "info",
+              "warning",
+              "critical"
+            ]
           },
           "evidence_quote": {
-            "type": ["string", "null"],
+            "type": [
+              "string",
+              "null"
+            ],
             "description": "Quote associated with this check, if applicable."
           },
           "source_page": {
             "oneOf": [
-              { "type": "integer", "minimum": 1 },
-              { "type": "string", "enum": ["not_found", "uncertain"] },
-              { "type": "null" }
+              {
+                "type": "integer",
+                "minimum": 1
+              },
+              {
+                "type": "string",
+                "enum": [
+                  "not_found",
+                  "uncertain"
+                ]
+              },
+              {
+                "type": "null"
+              }
             ],
             "description": "Page number associated with this check, if applicable."
           }
@@ -392,7 +615,10 @@
     },
     "trust_level": {
       "type": "string",
-      "enum": ["tested", "general"],
+      "enum": [
+        "tested",
+        "general"
+      ],
       "description": "Trust tier for this notice type: 'tested' for core categories, 'general' for expanded general-mode categories."
     },
     "detected_language": {
@@ -409,7 +635,11 @@
     },
     "document_quality": {
       "type": "string",
-      "enum": ["good", "poor_scan", "incomplete"],
+      "enum": [
+        "good",
+        "poor_scan",
+        "incomplete"
+      ],
       "description": "Assessment of input document readability."
     },
     "extracted_at": {
@@ -438,54 +668,111 @@
     },
     "EvidenceTextField": {
       "type": "object",
-      "required": ["text", "evidence_quote", "source_page"],
+      "required": [
+        "text",
+        "evidence_quote",
+        "source_page"
+      ],
       "properties": {
         "text": {
-          "type": ["string", "null"],
+          "type": [
+            "string",
+            "null"
+          ],
           "description": "Extracted string content or 'not_found' / 'uncertain'."
         },
         "value": {
-          "type": ["string", "null"],
+          "type": [
+            "string",
+            "null"
+          ],
           "description": "Optional alias for text."
         },
         "evidence_quote": {
-          "type": ["string", "null"],
+          "type": [
+            "string",
+            "null"
+          ],
           "description": "Verbatim quote backing this field, or 'not_found' / 'uncertain'."
         },
         "source_page": {
           "oneOf": [
-            { "type": "integer", "minimum": 1 },
-            { "type": "string", "enum": ["not_found", "uncertain"] },
-            { "type": "null" }
+            {
+              "type": "integer",
+              "minimum": 1
+            },
+            {
+              "type": "string",
+              "enum": [
+                "not_found",
+                "uncertain"
+              ]
+            },
+            {
+              "type": "null"
+            }
           ],
           "description": "1-indexed page number, or 'not_found' / 'uncertain' / null."
         },
         "status": {
           "type": "string",
-          "enum": ["found", "uncertain", "not_found"]
+          "enum": [
+            "found",
+            "uncertain",
+            "not_found"
+          ]
+        },
+        "grounded_loosely": {
+          "type": "boolean",
+          "description": "True if quote matched OCR text under relaxed whitespace-insensitive matching."
         }
       },
       "additionalProperties": false
     },
     "SummarySection": {
       "type": "object",
-      "required": ["text", "evidence_quote", "source_page"],
+      "required": [
+        "text",
+        "evidence_quote",
+        "source_page"
+      ],
       "properties": {
         "text": {
-          "type": ["string", "null"],
+          "type": [
+            "string",
+            "null"
+          ],
           "description": "Summary section text, or 'not_found' / 'uncertain'."
         },
         "evidence_quote": {
-          "type": ["string", "null"],
+          "type": [
+            "string",
+            "null"
+          ],
           "description": "Verbatim quote or 'not_found' / 'uncertain'."
         },
         "source_page": {
           "oneOf": [
-            { "type": "integer", "minimum": 1 },
-            { "type": "string", "enum": ["not_found", "uncertain"] },
-            { "type": "null" }
+            {
+              "type": "integer",
+              "minimum": 1
+            },
+            {
+              "type": "string",
+              "enum": [
+                "not_found",
+                "uncertain"
+              ]
+            },
+            {
+              "type": "null"
+            }
           ],
           "description": "1-indexed page number or 'not_found' / 'uncertain' / null."
+        },
+        "grounded_loosely": {
+          "type": "boolean",
+          "description": "True if quote matched OCR text under relaxed whitespace-insensitive matching."
         }
       },
       "additionalProperties": false

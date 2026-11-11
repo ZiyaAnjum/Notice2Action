@@ -340,20 +340,21 @@ def post_process_notice(
     notice_copy = dict(notice)
     normalized_pages = [unicode_normalize_text(p.get("text", "")) for p in pages]
     total_pages = len(normalized_pages)
+    is_ocr = bool(notice_copy.get("ocr_used") or any(p.get("method") == "ocr" for p in pages))
 
     user_warnings: list[dict[str, Any]] = []
     technical_notes: list[dict[str, Any]] = list(notice_copy.get("technical_notes") or [])
 
     # Filter out any technical checks that were previously stored in warnings
     for w in notice_copy.get("warnings") or []:
-        if isinstance(w, dict) and w.get("code") in (
-            "GROUNDING_ELLIPSIS_QUOTE",
-            "GROUNDING_INVALID_PAGE",
-            "GROUNDING_UNVERIFIED_QUOTE",
-            "DEADLINE_RELATIVE",
-            "DEADLINE_UNPARSEABLE",
-            "DEADLINE_CONFLICTING_DATES",
-            "DOCUMENT_CONDITIONAL_OR_ALTERNATIVE",
+        if isinstance(w, dict) and (
+            str(w.get("code", "")).startswith("GROUNDING_")
+            or w.get("code") in (
+                "DEADLINE_RELATIVE",
+                "DEADLINE_UNPARSEABLE",
+                "DEADLINE_CONFLICTING_DATES",
+                "DOCUMENT_CONDITIONAL_OR_ALTERNATIVE",
+            )
         ):
             technical_notes.append(w)
         else:
@@ -417,23 +418,49 @@ def post_process_notice(
         norm_quote = unicode_normalize_text(str(quote))
         page_text = normalized_pages[page - 1]
 
-        if norm_quote not in page_text:
-            field_data["status"] = "uncertain"
-            notice_copy["needs_verification"] = True
-            msg = f"Grounding warning: Verbatim quote for '{field_name}' not found on page {page}."
-            logger.warning(
-                "%s (code=GROUNDING_UNVERIFIED_QUOTE, quote='%s')", msg, str(quote)[:100]
-            )
-            technical_notes.append(
-                {
-                    "code": "GROUNDING_UNVERIFIED_QUOTE",
-                    "note": msg,
-                    "warning_text": msg,
-                    "severity": "warning",
-                    "evidence_quote": str(quote)[:100],
-                    "source_page": page,
-                }
-            )
+        if norm_quote in page_text:
+            return
+
+        # Whitespace-insensitive matching on OCR text
+        if is_ocr:
+            stripped_quote = re.sub(r"\s+", "", norm_quote)
+            stripped_page_text = re.sub(r"\s+", "", page_text)
+            if stripped_quote and stripped_quote in stripped_page_text:
+                field_data["grounded_loosely"] = True
+                notice_copy["needs_verification"] = True
+                msg = (
+                    f"Grounding notice: Verbatim quote for '{field_name}' matched OCR text "
+                    f"loosely (whitespace-insensitive)."
+                )
+                logger.info("%s (code=GROUNDING_LOOSE_MATCH, quote='%s')", msg, str(quote)[:100])
+                technical_notes.append(
+                    {
+                        "code": "GROUNDING_LOOSE_MATCH",
+                        "note": msg,
+                        "warning_text": msg,
+                        "severity": "info",
+                        "evidence_quote": str(quote)[:100],
+                        "source_page": page,
+                    }
+                )
+                return
+
+        field_data["status"] = "uncertain"
+        notice_copy["needs_verification"] = True
+        msg = f"Grounding warning: Verbatim quote for '{field_name}' not found on page {page}."
+        logger.warning(
+            "%s (code=GROUNDING_UNVERIFIED_QUOTE, quote='%s')", msg, str(quote)[:100]
+        )
+        technical_notes.append(
+            {
+                "code": "GROUNDING_UNVERIFIED_QUOTE",
+                "note": msg,
+                "warning_text": msg,
+                "severity": "warning",
+                "evidence_quote": str(quote)[:100],
+                "source_page": page,
+            }
+        )
 
     is_ocr = any(p.get("method") == "ocr" for p in pages)
     # 0. Normalize plain_language_summary parts to plain strings and retain evidence separately
@@ -463,6 +490,93 @@ def post_process_notice(
                 summary[key] = repair_ocr_spacing(val)
         if summary_evidence:
             notice_copy["plain_language_summary_evidence"] = summary_evidence
+
+    # Verify URLs, emails, and reference numbers in summaries and action steps against page text
+    all_pages_stripped = "".join(re.sub(r"\s+", "", p.get("text", "") or "") for p in pages).lower()
+    web_email_ref_pattern = re.compile(
+        r"(?:https?://[^\s,;)]+|www\.[^\s,;)]+|\b[a-zA-Z0-9.-]+\.(?:[a-zA-Z]{2,4}\.[a-zA-Z]{2}|[a-zA-Z]{2,6})(?:/[^\s,;)]*)?|\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b|\b[A-Z0-9]{2,}(?:/[A-Z0-9_-]+){2,}\b)",
+        re.IGNORECASE,
+    )
+
+    unconfirmed_web_found = False
+
+    # Check summary fields
+    if isinstance(summary, dict):
+        for key in (
+            "what_is_this",
+            "why_it_matters",
+            "what_to_do",
+            "where_to_do_it",
+            "if_deadline_missed",
+        ):
+            text_val = summary.get(key)
+            if not isinstance(text_val, str) or not text_val.strip():
+                continue
+
+            matches = web_email_ref_pattern.findall(text_val)
+            for m in matches:
+                clean_m = re.sub(r"^[^\w]+|[^\w/]+$", "", m)
+                stripped_m = re.sub(r"\s+", "", clean_m).lower()
+                if len(stripped_m) < 4 or stripped_m in ("i.e.", "e.g.", "etc."):
+                    continue
+                if stripped_m not in all_pages_stripped:
+                    unconfirmed_web_found = True
+                    logger.warning(
+                        "Unconfirmed identifier '%s' in summary.%s not found in page text. Removing.",
+                        m,
+                        key,
+                    )
+                    text_val = text_val.replace(m, "")
+                    text_val = re.sub(r"[ \t]+", " ", text_val)
+                    text_val = re.sub(r"\s+([,.:;!?])", r"\1", text_val)
+                    summary[key] = text_val.strip()
+
+    # Check action steps
+    for step in notice_copy.get("action_steps") or []:
+        if isinstance(step, dict):
+            act_text = step.get("action")
+            if isinstance(act_text, str) and act_text.strip():
+                matches = web_email_ref_pattern.findall(act_text)
+                for m in matches:
+                    clean_m = re.sub(r"^[^\w]+|[^\w/]+$", "", m)
+                    stripped_m = re.sub(r"\s+", "", clean_m).lower()
+                    if len(stripped_m) < 4 or stripped_m in ("i.e.", "e.g.", "etc."):
+                        continue
+                    if stripped_m not in all_pages_stripped:
+                        unconfirmed_web_found = True
+                        logger.warning(
+                            "Unconfirmed identifier '%s' in action step not found in page text.",
+                            m,
+                        )
+                        act_text = act_text.replace(m, "")
+                        act_text = re.sub(r"[ \t]+", " ", act_text)
+                        act_text = re.sub(r"\s+([,.:;!?])", r"\1", act_text)
+                        step["action"] = act_text.strip()
+
+    if unconfirmed_web_found:
+        notice_copy["needs_verification"] = True
+        warn_msg = "A web address could not be confirmed from the scan. Check the original."
+        if not any(w.get("warning_text") == warn_msg for w in user_warnings):
+            user_warnings.insert(
+                0,
+                {
+                    "warning_text": warn_msg,
+                    "code": "UNCONFIRMED_WEB_ADDRESS",
+                    "severity": "warning",
+                    "evidence_quote": None,
+                    "source_page": None,
+                },
+            )
+        technical_notes.append(
+            {
+                "code": "UNCONFIRMED_WEB_ADDRESS",
+                "note": warn_msg,
+                "warning_text": warn_msg,
+                "severity": "warning",
+                "evidence_quote": None,
+                "source_page": None,
+            }
+        )
 
     # 1. Verify top-level critical fields
     for field_name in ("notice_title", "issuing_organisation", "affected_party", "main_purpose"):

@@ -690,3 +690,248 @@ def test_ocr_spacing_repair_split_leaves_quote_grounding_intact() -> None:
     summary_text = grounded["plain_language_summary"]["what_is_this"]
     assert "notice, for" in summary_text
     assert "  ," not in summary_text
+
+
+# =====================================================================
+# 11. Phase 7c: Relaxed OCR Grounding & URL/Email Verification
+# =====================================================================
+
+
+def test_ocr_grounding_relaxed_match_glued_words() -> None:
+    """Quote with proper spacing matches OCR text with glued words under whitespace-insensitive comparison."""
+    # OCR output where words were concatenated/glued without spaces
+    glued_ocr_page = (
+        "GOVERNMENT OF MAHARASHTRA\n"
+        "DIRECTORATE OF HIGHER EDUCATION, PUNE\n"
+        "POST-GRADUATE SCHOLARSHIP RENEWAL NOTICE 2026-27\n"
+        "Notice Reference: DHE/SCH/2026/4011\n"
+        "All eligible postgraduate scholars are herebyinformedthatthescholarshiprenewalportal"
+        "is open for submission of academic dossiers.\n"
+        "Primary Application Deadline: 25 November 2026\n"
+        "Previous Semester Official Marksheet"
+    )
+
+    pages = [
+        {
+            "page_number": 1,
+            "text": glued_ocr_page,
+            "method": "ocr",
+            "char_count": len(glued_ocr_page),
+            "status": "ok",
+        }
+    ]
+
+    canned = get_canned_ocr_structured_notice()
+    # Verbatim passage in LLM quote has normal spacing, while OCR has "herebyinformedthatthescholarshiprenewalportal"
+    properly_spaced_quote = (
+        "All eligible postgraduate scholars are hereby informed that the scholarship renewal portal"
+    )
+    canned["affected_party"]["evidence_quote"] = properly_spaced_quote
+    canned["affected_party"]["source_page"] = 1
+    canned["affected_party"]["status"] = "found"
+
+    validation_report = validate_notice(canned, page_texts=[glued_ocr_page])
+    grounded = post_process_notice(canned, pages, validation_report)
+
+    # 1. Status remains found (not degraded to uncertain)
+    assert grounded["affected_party"]["status"] == "found"
+    # 2. grounded_loosely flag is set
+    assert grounded["affected_party"].get("grounded_loosely") is True
+    # 3. needs_verification is enforced
+    assert grounded["needs_verification"] is True
+    # 4. GROUNDING_LOOSE_MATCH is logged in technical_notes
+    loose_notes = [
+        tn for tn in grounded.get("technical_notes") or []
+        if tn.get("code") == "GROUNDING_LOOSE_MATCH"
+    ]
+    assert len(loose_notes) >= 1
+    assert "loosely (whitespace-insensitive)" in loose_notes[0].get("note", "")
+    # 5. User-facing warnings does NOT contain technical grounding note
+    assert not any(
+        str(w.get("code", "")).startswith("GROUNDING_")
+        for w in grounded.get("warnings") or []
+    )
+
+
+def test_ocr_grounding_fails_on_single_digit_difference() -> None:
+    """Relaxed OCR grounding strictly fails when even a single digit or letter differs."""
+    ocr_page_text = (
+        "GOVERNMENT OF MAHARASHTRA\n"
+        "Primary Application Deadline: 25 November 2026\n"
+        "Previous Semester Official Marksheet"
+    )
+
+    pages = [
+        {
+            "page_number": 1,
+            "text": ocr_page_text,
+            "method": "ocr",
+            "char_count": len(ocr_page_text),
+            "status": "ok",
+        }
+    ]
+
+    canned = get_canned_ocr_structured_notice()
+    # Date in quote differs by one digit: 26 November 2026 instead of 25 November 2026
+    canned["deadlines"] = [
+        {
+            "description": "Primary Application Deadline",
+            "date": "2026-11-26",
+            "role": "primary",
+            "evidence_quote": "Primary Application Deadline: 26 November 2026",
+            "source_page": 1,
+            "status": "found",
+        }
+    ]
+
+    validation_report = validate_notice(canned, page_texts=[ocr_page_text])
+    grounded = post_process_notice(canned, pages, validation_report)
+
+    # Must fail grounding and become uncertain
+    dl = grounded["deadlines"][0]
+    assert dl["status"] == "uncertain"
+    assert dl.get("grounded_loosely") is not True
+    assert grounded["needs_verification"] is True
+    assert any(
+        tn.get("code") == "GROUNDING_UNVERIFIED_QUOTE"
+        for tn in grounded.get("technical_notes") or []
+    )
+
+
+def test_unconfirmed_url_removed_from_summary_gow_in() -> None:
+    """Verifies that an unconfirmed URL (e.g. .gow.in typo in scan vs .gov.in in summary) is removed."""
+    # OCR text has .gow.in typo
+    ocr_scan_with_typo = (
+        "GOVERNMENT OF MAHARASHTRA\n"
+        "DIRECTORATE OF HIGHER EDUCATION, PUNE\n"
+        "Submit documents on portal: dhescholarship.maharashtra.gow.in\n"
+        "Primary Application Deadline: 25 November 2026\n"
+        "Previous Semester Official Marksheet"
+    )
+
+    pages = [
+        {
+            "page_number": 1,
+            "text": ocr_scan_with_typo,
+            "method": "ocr",
+            "char_count": len(ocr_scan_with_typo),
+            "status": "ok",
+        }
+    ]
+
+    canned = get_canned_ocr_structured_notice()
+    # Summary hallucinated or normalized correct URL dhescholarship.maharashtra.gov.in
+    canned["plain_language_summary"]["where_to_do_it"] = (
+        "Online portal dhescholarship.maharashtra.gov.in or Room 104 Pune."
+    )
+
+    validation_report = validate_notice(canned, page_texts=[ocr_scan_with_typo])
+    grounded = post_process_notice(canned, pages, validation_report)
+
+    # 1. Unconfirmed URL is scrubbed from summary
+    summary_where = grounded["plain_language_summary"]["where_to_do_it"]
+    assert "dhescholarship.maharashtra.gov.in" not in summary_where
+    assert "Room 104 Pune." in summary_where
+
+    # 2. Warning is added to user-facing warnings
+    warn_texts = [w.get("warning_text") for w in grounded.get("warnings") or []]
+    assert "A web address could not be confirmed from the scan. Check the original." in warn_texts
+
+    # 3. needs_verification is set
+    assert grounded["needs_verification"] is True
+
+
+def test_grounding_warnings_strictly_in_technical_notes() -> None:
+    """Ensures grounding warnings (GROUNDING_*) are strictly in technical_notes, never in warnings."""
+    page_text = (
+        "GOVERNMENT OF MAHARASHTRA\n"
+        "POST-GRADUATE SCHOLARSHIP RENEWAL NOTICE 2026-27\n"
+        "Primary Application Deadline: 25 November 2026"
+    )
+    pages = [
+        {
+            "page_number": 1,
+            "text": page_text,
+            "method": "ocr",
+            "char_count": len(page_text),
+            "status": "ok",
+        }
+    ]
+
+    canned = get_canned_ocr_structured_notice()
+    # Provide an unverified quote
+    canned["notice_title"]["evidence_quote"] = "Non-existent title quote"
+    canned["notice_title"]["source_page"] = 1
+
+    validation_report = validate_notice(canned, page_texts=[page_text])
+    grounded = post_process_notice(canned, pages, validation_report)
+
+    # Warnings must only contain user-actionable notice items, not technical grounding checks
+    user_warnings = grounded.get("warnings") or []
+    for w in user_warnings:
+        code = str(w.get("code", ""))
+        assert not code.startswith("GROUNDING_"), f"Found grounding check in user warnings: {code}"
+
+    # Technical notes must contain the grounding error
+    tech_notes = grounded.get("technical_notes") or []
+    assert any(tn.get("code") == "GROUNDING_UNVERIFIED_QUOTE" for tn in tech_notes)
+
+
+def test_tesseract_psm4_only_runs_when_psm6_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verifies that PSM 4 is skipped when PSM 6 succeeds, and invoked only when PSM 6 fails."""
+    import sys
+    import types
+
+    monkeypatch.setattr("extraction.ocr.is_tesseract_installed", lambda: (True, None))
+
+    # Case A: PSM 6 succeeds (produces valid, usable text meeting quality checks)
+    calls_a: list[str] = []
+
+    def mock_image_to_string_success(img: Any, lang: str = "eng", config: str = "") -> str:
+        calls_a.append(config)
+        return (
+            "GOVERNMENT OF MAHARASHTRA DIRECTORATE OF HIGHER EDUCATION PUNE\n"
+            "Post-Graduate Scholarship Renewal Circular 2026-27\n"
+            "Primary Submission Deadline: 25 November 2026"
+        )
+
+    fake_pytesseract_a = types.ModuleType("pytesseract")
+    fake_pytesseract_a.image_to_string = mock_image_to_string_success  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "pytesseract", fake_pytesseract_a)
+
+    doc = pymupdf.open()
+    page = doc.new_page()
+
+    text_a, err_a = ocr_page_tesseract(page)
+    assert err_a is None
+    assert text_a is not None
+    assert any("--psm 6" in c for c in calls_a)
+    assert not any("--psm 4" in c for c in calls_a), "PSM 4 should NOT have been called when PSM 6 succeeded"
+
+    # Case B: PSM 6 fails (returns garbage/short text failing quality check)
+    calls_b: list[str] = []
+
+    def mock_image_to_string_fail(img: Any, lang: str = "eng", config: str = "") -> str:
+        calls_b.append(config)
+        if "--psm 6" in config:
+            return "Noise %$# 12"  # Too short, fails quality
+        if "--psm 4" in config:
+            return (
+                "GOVERNMENT OF MAHARASHTRA DIRECTORATE OF HIGHER EDUCATION PUNE\n"
+                "Post-Graduate Scholarship Renewal Circular 2026-27"
+            )
+        return "fallback"
+
+    fake_pytesseract_b = types.ModuleType("pytesseract")
+    fake_pytesseract_b.image_to_string = mock_image_to_string_fail  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "pytesseract", fake_pytesseract_b)
+
+    text_b, err_b = ocr_page_tesseract(page)
+    doc.close()
+
+    assert err_b is None
+    assert text_b is not None
+    assert any("--psm 6" in c for c in calls_b)
+    assert any("--psm 4" in c for c in calls_b), "PSM 4 should have been called when PSM 6 failed quality"

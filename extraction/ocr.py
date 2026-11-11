@@ -263,14 +263,24 @@ def ocr_page_tesseract(
         pix = page.get_pixmap(dpi=dpi)
         img = Image.open(io.BytesIO(pix.tobytes("png")))
 
-        # Run with PSM 6 (single uniform block)
+        # Pass 1: Run with PSM 6 (single uniform block)
         text_psm6: str | None = None
         try:
             text_psm6 = pytesseract.image_to_string(img, lang="eng", config="--psm 6")
         except Exception as e_psm6:
             logger.warning("Tesseract --psm 6 attempt failed: %s", e_psm6)
 
-        # Run with PSM 4 (single column variable sizes)
+        # Check if PSM 6 passed quality check; if so, skip second pass
+        if text_psm6:
+            is_usable_6, reason_6 = check_ocr_quality(text_psm6)
+            if is_usable_6:
+                logger.info("Tesseract PSM 6 passed quality check; skipping PSM 4 fallback.")
+                return text_psm6, None
+            logger.info("Tesseract PSM 6 failed quality check (%s); attempting PSM 4 fallback.", reason_6)
+        else:
+            logger.info("Tesseract PSM 6 returned empty output; attempting PSM 4 fallback.")
+
+        # Pass 2: Fallback to PSM 4 only when PSM 6 failed quality
         text_psm4: str | None = None
         try:
             text_psm4 = pytesseract.image_to_string(img, lang="eng", config="--psm 4")
@@ -285,7 +295,8 @@ def ocr_page_tesseract(
             except Exception as exc:
                 return None, f"Tesseract extraction error: {exc}"
 
-        best_text, _ = select_best_ocr_text(text_psm6, text_psm4)
+        best_text, chosen_psm = select_best_ocr_text(text_psm6, text_psm4)
+        logger.info("Tesseract fallback evaluated; chosen PSM %d.", chosen_psm)
         return best_text, None
     except Exception as exc:
         err_msg = f"Tesseract execution error: {exc}"

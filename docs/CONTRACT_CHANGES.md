@@ -438,3 +438,58 @@ Display OCR indicators and handle scan-related warnings in the notice detail das
 ### 4.3 Manual Smoke Script Enhancements ([`scripts/ocr_smoke.py`](file:///c:/Users/user/Notice2Action/scripts/ocr_smoke.py))
 - Added `--full-text` flag to print complete extracted text per page without the 300-character preview truncation.
 - Enhanced `--full` output to display `needs_verification`, `plain_language_summary` (5 parts), `required_documents` (name, is_required, quote, page, status), and `action_steps` (order, action, quote, page).
+
+
+---
+
+## 5. Phase 7c: OCR Grounding Fix, URL Verification & Performance Optimization
+
+This section details the contract updates and specifications introduced for OCR quote grounding, web address verification, and OCR performance optimization.
+
+### 5.1 Relaxed Whitespace-Insensitive Quote Grounding (`grounded_loosely`)
+- **Trigger**: Active when `ocr_used` is `true` (scanned or image-only pages processed via OCR).
+- **Matching Mechanism**:
+  1. Primary check: Exact verbatim substring match in `page["text"]`.
+  2. Relaxed check: Whitespace-insensitive comparison by stripping all whitespace (`re.sub(r"\s+", "", ...)`) from both the evidence quote and the page text, then performing an exact character substring match.
+  3. Strict Character Fidelity: Digits, letters, and punctuation must match 100% character-for-character. No fuzzy matching, edit distance, or dictionary lookups are permitted (e.g. changing `25` to `26` fails grounding).
+- **Field & Status Contract**:
+  - Fields matching only via the relaxed check retain their `status: "found"` but receive `"grounded_loosely": true`.
+  - `needs_verification` is set to `true` on the notice result.
+  - A technical note with code `"GROUNDING_LOOSE_MATCH"` and `severity: "info"` is appended to `technical_notes`.
+  - Schema update: Added `"grounded_loosely": {"type": "boolean"}` to `deadlines.items`, `required_documents.items`, `submission_channel`, `penalties.items`, `action_steps.items`, `warnings.items`, `EvidenceTextField`, and `SummarySection`.
+
+### 5.2 URL, Email, and Reference Number Verification & Summary Scrubbing
+- **Verification Rule**: Any URL, email address, or reference number in `plain_language_summary` or `action_steps` must appear (whitespace-stripped) in the raw page text (`all_pages_stripped`).
+- **Scrubbing Contract**:
+  - If a web address or identifier cannot be verified in the page text (e.g., the scan has an OCR error like `.gow.in` while the extracted summary used `.gov.in`), the unconfirmed URL/identifier is removed from the summary string.
+  - `needs_verification` is set to `true`.
+  - A user-facing warning is added to `warnings`:
+    ```json
+    {
+      "code": "UNCONFIRMED_WEB_ADDRESS",
+      "warning_text": "A web address could not be confirmed from the scan. Check the original.",
+      "severity": "warning",
+      "evidence_quote": null,
+      "source_page": null
+    }
+    ```
+  - An identical audit entry is logged in `technical_notes`.
+
+### 5.3 Grounding Warnings Placement
+- **Strict Separation**:
+  - All technical checks (`GROUNDING_UNVERIFIED_QUOTE`, `GROUNDING_ELLIPSIS_QUOTE`, `GROUNDING_INVALID_PAGE`, `GROUNDING_LOOSE_MATCH`, `DEADLINE_RELATIVE`, `DEADLINE_UNPARSEABLE`, `DEADLINE_CONFLICTING_DATES`, `DOCUMENT_CONDITIONAL_OR_ALTERNATIVE`) belong strictly in `technical_notes` and the server logs.
+  - The `warnings` list contains only substantive notice content warnings (e.g. "Cash payments above Rs. 10,000 are not accepted") and user-actionable notifications (`OCR_USED`, `PARTIAL_PAGE_UNREADABLE`, `UNCONFIRMED_WEB_ADDRESS`).
+- **UI Guidelines for Member 3 (M3)**:
+  - Items with `grounded_loosely: true` or `status: "uncertain"` display the amber **"Please verify"** badge with tooltip: *"We could not match this exactly to your notice. Please check the original."*
+  - `technical_notes` are displayed only inside the collapsed "Technical details" section at the bottom of the dashboard.
+
+### 5.4 Performance Optimization & 60-Second Budget
+- **Conditional PSM 4 Fallback**:
+  - In `ocr_page_tesseract`, `--psm 6` (uniform text block) is executed first.
+  - If `--psm 6` output satisfies `check_ocr_quality` (sufficient length and $\ge 40\%$ alphanumeric characters), the second `--psm 4` pass is skipped entirely.
+  - `--psm 4` is invoked only if `--psm 6` fails quality or returns empty text.
+- **5-Page Scanned Fixture Benchmark (`tests/fixtures/five_page_scanned_notice.pdf`)**:
+  - **Before (Unconditional 2-pass PSM 6 + PSM 4)**: 18.61 seconds
+  - **After (Conditional PSM 6 with fallback)**: 8.84 seconds
+  - **Latency Savings**: 9.77 seconds saved (52.5% reduction in OCR time)
+  - **Budget Compliance**: 8.84s is well under the 60-second end-to-end processing timeout budget (`PIPELINE_TOTAL_TIMEOUT_SEC = 60`).
