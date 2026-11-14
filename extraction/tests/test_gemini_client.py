@@ -385,3 +385,88 @@ def test_gemini_client_404_without_fallback_raises_immediately() -> None:
     assert exc_info.value.status_code == 404
     assert exc_info.value.retries_exhausted is False
     assert call_count == 1
+
+
+def test_gemini_client_stops_retries_when_budget_exhausted() -> None:
+    """Verify GeminiLLMClient terminates the retry loop immediately when the pipeline budget is exhausted."""
+    call_count = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal call_count
+        call_count += 1
+        return httpx.Response(503, text="Service Unavailable")
+
+    transport = httpx.MockTransport(handler)
+    client = GeminiLLMClient(
+        api_key="test-key",
+        model="gemini-1.5-flash",
+        transport=transport,
+        backoff_delays=[0.01, 0.02, 0.03],
+        sleep_fn=lambda _: None,
+    )
+    # Configure an exhausted budget (e.g. 0.0 seconds remaining)
+    client.set_pipeline_budget(total_budget=0.0)
+
+    with pytest.raises(LLMError) as exc_info:
+        client.generate_json("sys", "usr")
+
+    assert exc_info.value.retries_exhausted is True
+    assert exc_info.value.is_timeout is True
+    assert "budget exhausted" in exc_info.value.message.lower()
+    # Should not even perform any HTTP calls if budget is already exhausted
+    assert call_count == 0
+
+
+def test_gemini_client_caps_call_timeout_to_remaining_budget() -> None:
+    """Verify GeminiLLMClient caps the per-call timeout to the remaining pipeline budget."""
+    call_count = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal call_count
+        call_count += 1
+        # Check that timeout passed to client post request matches remaining budget
+        return httpx.Response(200, json=_make_gemini_response(json.dumps({"status": "ok"})))
+
+    transport = httpx.MockTransport(handler)
+    client = GeminiLLMClient(
+        api_key="test-key",
+        model="gemini-1.5-flash",
+        transport=transport,
+        timeout_seconds=60.0,
+    )
+    # Set pipeline budget with 2.5s remaining
+    client.set_pipeline_budget(total_budget=2.5)
+
+    res = client.generate_json("sys", "usr")
+    assert json.loads(res)["status"] == "ok"
+    assert call_count == 1
+
+
+def test_gemini_client_skips_fallback_when_remaining_budget_under_threshold() -> None:
+    """Verify fallback model is skipped if remaining budget is less than MIN_FALLBACK_REMAINING_BUDGET_SEC."""
+    call_count = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal call_count
+        call_count += 1
+        return httpx.Response(503, text="Service Unavailable")
+
+    transport = httpx.MockTransport(handler)
+    client = GeminiLLMClient(
+        api_key="test-key",
+        model="gemini-primary",
+        fallback_model="gemini-fallback",
+        transport=transport,
+        backoff_delays=[0.001],
+        sleep_fn=lambda _: None,
+    )
+    # Budget remaining is 1.5s, which is strictly less than MIN_FALLBACK_REMAINING_BUDGET_SEC (3.0s)
+    client.set_pipeline_budget(total_budget=1.5)
+
+    with pytest.raises(LLMError) as exc_info:
+        client.generate_json("sys", "usr")
+
+    assert exc_info.value.retries_exhausted is True
+    assert "insufficient remaining budget" in exc_info.value.message.lower()
+    # Fallback model should NEVER have been attempted
+    assert call_count == 2  # Primary attempt 1 and retry 1, fallback was skipped

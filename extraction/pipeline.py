@@ -36,6 +36,7 @@ from extraction.llm_client import (
     RETRYABLE_STATUS_CODES,
     BaseLLMClient,
     sanitize_message,
+    set_active_pipeline_budget,
 )
 from extraction.llm_extractor import PROMPT_VERSION, extract_notice_with_llm
 from extraction.ocr import repair_ocr_spacing
@@ -829,6 +830,42 @@ def post_process_notice(
     return notice_copy
 
 
+def _make_too_slow_response(
+    category: str = "other_out_of_scope",
+    trust_level: str | None = None,
+    detected_language: str = "en",
+    total_time_budget: float = DEFAULT_TOTAL_TIME_BUDGET_SEC,
+    ocr_time_sec: float = 0.0,
+    llm_time_sec: float = 0.0,
+    elapsed_sec: float = 0.0,
+) -> dict[str, Any]:
+    """Construct standard too_slow failure response when pipeline budget is exhausted."""
+    timeout_msg = (
+        f"The document is too large or processing exceeded the {int(total_time_budget)}-second time budget. "
+        "Please retry or provide a shorter excerpt."
+    )
+    return {
+        "status": "extraction_failed",
+        "category": category,
+        "trust_level": trust_level,
+        "detected_language": detected_language,
+        "result": None,
+        "validation_report": {
+            "is_valid": False,
+            "schema_compliant": False,
+            "errors": [timeout_msg],
+            "warnings": [],
+        },
+        "needs_verification": True,
+        "message": timeout_msg,
+        "error_code": "DOCUMENT_PROCESSING_TIMEOUT",
+        "failure_reason": "too_slow",
+        "ocr_time_sec": round(ocr_time_sec, 2),
+        "llm_time_sec": round(llm_time_sec, 2),
+        "total_time_sec": round(elapsed_sec, 2),
+    }
+
+
 def process_notice(
     file_path: str | Path,
     client: BaseLLMClient | None = None,
@@ -861,9 +898,18 @@ def process_notice(
         os.getenv("PIPELINE_TOTAL_TIMEOUT_SEC", str(DEFAULT_TOTAL_TIME_BUDGET_SEC))
     )
 
+    set_active_pipeline_budget(total_budget=total_time_budget, start_time=start_time)
+    if client is not None and hasattr(client, "set_pipeline_budget"):
+        client.set_pipeline_budget(total_budget=total_time_budget, start_time=start_time)
+
+    ocr_time_sec: float = 0.0
+    triage_time_sec: float = 0.0
+    extraction_time_sec: float = 0.0
+
     path = Path(file_path)
 
     # Step 1: Extract pages (with OCR fallback for scanned pages when OCR_MODE is enabled)
+    t0_ocr = time.perf_counter()
     try:
         pages = extract_pages(
             path,
@@ -887,10 +933,43 @@ def process_notice(
             "message": f"Document could not be processed: {err.message}",
         }
 
+    ocr_time_sec = time.perf_counter() - t0_ocr
+
+    # Check budget immediately after page extraction / OCR
+    elapsed_after_ocr = time.perf_counter() - start_time
+    if elapsed_after_ocr >= total_time_budget:
+        logger.error(
+            "Document processing exceeded total time budget (%.2fs >= %.2fs) during page extraction / OCR.",
+            elapsed_after_ocr,
+            total_time_budget,
+        )
+        return _make_too_slow_response(
+            category="other_out_of_scope",
+            trust_level=None,
+            detected_language="en",
+            total_time_budget=total_time_budget,
+            ocr_time_sec=ocr_time_sec,
+            llm_time_sec=0.0,
+            elapsed_sec=elapsed_after_ocr,
+        )
+
     # Step 2: Refusal Check - Readability / Image-only Scans
     readability = check_document_readability(pages)
     if readability["readable_pages"] == 0:
         ocr_err = next((p["ocr_error"] for p in pages if p.get("ocr_error")), None)
+        if (
+            (ocr_err and "exceeded total time budget" in ocr_err)
+            or (time.perf_counter() - start_time >= total_time_budget)
+        ):
+            return _make_too_slow_response(
+                category="other_out_of_scope",
+                trust_level=None,
+                detected_language="en",
+                total_time_budget=total_time_budget,
+                ocr_time_sec=ocr_time_sec,
+                llm_time_sec=0.0,
+                elapsed_sec=time.perf_counter() - start_time,
+            )
         err_msg = ocr_err or "Document contains no usable digital text (scanned or image-only without OCR)."
         refusal_user_msg = (
             ocr_err
@@ -949,9 +1028,34 @@ def process_notice(
         )
     else:
         # Step 3b: Execute LLM triage on first 2 pages
+        elapsed_pre_triage = time.perf_counter() - start_time
+        if elapsed_pre_triage >= total_time_budget:
+            return _make_too_slow_response(
+                category=rb_category if rb_category in TESTED_CATEGORIES else "other_out_of_scope",
+                trust_level=None,
+                detected_language=detected_language,
+                total_time_budget=total_time_budget,
+                ocr_time_sec=ocr_time_sec,
+                llm_time_sec=0.0,
+                elapsed_sec=elapsed_pre_triage,
+            )
+
         t0_triage = time.perf_counter()
         triage_res = triage_notice(readable_pages, client=client)
-        triage_time_ms = int((time.perf_counter() - t0_triage) * 1000)
+        triage_time_sec = time.perf_counter() - t0_triage
+        triage_time_ms = int(triage_time_sec * 1000)
+
+        elapsed_post_triage = time.perf_counter() - start_time
+        if elapsed_post_triage >= total_time_budget:
+            return _make_too_slow_response(
+                category=rb_category if rb_category in TESTED_CATEGORIES else "other_out_of_scope",
+                trust_level=None,
+                detected_language=detected_language,
+                total_time_budget=total_time_budget,
+                ocr_time_sec=ocr_time_sec,
+                llm_time_sec=triage_time_sec,
+                elapsed_sec=elapsed_post_triage,
+            )
 
         if triage_res["status"] == "success":
             triage_cat = triage_res["category"]
@@ -1032,10 +1136,6 @@ def process_notice(
         # Total time budget check before each chunk execution
         elapsed = time.perf_counter() - start_time
         if elapsed >= total_time_budget:
-            timeout_msg = (
-                f"The document is too large or processing exceeded the {int(total_time_budget)}-second time budget. "
-                "Please retry or provide a shorter excerpt."
-            )
             logger.error(
                 "Document processing exceeded total time budget (%.2fs >= %.2fs) before chunk %d/%d",
                 elapsed,
@@ -1043,25 +1143,43 @@ def process_notice(
                 chunk_idx + 1,
                 len(page_chunks),
             )
-            return {
-                "status": "extraction_failed",
-                "category": category,
-                "trust_level": trust_level,
-                "detected_language": detected_language,
-                "result": None,
-                "validation_report": {
-                    "is_valid": False,
-                    "schema_compliant": False,
-                    "errors": [timeout_msg],
-                    "warnings": [],
-                },
-                "needs_verification": True,
-                "message": timeout_msg,
-                "error_code": "DOCUMENT_PROCESSING_TIMEOUT",
-                "failure_reason": "too_slow",
-            }
+            return _make_too_slow_response(
+                category=category,
+                trust_level=trust_level,
+                detected_language=detected_language,
+                total_time_budget=total_time_budget,
+                ocr_time_sec=ocr_time_sec,
+                llm_time_sec=triage_time_sec + extraction_time_sec,
+                elapsed_sec=elapsed,
+            )
 
+        t0_ext = time.perf_counter()
         extraction_res = extract_notice_with_llm(chunk, category, client=client)
+        extraction_time_sec += time.perf_counter() - t0_ext
+
+        elapsed_after_chunk = time.perf_counter() - start_time
+        is_too_slow = (
+            elapsed_after_chunk >= total_time_budget
+            or extraction_res.get("failure_reason") == "too_slow"
+            or (extraction_res.get("status") != "success" and extraction_res.get("is_timeout"))
+        )
+        if is_too_slow:
+            logger.error(
+                "Document processing exceeded total time budget (%.2fs >= %.2fs) during chunk %d/%d extraction.",
+                elapsed_after_chunk,
+                total_time_budget,
+                chunk_idx + 1,
+                len(page_chunks),
+            )
+            return _make_too_slow_response(
+                category=category,
+                trust_level=trust_level,
+                detected_language=detected_language,
+                total_time_budget=total_time_budget,
+                ocr_time_sec=ocr_time_sec,
+                llm_time_sec=triage_time_sec + extraction_time_sec,
+                elapsed_sec=elapsed_after_chunk,
+            )
 
         if extraction_res["status"] != "success" or not extraction_res["data"]:
             is_busy = extraction_res.get("is_busy", False)
@@ -1220,6 +1338,23 @@ def process_notice(
     else:
         status_message = "Notice processed and verified successfully."
 
+    total_elapsed = time.perf_counter() - start_time
+    if total_elapsed >= total_time_budget:
+        logger.error(
+            "Document processing exceeded total time budget before final output (%.2fs >= %.2fs). Returning too_slow.",
+            total_elapsed,
+            total_time_budget,
+        )
+        return _make_too_slow_response(
+            category=category,
+            trust_level=trust_level,
+            detected_language=detected_language,
+            total_time_budget=total_time_budget,
+            ocr_time_sec=ocr_time_sec,
+            llm_time_sec=triage_time_sec + extraction_time_sec,
+            elapsed_sec=total_elapsed,
+        )
+
     return {
         "status": "success",
         "category": category,
@@ -1233,4 +1368,7 @@ def process_notice(
         "prompt_version": PROMPT_VERSION,
         "technical_notes": grounded_notice.get("technical_notes", []),
         "triage_time_ms": triage_time_ms,
+        "ocr_time_sec": round(ocr_time_sec, 2),
+        "llm_time_sec": round(triage_time_sec + extraction_time_sec, 2),
+        "total_time_sec": round(total_elapsed, 2),
     }

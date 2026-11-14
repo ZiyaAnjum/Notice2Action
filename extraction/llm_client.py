@@ -73,8 +73,95 @@ def clean_json_markdown(text: str) -> str:
     return trimmed
 
 
+DEFAULT_TOTAL_TIME_BUDGET_SEC: float = 60.0
+
+# Documented constant: minimum remaining pipeline budget in seconds required to attempt
+# a fallback model. If fewer seconds remain, the fallback attempt is skipped to prevent breaching the budget.
+DEFAULT_MIN_FALLBACK_REMAINING_BUDGET_SEC: float = 3.0
+MIN_FALLBACK_REMAINING_BUDGET_SEC: float = float(
+    os.getenv("MIN_FALLBACK_REMAINING_BUDGET_SEC", str(DEFAULT_MIN_FALLBACK_REMAINING_BUDGET_SEC))
+)
+
+_active_pipeline_start_time: float | None = None
+_active_pipeline_total_budget: float | None = None
+
+
+def set_active_pipeline_budget(
+    total_budget: float = DEFAULT_TOTAL_TIME_BUDGET_SEC,
+    start_time: float | None = None,
+) -> None:
+    """Set the active pipeline wall-clock time budget and start timestamp globally."""
+    global _active_pipeline_start_time, _active_pipeline_total_budget
+    _active_pipeline_total_budget = float(total_budget)
+    _active_pipeline_start_time = start_time if start_time is not None else time.perf_counter()
+
+
+def get_active_remaining_budget() -> float:
+    """Calculate the globally active remaining pipeline budget in seconds."""
+    global _active_pipeline_start_time, _active_pipeline_total_budget
+    budget = _active_pipeline_total_budget
+    if budget is None:
+        env_val = os.getenv("PIPELINE_TOTAL_TIMEOUT_SEC")
+        if env_val:
+            try:
+                budget = float(env_val)
+            except ValueError:
+                budget = DEFAULT_TOTAL_TIME_BUDGET_SEC
+        else:
+            budget = DEFAULT_TOTAL_TIME_BUDGET_SEC
+
+    if _active_pipeline_start_time is not None:
+        elapsed = time.perf_counter() - _active_pipeline_start_time
+        return max(0.0, budget - elapsed)
+
+    return float(budget)
+
+
 class BaseLLMClient(ABC):
     """Abstract interface for LLM client providers."""
+
+    def __init__(self) -> None:
+        self.pipeline_start_time: float | None = None
+        self.pipeline_total_budget: float | None = None
+
+    def set_pipeline_budget(
+        self,
+        total_budget: float,
+        start_time: float | None = None,
+    ) -> None:
+        """Set the active pipeline wall-clock time budget and start timestamp.
+
+        Args:
+            total_budget: Total pipeline budget in seconds (e.g. from PIPELINE_TOTAL_TIMEOUT_SEC).
+            start_time: Optional start timestamp (perf_counter). Defaults to time.perf_counter().
+        """
+        self.pipeline_total_budget = float(total_budget)
+        self.pipeline_start_time = start_time if start_time is not None else time.perf_counter()
+
+    def get_remaining_budget(self) -> float:
+        """Calculate remaining pipeline budget in seconds.
+
+        Returns:
+            PIPELINE_TOTAL_TIMEOUT_SEC minus time already spent on OCR, triage, and earlier calls.
+            Returns 0.0 if the budget is completely exhausted.
+        """
+        if self.pipeline_start_time is not None and self.pipeline_total_budget is not None:
+            elapsed = time.perf_counter() - self.pipeline_start_time
+            return max(0.0, self.pipeline_total_budget - elapsed)
+
+        global _active_pipeline_start_time, _active_pipeline_total_budget
+        if _active_pipeline_start_time is not None and _active_pipeline_total_budget is not None:
+            elapsed = time.perf_counter() - _active_pipeline_start_time
+            return max(0.0, _active_pipeline_total_budget - elapsed)
+
+        env_val = os.getenv("PIPELINE_TOTAL_TIMEOUT_SEC")
+        if env_val:
+            try:
+                return float(env_val)
+            except ValueError:
+                pass
+
+        return float(getattr(self, "timeout", DEFAULT_TOTAL_TIME_BUDGET_SEC))
 
     @abstractmethod
     def generate_json(self, system_prompt: str, user_prompt: str) -> str:
@@ -147,11 +234,16 @@ class GeminiLLMClient(BaseLLMClient):
         self.backoff_delays = (
             tuple(backoff_delays) if backoff_delays is not None else self.DEFAULT_BACKOFF_DELAYS
         )
+        super().__init__()
         self.sleep_fn = sleep_fn or time.sleep
         self.transport = transport
 
     def _post_generate_content(
-        self, target_model: str, system_prompt: str, user_prompt: str
+        self,
+        target_model: str,
+        system_prompt: str,
+        user_prompt: str,
+        timeout: float | None = None,
     ) -> str:
         """Execute single generateContent HTTP request against specified Gemini model."""
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{target_model}:generateContent"
@@ -170,7 +262,8 @@ class GeminiLLMClient(BaseLLMClient):
             },
         }
 
-        with httpx.Client(timeout=self.timeout, transport=self.transport) as client:
+        call_timeout = timeout if timeout is not None else self.timeout
+        with httpx.Client(timeout=call_timeout, transport=self.transport) as client:
             response = client.post(url, headers=headers, json=payload)
 
         if response.status_code != 200:
@@ -194,7 +287,12 @@ class GeminiLLMClient(BaseLLMClient):
         return clean_json_markdown(raw_text)
 
     def _post_generate_vision_content(
-        self, target_model: str, image_bytes: bytes, mime_type: str, prompt: str
+        self,
+        target_model: str,
+        image_bytes: bytes,
+        mime_type: str,
+        prompt: str,
+        timeout: float | None = None,
     ) -> str:
         """Execute single generateContent HTTP request sending image to Gemini vision model."""
         import base64
@@ -227,7 +325,8 @@ class GeminiLLMClient(BaseLLMClient):
             },
         }
 
-        with httpx.Client(timeout=self.timeout, transport=self.transport) as client:
+        call_timeout = timeout if timeout is not None else self.timeout
+        with httpx.Client(timeout=call_timeout, transport=self.transport) as client:
             response = client.post(url, headers=headers, json=payload)
 
         if response.status_code != 200:
@@ -250,8 +349,8 @@ class GeminiLLMClient(BaseLLMClient):
         raw_text = parts[0].get("text", "")
         return raw_text.strip()
 
-    def _execute_with_retry(self, operation: Callable[[str], str]) -> str:
-        """Execute an operation against Gemini with exponential backoff and optional fallback model."""
+    def _execute_with_retry(self, operation: Callable[[str, float], str]) -> str:
+        """Execute an operation against Gemini with exponential backoff, budget enforcement, and optional fallback model."""
         if not self.api_key:
             raise LLMError(
                 "Gemini API key is not configured. Please set the LLM_API_KEY or "
@@ -265,8 +364,27 @@ class GeminiLLMClient(BaseLLMClient):
         last_is_timeout = False
 
         for attempt in range(max_attempts):
+            # 1. Stop retry loop when remaining pipeline budget is exhausted
+            rem_budget = self.get_remaining_budget()
+            if rem_budget <= 0.0:
+                logger.warning(
+                    "Pipeline total time budget exhausted before attempt %d/%d on model '%s'. Stopping retry loop.",
+                    attempt + 1,
+                    max_attempts,
+                    self.model,
+                )
+                raise LLMError(
+                    f"Pipeline time budget exhausted: {last_err_msg or 'No budget remaining'}",
+                    status_code=last_status_code,
+                    is_timeout=True,
+                    retries_exhausted=True,
+                )
+
+            # 2. Cap each call's timeout to the remaining budget
+            call_timeout = min(self.timeout, rem_budget)
+
             try:
-                res = operation(self.model)
+                res = operation(self.model, call_timeout)
                 logger.info("Model '%s' answered successfully.", self.model)
                 return res
             except httpx.TimeoutException as exc:
@@ -275,10 +393,11 @@ class GeminiLLMClient(BaseLLMClient):
                 safe_err = sanitize_message(str(exc), self.api_key)
                 last_err_msg = f"Network timeout: {safe_err}"
                 logger.warning(
-                    "Gemini request timed out on model '%s' (attempt %d/%d): %s",
+                    "Gemini request timed out on model '%s' (attempt %d/%d, timeout=%.2fs): %s",
                     self.model,
                     attempt + 1,
                     max_attempts,
+                    call_timeout,
                     safe_err,
                 )
             except LLMError as exc:
@@ -295,14 +414,30 @@ class GeminiLLMClient(BaseLLMClient):
                         and self.fallback_model.strip() != self.model
                     ):
                         fallback = self.fallback_model.strip()
+                        rem_fb = self.get_remaining_budget()
+                        if rem_fb < MIN_FALLBACK_REMAINING_BUDGET_SEC:
+                            logger.warning(
+                                "Remaining budget %.2fs < threshold %.2fs. Skipping fallback model '%s' after 404.",
+                                rem_fb,
+                                MIN_FALLBACK_REMAINING_BUDGET_SEC,
+                                fallback,
+                            )
+                            raise LLMError(
+                                f"Primary model '{self.model}' returned 404 and insufficient remaining budget ({rem_fb:.2f}s < {MIN_FALLBACK_REMAINING_BUDGET_SEC:.1f}s) for fallback: {safe_err}",
+                                status_code=404,
+                                is_timeout=True,
+                                retries_exhausted=True,
+                            ) from None
+
+                        fb_timeout = min(self.timeout, rem_fb)
                         logger.warning(
-                            "Primary model '%s' returned 404 (model no longer available / not found): %s. Trying fallback model '%s'...",
+                            "Primary model '%s' returned 404. Trying fallback model '%s' with timeout %.2fs...",
                             self.model,
-                            safe_err,
                             fallback,
+                            fb_timeout,
                         )
                         try:
-                            res = operation(fallback)
+                            res = operation(fallback, fb_timeout)
                             logger.info("Model '%s' answered successfully.", fallback)
                             return res
                         except Exception as fb_exc:
@@ -360,11 +495,38 @@ class GeminiLLMClient(BaseLLMClient):
                 logger.error("Network error on model '%s': %s", self.model, safe_err)
                 raise LLMError(f"Network error connecting to Gemini API: {safe_err}") from None
 
+            # Stop retry loop if remaining pipeline budget is exhausted after call
+            rem_after_call = self.get_remaining_budget()
+            if rem_after_call <= 0.0:
+                logger.warning(
+                    "Pipeline total time budget exhausted after attempt %d/%d. Stopping retry loop.",
+                    attempt + 1,
+                    max_attempts,
+                )
+                raise LLMError(
+                    f"Pipeline time budget exhausted after attempt {attempt + 1}: {last_err_msg}",
+                    status_code=last_status_code,
+                    is_timeout=True,
+                    retries_exhausted=True,
+                )
+
             # If retryable and retries remain, back off with random jitter
             if attempt < len(delays):
                 base_delay = delays[attempt]
                 jitter = random.uniform(0.1, 0.5)
                 sleep_duration = base_delay + jitter
+                if sleep_duration >= rem_after_call:
+                    logger.warning(
+                        "Backoff delay %.2fs exceeds remaining budget %.2fs. Stopping retry loop.",
+                        sleep_duration,
+                        rem_after_call,
+                    )
+                    raise LLMError(
+                        f"Pipeline time budget exhausted during backoff delay: {last_err_msg}",
+                        status_code=last_status_code,
+                        is_timeout=True,
+                        retries_exhausted=True,
+                    )
                 logger.info(
                     "Backing off for %.2fs before retrying model '%s'...",
                     sleep_duration,
@@ -386,9 +548,26 @@ class GeminiLLMClient(BaseLLMClient):
             and self.fallback_model.strip() != self.model
         ):
             fallback = self.fallback_model.strip()
-            logger.info("Attempting fallback model '%s' once...", fallback)
+            rem_for_fallback = self.get_remaining_budget()
+            # Do not start a fallback-model attempt if less than documented constant threshold remains
+            if rem_for_fallback < MIN_FALLBACK_REMAINING_BUDGET_SEC:
+                logger.warning(
+                    "Remaining pipeline budget (%.2fs) is less than threshold %.2fs. Skipping fallback model '%s'.",
+                    rem_for_fallback,
+                    MIN_FALLBACK_REMAINING_BUDGET_SEC,
+                    fallback,
+                )
+                raise LLMError(
+                    f"Gemini API request failed after retries and insufficient remaining budget ({rem_for_fallback:.2f}s < {MIN_FALLBACK_REMAINING_BUDGET_SEC:.1f}s) for fallback model: {last_err_msg}",
+                    status_code=last_status_code,
+                    is_timeout=last_is_timeout,
+                    retries_exhausted=True,
+                )
+
+            fb_timeout = min(self.timeout, rem_for_fallback)
+            logger.info("Attempting fallback model '%s' once with timeout %.2fs...", fallback, fb_timeout)
             try:
-                res = operation(fallback)
+                res = operation(fallback, fb_timeout)
                 logger.info("Model '%s' answered successfully.", fallback)
                 return res
             except Exception as exc:
@@ -416,9 +595,11 @@ class GeminiLLMClient(BaseLLMClient):
         )
 
     def generate_json(self, system_prompt: str, user_prompt: str) -> str:
-        """Call Gemini generateContent with exponential backoff and optional fallback model."""
+        """Call Gemini generateContent with exponential backoff, budget enforcement, and optional fallback model."""
         return self._execute_with_retry(
-            lambda model: self._post_generate_content(model, system_prompt, user_prompt)
+            lambda model, call_timeout: self._post_generate_content(
+                model, system_prompt, user_prompt, timeout=call_timeout
+            )
         )
 
     def transcribe_image(
@@ -427,11 +608,11 @@ class GeminiLLMClient(BaseLLMClient):
         mime_type: str = "image/png",
         prompt: str | None = None,
     ) -> str:
-        """Transcribe verbatim text from an image with exponential backoff and optional fallback model."""
+        """Transcribe verbatim text from an image with exponential backoff, budget enforcement, and optional fallback model."""
         target_prompt = prompt or self.DEFAULT_VISION_PROMPT
         return self._execute_with_retry(
-            lambda model: self._post_generate_vision_content(
-                model, image_bytes, mime_type, target_prompt
+            lambda model, call_timeout: self._post_generate_vision_content(
+                model, image_bytes, mime_type, target_prompt, timeout=call_timeout
             )
         )
 
@@ -448,6 +629,7 @@ class OpenAILLMClient(BaseLLMClient):
         base_url: str = "https://api.openai.com/v1",
         timeout_seconds: float = 60.0,
     ) -> None:
+        super().__init__()
         self.api_key = (
             api_key
             if api_key is not None
@@ -458,13 +640,22 @@ class OpenAILLMClient(BaseLLMClient):
         self.timeout = timeout_seconds
 
     def generate_json(self, system_prompt: str, user_prompt: str) -> str:
-        """Call OpenAI chat completions endpoint in JSON mode."""
+        """Call OpenAI chat completions endpoint in JSON mode with budget enforcement."""
         if not self.api_key:
             raise LLMError(
                 "OpenAI API key is not configured. Please set the LLM_API_KEY or "
                 "OPENAI_API_KEY environment variable."
             )
 
+        rem_budget = self.get_remaining_budget()
+        if rem_budget <= 0.0:
+            raise LLMError(
+                "Pipeline time budget exhausted.",
+                is_timeout=True,
+                retries_exhausted=True,
+            )
+
+        call_timeout = min(self.timeout, rem_budget)
         url = f"{self.base_url}/chat/completions"
         headers = {
             "Content-Type": "application/json",
@@ -482,7 +673,7 @@ class OpenAILLMClient(BaseLLMClient):
         }
 
         try:
-            with httpx.Client(timeout=self.timeout) as client:
+            with httpx.Client(timeout=call_timeout) as client:
                 response = client.post(url, headers=headers, json=payload)
 
             if response.status_code != 200:
@@ -518,8 +709,15 @@ class FakeLLMClient(BaseLLMClient):
         responses: list[Any] | Any | None = None,
         model: str = "fake-model",
         vision_responses: list[Any] | Any | None = None,
+        timeout_seconds: float = 60.0,
+        always_timeout: bool = False,
+        timeout_delay: float | None = None,
     ) -> None:
+        super().__init__()
         self.model = model
+        self.timeout = timeout_seconds
+        self.always_timeout = always_timeout
+        self.timeout_delay = timeout_delay
         self.calls: list[dict[str, str]] = []
         self.vision_calls: list[dict[str, Any]] = []
         self._responses: list[Any] = []
@@ -560,6 +758,21 @@ class FakeLLMClient(BaseLLMClient):
     def generate_json(self, system_prompt: str, user_prompt: str) -> str:
         """Record the call and return the next canned response or raise configured exception."""
         self.calls.append({"system_prompt": system_prompt, "user_prompt": user_prompt})
+
+        if self.always_timeout:
+            remaining = self.get_remaining_budget()
+            if self.timeout_delay is not None:
+                delay = min(self.timeout_delay, remaining) if remaining > 0 else 0.0
+            else:
+                delay = min(self.timeout, remaining) if remaining > 0 else 0.0
+            if delay > 0:
+                time.sleep(delay)
+            rem_after = self.get_remaining_budget()
+            raise LLMError(
+                f"FakeLLMClient simulated network timeout (slept {delay:.2f}s, remaining={rem_after:.2f}s)",
+                is_timeout=True,
+                retries_exhausted=(rem_after <= 0.0),
+            )
 
         is_triage = "triage" in system_prompt.lower()
 
@@ -692,6 +905,21 @@ class FakeLLMClient(BaseLLMClient):
         """Mock transcription response for vision OCR."""
         self.vision_calls.append({"mime_type": mime_type, "prompt": prompt, "size": len(image_bytes)})
         self.calls.append({"system_prompt": "vision_transcription", "user_prompt": prompt or ""})
+
+        if self.always_timeout:
+            remaining = self.get_remaining_budget()
+            if self.timeout_delay is not None:
+                delay = min(self.timeout_delay, remaining) if remaining > 0 else 0.0
+            else:
+                delay = min(self.timeout, remaining) if remaining > 0 else 0.0
+            if delay > 0:
+                time.sleep(delay)
+            rem_after = self.get_remaining_budget()
+            raise LLMError(
+                f"FakeLLMClient simulated vision timeout (slept {delay:.2f}s, remaining={rem_after:.2f}s)",
+                is_timeout=True,
+                retries_exhausted=(rem_after <= 0.0),
+            )
 
         if not self._vision_responses:
             return "Mock verbatim text extracted from scanned notice page."

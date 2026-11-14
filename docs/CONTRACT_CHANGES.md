@@ -493,3 +493,70 @@ This section details the contract updates and specifications introduced for OCR 
   - **After (Conditional PSM 6 with fallback)**: 8.84 seconds
   - **Latency Savings**: 9.77 seconds saved (52.5% reduction in OCR time)
   - **Budget Compliance**: 8.84s is well under the 60-second end-to-end processing timeout budget (`PIPELINE_TOTAL_TIMEOUT_SEC = 60`).
+
+
+---
+
+## 6. Total Time Budget Enforcement, Timeout Capping & Timing Breakdown
+
+This section details the total wall-clock time budget enforcement introduced across OCR, triage, structured extraction, and LLM retry loops.
+
+### 6.1 Total Budget & Retry Loop Termination
+- **Configuration**: `PIPELINE_TOTAL_TIMEOUT_SEC` (default: `60.0` seconds).
+- **Remaining Budget Computation**:
+  $$\text{remaining\_budget} = \text{PIPELINE\_TOTAL\_TIMEOUT\_SEC} - (\text{time spent on OCR, triage, and earlier calls})$$
+- **Per-Call Timeout Capping**:
+  - Each individual LLM call timeout is capped to:
+    $$\text{call\_timeout} = \min(\text{client.timeout}, \text{remaining\_budget})$$
+- **Retry Loop Budget Termination**:
+  - In `extraction/llm_client.py` (`GeminiLLMClient._execute_with_retry`, `OpenAILLMClient`, `FakeLLMClient`), before each attempt and after each retryable error, the client checks `self.get_remaining_budget()`.
+  - If the remaining budget is $\le 0.0$ seconds (or if the backoff delay exceeds the remaining budget), the retry loop terminates immediately and raises an `LLMError` with `is_timeout=True` and `retries_exhausted=True`.
+- **Fallback Model Threshold Constant**:
+  - Documented constant: `MIN_FALLBACK_REMAINING_BUDGET_SEC = 3.0` (configurable via `MIN_FALLBACK_REMAINING_BUDGET_SEC` environment variable).
+  - A fallback-model attempt is **never started** if less than `3.0` seconds remain in the pipeline budget.
+
+### 6.2 Strict `too_slow` Failure Contract
+- Whenever the pipeline time budget is exhausted at any stage (during OCR, triage, chunk extraction, repair retries, or post-processing):
+  - The pipeline immediately halts and returns the standard `too_slow` failure dictionary:
+    ```json
+    {
+      "status": "extraction_failed",
+      "failure_reason": "too_slow",
+      "error_code": "DOCUMENT_PROCESSING_TIMEOUT",
+      "message": "The document is too large or processing exceeded the 60-second time budget. Please retry or provide a shorter excerpt.",
+      "needs_verification": true,
+      "result": null,
+      "validation_report": {
+        "is_valid": false,
+        "schema_compliant": false,
+        "errors": ["The document is too large or processing exceeded the 60-second time budget. Please retry or provide a shorter excerpt."],
+        "warnings": []
+      },
+      "ocr_time_sec": 12.5,
+      "llm_time_sec": 4.2,
+      "total_time_sec": 60.1
+    }
+    ```
+  - The pipeline **never** returns `"status": "success"` if the wall-clock execution time exceeds `PIPELINE_TOTAL_TIMEOUT_SEC`.
+
+### 6.3 Timing Metrics Breakdown & Smoke Script
+- `process_notice` returns timing metrics:
+  - `ocr_time_sec`: Total time in seconds spent on page extraction and OCR.
+  - `llm_time_sec`: Total time in seconds spent across LLM triage and structured extraction.
+  - `total_time_sec`: Total end-to-end wall-clock time in seconds.
+- `scripts/ocr_smoke.py --full` reports these timings separately:
+  ```
+  Total Time:        18.21s
+    OCR Time:        13.26s
+    LLM Time:        4.90s
+  ```
+
+### 6.4 5-Page Scanned Fixture End-to-End Measurement
+- Measured on `tests/fixtures/five_page_scanned_notice.pdf` with Tesseract OCR (`--mode tesseract`) and live Gemini LLM call (`gemini-3.5-flash-lite`):
+  - **Status**: `success`
+  - **Category**: `scholarship_or_college`
+  - **Needs Verification**: `true` (scanned notice)
+  - **Total Time**: **`18.21s`**
+  - **OCR Time**: **`13.26s`**
+  - **LLM Time**: **`4.90s`**
+  - **Compliance**: `18.21s` is well below the `60.0s` total pipeline budget.

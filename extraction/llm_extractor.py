@@ -203,6 +203,21 @@ def extract_notice_with_llm(
     current_user_prompt = user_prompt
 
     for attempt in range(max_retries + 1):
+        # Stop repair attempts if pipeline budget is exhausted
+        if hasattr(llm, "get_remaining_budget") and llm.get_remaining_budget() <= 0.0:
+            logger.warning("Pipeline total budget exhausted before extraction attempt %d.", attempt + 1)
+            return {
+                "status": "extraction_failed",
+                "failure_reason": "too_slow",
+                "error": "Pipeline total budget exhausted.",
+                "is_busy": False,
+                "is_timeout": True,
+                "status_code": None,
+                "data": None,
+                "raw_response": last_raw_response,
+                "attempts": attempt + 1,
+            }
+
         try:
             raw_response = llm.generate_json(system_prompt, current_user_prompt)
             last_raw_response = raw_response
@@ -213,6 +228,25 @@ def extract_notice_with_llm(
                 or err.retries_exhausted
                 or (err.status_code in {429, 500, 502, 503, 504})
             )
+
+            is_budget_exhausted = (
+                (hasattr(llm, "get_remaining_budget") and llm.get_remaining_budget() <= 0.0)
+                or (err.is_timeout and err.retries_exhausted)
+                or "budget exhausted" in safe_err.lower()
+            )
+            if is_budget_exhausted:
+                logger.warning("Pipeline total budget exhausted after LLMError: %s", safe_err)
+                return {
+                    "status": "extraction_failed",
+                    "failure_reason": "too_slow",
+                    "error": safe_err,
+                    "is_busy": is_busy,
+                    "is_timeout": True,
+                    "status_code": err.status_code,
+                    "data": None,
+                    "raw_response": last_raw_response,
+                    "attempts": attempt + 1,
+                }
 
             # Retry temporary errors if client did not already exhaust retries internally
             if err.is_retryable and not err.retries_exhausted and attempt < max_retries:
@@ -234,6 +268,7 @@ def extract_notice_with_llm(
                 "status": "extraction_failed",
                 "error": safe_err,
                 "is_busy": is_busy,
+                "is_timeout": err.is_timeout,
                 "status_code": err.status_code,
                 "data": None,
                 "raw_response": last_raw_response,

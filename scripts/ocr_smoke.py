@@ -254,10 +254,17 @@ def main(argv: list[str] | None = None) -> int:
     needs_veri = pipeline_res.get("needs_verification", False)
     result_data = pipeline_res.get("result") or {}
 
+    ocr_time = pipeline_res.get("ocr_time_sec")
+    llm_time = pipeline_res.get("llm_time_sec")
+
     print(f"Status:            {status}")
     print(f"Category:          {category}")
     print(f"Needs Verification:{needs_veri}")
     print(f"Total Time:        {elapsed_sec:.2f}s")
+    if ocr_time is not None:
+        print(f"  OCR Time:        {ocr_time:.2f}s")
+    if llm_time is not None:
+        print(f"  LLM Time:        {llm_time:.2f}s")
 
     print("\nPlain-Language Summary:")
     summary = result_data.get("plain_language_summary") or {}
