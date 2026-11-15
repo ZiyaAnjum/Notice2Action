@@ -61,7 +61,7 @@ async def custom_http_exception_handler(request: Request, exc: HTTPException) ->
             "error_code": f"HTTP_{exc.status_code}",
             "message": str(exc.detail),
         }
-    return JSONResponse(status_code=exc.status_code, content=payload)
+    return JSONResponse(status_code=exc.status_code, content=payload, headers=exc.headers)
 
 
 @app.exception_handler(Exception)
@@ -97,6 +97,8 @@ async def health_check(
                 "app": settings.APP_NAME,
                 "version": settings.APP_VERSION,
                 "environment": settings.ENV,
+                "database_type": settings.database_type,
+                "supabase_configured": settings.is_supabase_configured,
             },
         )
 
@@ -106,6 +108,8 @@ async def health_check(
         "app": settings.APP_NAME,
         "version": settings.APP_VERSION,
         "environment": settings.ENV,
+        "database_type": settings.database_type,
+        "supabase_configured": settings.is_supabase_configured,
     }
 
 

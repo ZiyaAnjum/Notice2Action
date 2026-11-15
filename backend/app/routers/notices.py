@@ -8,6 +8,7 @@ from fastapi import (
     Depends,
     File,
     HTTPException,
+    Response,
     UploadFile,
     status,
 )
@@ -19,16 +20,21 @@ from sqlalchemy.orm import Session
 
 from backend.app.database import get_db
 from backend.app.dependencies import get_llm
+from backend.app.models.notice import NoticeModel
+from backend.app.rate_limiter import check_upload_rate_limit
 from backend.app.schemas import (
     ChecklistItemResponse,
     ChecklistUpdateRequest,
     NoticeDetailResponse,
     NoticeListItem,
+    NoticeRetryResponse,
     NoticeUploadResponse,
     PageTextResponse,
+    ProcessingStatusResponse,
     ReminderCreateRequest,
     ReminderResponse,
 )
+from backend.app.services.calendar_service import CalendarExportError, calendar_service
 from backend.app.services.notice_service import NoticeServiceError, notice_service
 from extraction.llm_client import BaseLLMClient
 
@@ -74,6 +80,7 @@ async def upload_notice(
     background_tasks: BackgroundTasks,
     db: Annotated[Session, Depends(get_db)],
     llm_client: Annotated[BaseLLMClient, Depends(get_llm)],
+    _rate_limit: Annotated[None, Depends(check_upload_rate_limit)] = None,
 ) -> NoticeUploadResponse:
     """Upload and queue notice processing."""
     try:
@@ -123,8 +130,9 @@ async def legacy_upload_notice(
     background_tasks: BackgroundTasks,
     db: Annotated[Session, Depends(get_db)],
     llm_client: Annotated[BaseLLMClient, Depends(get_llm)],
+    _rate_limit: Annotated[None, Depends(check_upload_rate_limit)] = None,
 ) -> dict:
-    res = await upload_notice(file, background_tasks, db, llm_client)
+    res = await upload_notice(file, background_tasks, db, llm_client, _rate_limit)
     return {"notice_id": res.id, "status": res.status, "message": res.message}
 
 
@@ -138,6 +146,74 @@ async def list_notices(db: Annotated[Session, Depends(get_db)]) -> list[NoticeLi
     """List all notices with status and deadline summary."""
     items = notice_service.list_notices(db)
     return [NoticeListItem(**item) for item in items]
+
+
+@router.get(
+    "/{notice_id}/status",
+    response_model=ProcessingStatusResponse,
+    summary="Get lightweight processing status",
+    description="Returns only notice_id, status, current_stage, progress, and error_message. Optimised for polling during processing.",
+)
+async def get_notice_status(
+    notice_id: Annotated[str, FastPath(description="Unique notice ID")],
+    db: Annotated[Session, Depends(get_db)],
+) -> ProcessingStatusResponse:
+    """Return lightweight processing status for polling."""
+    notice = db.query(NoticeModel).filter(NoticeModel.id == notice_id).first()
+    if not notice:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"error": "NOTICE_NOT_FOUND", "message": f"Notice '{notice_id}' was not found."},
+        )
+    error_statuses = {"extraction_failed", "timed_out", "needs_clearer_document", "out_of_scope"}
+    error_message = notice.message if notice.status in error_statuses else None
+    return ProcessingStatusResponse(
+        notice_id=notice.id,
+        status=notice.status,
+        current_stage=notice.current_stage,
+        progress=notice.progress if notice.progress is not None else 0,
+        error_message=error_message,
+    )
+
+
+@router.post(
+    "/{notice_id}/retry",
+    status_code=status.HTTP_202_ACCEPTED,
+    response_model=NoticeRetryResponse,
+    summary="Retry notice extraction",
+    description="Retries processing for a notice that previously failed or timed out.",
+)
+async def retry_notice(
+    notice_id: Annotated[str, FastPath(description="Unique notice ID")],
+    background_tasks: BackgroundTasks,
+    db: Annotated[Session, Depends(get_db)],
+    llm_client: Annotated[BaseLLMClient, Depends(get_llm)],
+) -> NoticeRetryResponse:
+    """Validate notice eligibility and queue a safe background retry."""
+    try:
+        notice = notice_service.reset_for_retry(db=db, notice_id=notice_id)
+    except NoticeServiceError as err:
+        raise HTTPException(
+            status_code=err.status_code,
+            detail={"error": err.error_code, "message": err.message},
+        ) from None
+
+    # Queue background processing pipeline using existing safely-bounded executor
+    background_tasks.add_task(
+        notice_service.run_background_pipeline,
+        notice_id=notice.id,
+        stored_path=notice.stored_path,
+        llm_client=llm_client,
+    )
+
+    return NoticeRetryResponse(
+        id=notice.id,
+        notice_id=notice.id,
+        status="processing",
+        current_stage="uploaded",
+        progress=0,
+        message="Notice queued for reprocessing.",
+    )
 
 
 @router.get(
@@ -216,6 +292,43 @@ async def get_notice_file(
         path=file_path,
         media_type="application/pdf",
         filename=original_filename,
+    )
+
+
+@router.get(
+    "/{notice_id}/calendar",
+    summary="Export notice deadlines as iCalendar (.ics)",
+    description="Generates an RFC 5545 compliant .ics calendar file containing confirmed deadlines and reminder alarms.",
+    response_class=Response,
+)
+async def export_notice_calendar(
+    notice_id: Annotated[str, FastPath(description="Unique notice ID")],
+    db: Annotated[Session, Depends(get_db)],
+) -> Response:
+    """Generate and download RFC 5545 iCalendar (.ics) file for confirmed deadlines."""
+    notice = db.query(NoticeModel).filter(NoticeModel.id == notice_id).first()
+    if not notice:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"error": "NOTICE_NOT_FOUND", "message": f"Notice '{notice_id}' was not found."},
+        )
+
+    try:
+        ics_content = calendar_service.generate_notice_calendar(notice)
+    except CalendarExportError as err:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"error": err.error_code, "message": err.message},
+        ) from None
+
+    download_filename = f"notice-{notice_id}.ics"
+    return Response(
+        content=ics_content,
+        media_type="text/calendar; charset=utf-8",
+        headers={
+            "Content-Disposition": f'attachment; filename="{download_filename}"',
+            "Cache-Control": "no-cache",
+        },
     )
 
 

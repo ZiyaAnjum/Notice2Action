@@ -1,11 +1,15 @@
 import { useState, useRef, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { UploadCloud, FileText, AlertCircle, Loader2, ShieldCheck, CheckCircle2 } from "lucide-react";
-import { uploadNotice, getNotice } from "../api/client";
+import { uploadNotice, getNoticeStatus } from "../api/client";
 
 const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024; // 10MB
 const POLL_INTERVAL_MS = 1500;
-const POLL_TIMEOUT_MS = 60000; // 60s timeout
+const POLL_TIMEOUT_MS =
+  (typeof import.meta !== "undefined" &&
+    import.meta.env &&
+    Number(import.meta.env.VITE_POLL_TIMEOUT_MS)) ||
+  180000; // 180s (3 minutes) configurable window for long documents
 
 export function UploadPage() {
   const navigate = useNavigate();
@@ -16,6 +20,7 @@ export function UploadPage() {
   const [errorMessage, setErrorMessage] = useState(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [statusMessage, setStatusMessage] = useState("");
+  const [progress, setProgress] = useState(0);
   const [pollTimedOut, setPollTimedOut] = useState(false);
   const [currentNoticeId, setCurrentNoticeId] = useState(null);
 
@@ -91,6 +96,18 @@ export function UploadPage() {
     setCurrentNoticeId(noticeId);
     const startTime = Date.now();
 
+    const stageLabels = {
+      uploaded: "Notice uploaded, queueing extraction...",
+      extracting_text: "Extracting text from PDF...",
+      analysing_notice: "Analysing notice category and content...",
+      identifying_deadline: "Identifying key deadlines and obligations...",
+      generating_action_plan: "Generating actionable checklist...",
+      validating_results: "Validating extraction against source quotes...",
+      completed: "Processing complete!",
+      failed: "Processing failed.",
+      timed_out: "Processing timed out.",
+    };
+
     pollTimerRef.current = setInterval(async () => {
       const elapsed = Date.now() - startTime;
       if (elapsed > POLL_TIMEOUT_MS) {
@@ -102,7 +119,15 @@ export function UploadPage() {
       }
 
       try {
-        const detail = await getNotice(noticeId);
+        const detail = await getNoticeStatus(noticeId);
+        if (typeof detail.progress === "number") {
+          setProgress(detail.progress);
+        }
+        if (detail.current_stage && stageLabels[detail.current_stage]) {
+          setStatusMessage(stageLabels[detail.current_stage]);
+        }
+
+        // Terminal statuses: any status other than "processing"
         if (detail.status && detail.status !== "processing") {
           clearInterval(pollTimerRef.current);
           pollTimerRef.current = null;
@@ -173,8 +198,11 @@ export function UploadPage() {
               Extracting text and identifying deadlines, checklist items, and requirements...
             </p>
           </div>
-          <div className="max-w-xs mx-auto bg-slate-200 rounded-full h-2 overflow-hidden">
-            <div className="bg-indigo-600 h-full animate-pulse w-3/4 rounded-full" />
+          <div className="max-w-xs mx-auto bg-slate-200 rounded-full h-2.5 overflow-hidden">
+            <div
+              className="bg-indigo-600 h-full transition-all duration-300 rounded-full"
+              style={{ width: `${Math.max(progress, 5)}%` }}
+            />
           </div>
         </div>
       )}
@@ -239,13 +267,12 @@ export function UploadPage() {
             onDragOver={handleDrag}
             onDrop={handleDrop}
             onClick={() => fileInputRef.current?.click()}
-            className={`border-3 border-dashed rounded-2xl p-8 sm:p-12 text-center cursor-pointer transition-colors flex flex-col items-center justify-center gap-3 focus-within:ring-4 focus-within:ring-indigo-600 ${
-              dragActive
+            className={`border-3 border-dashed rounded-2xl p-8 sm:p-12 text-center cursor-pointer transition-colors flex flex-col items-center justify-center gap-3 focus-within:ring-4 focus-within:ring-indigo-600 ${dragActive
                 ? "border-indigo-600 bg-indigo-50/70"
                 : selectedFile
-                ? "border-emerald-500 bg-emerald-50/40"
-                : "border-slate-300 hover:border-indigo-400 bg-slate-50/60"
-            }`}
+                  ? "border-emerald-500 bg-emerald-50/40"
+                  : "border-slate-300 hover:border-indigo-400 bg-slate-50/60"
+              }`}
           >
             <input
               ref={fileInputRef}

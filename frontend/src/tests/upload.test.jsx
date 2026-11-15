@@ -11,6 +11,7 @@ vi.mock("../api/client", async () => {
     ...actual,
     uploadNotice: vi.fn(),
     getNotice: vi.fn(),
+    getNoticeStatus: vi.fn(),
   };
 });
 
@@ -63,6 +64,20 @@ describe("UploadPage Flow", () => {
       message: "Processing started",
     });
 
+    api.getNoticeStatus
+      .mockResolvedValueOnce({
+        notice_id: "notice-abc-123",
+        status: "processing",
+        current_stage: "analysing_notice",
+        progress: 40,
+      })
+      .mockResolvedValueOnce({
+        notice_id: "notice-abc-123",
+        status: "completed",
+        current_stage: "completed",
+        progress: 100,
+      });
+
     api.getNotice
       .mockResolvedValueOnce({
         id: "notice-abc-123",
@@ -70,7 +85,7 @@ describe("UploadPage Flow", () => {
       })
       .mockResolvedValueOnce({
         id: "notice-abc-123",
-        status: "processed",
+        status: "completed",
       });
 
     render(

@@ -113,6 +113,28 @@ export async function getNotice(noticeId) {
 }
 
 /**
+ * Retrieve lightweight notice processing status.
+ * @param {string} noticeId - Unique notice identifier.
+ * @returns {Promise<{ notice_id: string, status: string, current_stage: string|null, progress: number, error_message: string|null }>}
+ */
+export async function getNoticeStatus(noticeId) {
+  const response = await fetch(`${API_BASE_URL}/api/notices/${noticeId}/status`);
+  return await handleResponse(response);
+}
+
+/**
+ * Retry processing a notice that previously failed or timed out.
+ * @param {string} noticeId - Unique notice identifier.
+ * @returns {Promise<{ id: string, notice_id: string, status: string, message: string, current_stage: string, progress: number }>}
+ */
+export async function retryNotice(noticeId) {
+  const response = await fetch(`${API_BASE_URL}/api/notices/${noticeId}/retry`, {
+    method: "POST",
+  });
+  return await handleResponse(response);
+}
+
+/**
  * Permanently delete a notice and its stored files.
  * @param {string} noticeId - Notice ID to delete.
  * @returns {Promise<{ status: string, id: string, message: string }>}
@@ -142,6 +164,15 @@ export async function getNoticePage(noticeId, pageNumber) {
  */
 export function getNoticeFileUrl(noticeId) {
   return `${API_BASE_URL}/api/notices/${noticeId}/file`;
+}
+
+/**
+ * Construct URL to download RFC 5545 iCalendar (.ics) export.
+ * @param {string} noticeId - Notice ID.
+ * @returns {string} URL to notice calendar file.
+ */
+export function getNoticeCalendarUrl(noticeId) {
+  return `${API_BASE_URL}/api/notices/${noticeId}/calendar`;
 }
 
 /**

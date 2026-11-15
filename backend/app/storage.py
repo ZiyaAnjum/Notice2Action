@@ -73,10 +73,20 @@ class LocalFileStorage(FileStorage):
 
     def save(self, filename: str, contents: bytes) -> str:
         """Save file bytes with a generated safe UUID filename outside public paths."""
-        safe_filename = f"{uuid.uuid4().hex}.pdf"
-        target_path = self.upload_dir / safe_filename
+        # Generate collision-free unique server-side filename
+        while True:
+            safe_filename = f"{uuid.uuid4().hex}.pdf"
+            target_path = (self.upload_dir / safe_filename).resolve()
+            if not target_path.exists():
+                break
+
+        # Path traversal guard: verify target_path is strictly within upload_dir
+        resolved_upload_dir = self.upload_dir.resolve()
+        if not str(target_path).startswith(str(resolved_upload_dir)):
+            raise ValueError(f"Target path '{target_path}' escapes upload directory '{resolved_upload_dir}'.")
+
         target_path.write_bytes(contents)
-        return str(target_path.resolve())
+        return str(target_path)
 
     def read(self, stored_path: str) -> bytes:
         """Read file bytes from local disk."""

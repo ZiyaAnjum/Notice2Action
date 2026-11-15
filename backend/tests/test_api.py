@@ -1,6 +1,8 @@
 """Integration tests for FastAPI backend endpoints."""
 
 import json
+import os
+import time
 from collections.abc import Generator
 from datetime import date, timedelta
 from pathlib import Path
@@ -147,11 +149,17 @@ def test_upload_validation_errors(client: TestClient) -> None:
 
 
 def test_scanned_and_recipe_refusal_without_llm(client: TestClient) -> None:
-    """Verify scanned and out-of-scope files refuse early without calling LLM."""
-    fake_llm = FakeLLMClient(["{}"])
+    """Verify scanned refuses without LLM, and out-of-scope files refuse via triage without full extraction."""
+    triage_recipe = {
+        "is_actionable_notice": False,
+        "category": "not_a_notice",
+        "confidence": 0.99,
+        "reason": "Document is a culinary recipe, not an actionable official notice.",
+    }
+    fake_llm = FakeLLMClient([triage_recipe])
     app.dependency_overrides[get_llm] = lambda: fake_llm
 
-    # 1. Scanned / image-only PDF
+    # 1. Scanned / image-only PDF (refused before any LLM call)
     scan_path = FIXTURES_DIR / "scanned_image_only.pdf"
     with open(scan_path, "rb") as f:
         res_scan = client.post(
@@ -164,8 +172,10 @@ def test_scanned_and_recipe_refusal_without_llm(client: TestClient) -> None:
     scan_detail = client.get(f"/api/notices/{scan_id}").json()
     assert scan_detail["status"] == "needs_clearer_document"
     assert scan_detail["needs_verification"] is True
+    # Scanned PDF made 0 calls to LLM
+    assert fake_llm.call_count == 0
 
-    # 2. Recipe out-of-scope PDF
+    # 2. Recipe out-of-scope PDF (triaged as not_a_notice, 1 triage call, no extraction)
     recipe_path = FIXTURES_DIR / "recipe_unrelated.pdf"
     with open(recipe_path, "rb") as f:
         res_recipe = client.post(
@@ -178,8 +188,9 @@ def test_scanned_and_recipe_refusal_without_llm(client: TestClient) -> None:
     recipe_detail = client.get(f"/api/notices/{recipe_id}").json()
     assert recipe_detail["status"] == "out_of_scope"
 
-    # Crucial assertion: LLM was never called for either refusal
-    assert fake_llm.call_count == 0
+    # Crucial assertion: Triage was called once, full extraction was never called!
+    assert fake_llm.call_count == 1
+    assert "triage" in fake_llm.calls[0]["system_prompt"].lower()
 
 
 def test_checklist_patch_and_validation(client: TestClient) -> None:
@@ -384,3 +395,556 @@ def test_storage_interface_crud_and_backends(tmp_path: Path) -> None:
     # Invalid backend raises ValueError
     with pytest.raises(ValueError):
         get_storage(backend="invalid_backend_name")
+
+
+# ---------------------------------------------------------------------------
+# New tests: stage/progress fields, /status endpoint, and timeout handling
+# ---------------------------------------------------------------------------
+
+
+def test_processing_stage_updates(client: TestClient) -> None:
+    """Verify status endpoint returns current_stage and progress after processing."""
+    fake_llm = FakeLLMClient(load_sample_scholarship_json())
+    app.dependency_overrides[get_llm] = lambda: fake_llm
+
+    pdf_path = FIXTURES_DIR / "scholarship_or_college.pdf"
+    with open(pdf_path, "rb") as f:
+        upload_res = client.post(
+            "/api/notices",
+            files={"file": (pdf_path.name, f.read(), "application/pdf")},
+        )
+
+    assert upload_res.status_code == 202
+    notice_id = upload_res.json()["id"]
+
+    # Check /status endpoint
+    status_res = client.get(f"/api/notices/{notice_id}/status")
+    assert status_res.status_code == 200
+    body = status_res.json()
+    assert body["notice_id"] == notice_id
+    assert body["status"] == "processed"
+    assert body["current_stage"] == "completed"
+    assert body["progress"] == 100
+    assert body["error_message"] is None
+
+
+def test_status_endpoint_404_on_missing_notice(client: TestClient) -> None:
+    """Verify /status returns 404 for a non-existent notice."""
+    res = client.get("/api/notices/notice-does-not-exist/status")
+    assert res.status_code == 404
+    assert res.json()["error"] == "NOTICE_NOT_FOUND"
+
+
+def test_failed_processing_stage(client: TestClient) -> None:
+    """Verify failed processing returns current_stage=failed with error_message populated."""
+    from extraction.llm_client import GeminiLLMClient
+
+    unconfigured_llm = GeminiLLMClient(api_key="")
+    app.dependency_overrides[get_llm] = lambda: unconfigured_llm
+
+    pdf_path = FIXTURES_DIR / "scholarship_or_college.pdf"
+    with open(pdf_path, "rb") as f:
+        upload_res = client.post(
+            "/api/notices",
+            files={"file": (pdf_path.name, f.read(), "application/pdf")},
+        )
+
+    assert upload_res.status_code == 202
+    notice_id = upload_res.json()["id"]
+
+    # Check detail endpoint has the new fields
+    detail = client.get(f"/api/notices/{notice_id}").json()
+    assert detail["status"] == "extraction_failed"
+    assert detail["current_stage"] == "failed"
+    assert detail["progress"] == 0
+    assert detail["error_message"] is not None
+    assert "AI extraction service" in detail["error_message"]
+
+    # Also check /status endpoint is consistent
+    status_body = client.get(f"/api/notices/{notice_id}/status").json()
+    assert status_body["status"] == "extraction_failed"
+    assert status_body["current_stage"] == "failed"
+    assert status_body["progress"] == 0
+    assert "AI extraction service" in status_body["error_message"]
+
+
+def test_detail_response_includes_progress_fields(client: TestClient) -> None:
+    """Verify NoticeDetailResponse always includes current_stage, progress, error_message."""
+    fake_llm = FakeLLMClient(load_sample_scholarship_json())
+    app.dependency_overrides[get_llm] = lambda: fake_llm
+
+    pdf_path = FIXTURES_DIR / "scholarship_or_college.pdf"
+    with open(pdf_path, "rb") as f:
+        notice_id = client.post(
+            "/api/notices",
+            files={"file": (pdf_path.name, f.read(), "application/pdf")},
+        ).json()["id"]
+
+    detail = client.get(f"/api/notices/{notice_id}").json()
+    # Fields must be present in schema
+    assert "current_stage" in detail
+    assert "progress" in detail
+    assert "error_message" in detail
+    # Successful notice must NOT have error_message
+    assert detail["error_message"] is None
+    assert detail["current_stage"] == "completed"
+    assert detail["progress"] == 100
+
+
+def test_list_notices_includes_stage_fields(client: TestClient) -> None:
+    """Verify list notices response includes current_stage and progress for each item."""
+    fake_llm = FakeLLMClient(load_sample_scholarship_json())
+    app.dependency_overrides[get_llm] = lambda: fake_llm
+
+    pdf_path = FIXTURES_DIR / "scholarship_or_college.pdf"
+    with open(pdf_path, "rb") as f:
+        client.post(
+            "/api/notices",
+            files={"file": (pdf_path.name, f.read(), "application/pdf")},
+        )
+
+    list_res = client.get("/api/notices")
+    assert list_res.status_code == 200
+    items = list_res.json()
+    assert len(items) > 0
+    for item in items:
+        assert "current_stage" in item
+        assert "progress" in item
+
+
+def test_timeout_status_returned_gracefully(client: TestClient) -> None:
+    """Verify timed_out status is returned when pipeline exceeds the time budget.
+
+    Strategy: set PIPELINE_TOTAL_TIMEOUT_SEC=0.001 so the pipeline immediately
+    triggers its per-chunk timeout guard on the very first chunk.
+    """
+    orig_timeout = os.environ.get("PIPELINE_TOTAL_TIMEOUT_SEC")
+    os.environ["PIPELINE_TOTAL_TIMEOUT_SEC"] = "0.001"
+
+    try:
+        canned_payload = load_sample_scholarship_json()
+        fake_llm = FakeLLMClient(canned_payload)
+        app.dependency_overrides[get_llm] = lambda: fake_llm
+
+        pdf_path = FIXTURES_DIR / "scholarship_or_college.pdf"
+        with open(pdf_path, "rb") as f:
+            upload_res = client.post(
+                "/api/notices",
+                files={"file": (pdf_path.name, f.read(), "application/pdf")},
+                # Pass timeout_sec=0.001 via service directly
+            )
+
+        assert upload_res.status_code == 202
+        notice_id = upload_res.json()["id"]
+
+        detail = client.get(f"/api/notices/{notice_id}").json()
+        # Either timed_out (expected) or extraction_failed (pipeline returned error)
+        assert detail["status"] in ("timed_out", "extraction_failed")
+
+        if detail["status"] == "timed_out":
+            assert detail["current_stage"] == "timed_out"
+            assert detail["progress"] == 0
+            assert detail["needs_verification"] is True
+            assert "timed out" in detail["message"].lower()
+
+            # Also check /status is consistent
+            status_body = client.get(f"/api/notices/{notice_id}/status").json()
+            assert status_body["status"] == "timed_out"
+            assert status_body["current_stage"] == "timed_out"
+            assert status_body["error_message"] is not None
+    finally:
+        # Restore original env
+        if orig_timeout is None:
+            os.environ.pop("PIPELINE_TOTAL_TIMEOUT_SEC", None)
+        else:
+            os.environ["PIPELINE_TOTAL_TIMEOUT_SEC"] = orig_timeout
+
+
+def test_initial_stage_is_uploaded(tmp_path: Path) -> None:
+    """Verify that a freshly created pending notice has stage=uploaded and progress=0."""
+    session = notice_service.session_factory()
+    try:
+        p = tmp_path / "dummy.pdf"
+        p.write_bytes(b"%PDF-1.4 dummy")
+        n = notice_service.create_pending_notice(
+            db=session,
+            notice_id="notice-stage-test",
+            filename="dummy.pdf",
+            stored_path=p,
+        )
+        assert n.current_stage == "uploaded"
+        assert n.progress == 0
+        assert n.status == "processing"
+
+        # Verify to_dict includes them
+        d = n.to_dict()
+        assert d["current_stage"] == "uploaded"
+        assert d["progress"] == 0
+    finally:
+        session.close()
+
+
+def test_hard_timeout_executor_triggers_gracefully() -> None:
+    """Verify that run_background_pipeline handles a hanging task via hard timeout."""
+    from backend.app.models.notice import NoticeModel
+    from extraction.llm_client import BaseLLMClient
+
+    class HangingLLMClient(BaseLLMClient):
+        def generate_json(self, system_prompt: str, user_prompt: str) -> str:
+            time.sleep(2.0)
+            return "{}"
+
+    session = notice_service.session_factory()
+    try:
+        pdf_path = FIXTURES_DIR / "scholarship_or_college.pdf"
+        _ = notice_service.create_pending_notice(
+            db=session,
+            notice_id="notice-hang-test",
+            filename="scholarship.pdf",
+            stored_path=pdf_path,
+        )
+
+        # Run with a 0.2 second hard timeout
+        notice_service.run_background_pipeline(
+            notice_id="notice-hang-test",
+            stored_path=str(pdf_path.resolve()),
+            llm_client=HangingLLMClient(),
+            timeout_sec=0.2,
+        )
+
+        session.expire_all()
+        refreshed = session.query(NoticeModel).filter(NoticeModel.id == "notice-hang-test").first()
+        assert refreshed is not None
+        assert refreshed.status == "timed_out"
+        assert refreshed.current_stage == "timed_out"
+        assert refreshed.progress == 0
+        assert refreshed.needs_verification is True
+        assert "timed out" in refreshed.message.lower()
+    finally:
+        session.close()
+
+
+def test_retry_nonexistent_notice(client: TestClient) -> None:
+    """Verify that retrying a non-existent notice returns 404."""
+    res = client.post("/api/notices/notice-does-not-exist/retry")
+    assert res.status_code == 404
+    data = res.json()
+    assert data["error"] == "NOTICE_NOT_FOUND"
+
+
+def test_retry_while_already_processing(client: TestClient, tmp_path: Path) -> None:
+    """Verify that retrying an already processing notice returns 409 Conflict."""
+    session = notice_service.session_factory()
+    try:
+        p = tmp_path / "dummy.pdf"
+        p.write_bytes(b"%PDF-1.4 dummy")
+        n = notice_service.create_pending_notice(
+            db=session,
+            notice_id="notice-proc-test",
+            filename="dummy.pdf",
+            stored_path=p,
+        )
+        assert n.status == "processing"
+
+        res = client.post(f"/api/notices/{n.id}/retry")
+        assert res.status_code == 409
+        data = res.json()
+        assert data["error"] == "ALREADY_PROCESSING"
+    finally:
+        session.close()
+
+
+def test_retry_completed_notice(client: TestClient, tmp_path: Path) -> None:
+    """Verify that retrying an already completed notice returns 400 Bad Request."""
+    from backend.app.models.notice import NoticeModel
+
+    session = notice_service.session_factory()
+    try:
+        p = tmp_path / "dummy.pdf"
+        p.write_bytes(b"%PDF-1.4 dummy")
+        n = NoticeModel(
+            id="notice-completed-test",
+            original_filename="dummy.pdf",
+            stored_path=str(p),
+            status="processed",
+            current_stage="completed",
+            progress=100,
+        )
+        session.add(n)
+        session.commit()
+
+        res = client.post(f"/api/notices/{n.id}/retry")
+        assert res.status_code == 400
+        data = res.json()
+        assert data["error"] == "ALREADY_COMPLETED"
+    finally:
+        session.close()
+
+
+def test_retry_invalid_status_notice(client: TestClient, tmp_path: Path) -> None:
+    """Verify that retrying a notice with non-retryable status (out_of_scope) returns 400."""
+    from backend.app.models.notice import NoticeModel
+
+    session = notice_service.session_factory()
+    try:
+        p = tmp_path / "dummy.pdf"
+        p.write_bytes(b"%PDF-1.4 dummy")
+        n = NoticeModel(
+            id="notice-scope-test",
+            original_filename="dummy.pdf",
+            stored_path=str(p),
+            status="out_of_scope",
+            current_stage="failed",
+            progress=0,
+        )
+        session.add(n)
+        session.commit()
+
+        res = client.post(f"/api/notices/{n.id}/retry")
+        assert res.status_code == 400
+        data = res.json()
+        assert data["error"] == "INVALID_STATUS"
+    finally:
+        session.close()
+
+
+def test_retry_missing_file_on_disk(client: TestClient, tmp_path: Path) -> None:
+    """Verify that retrying a notice whose stored file was deleted returns 400."""
+    from backend.app.models.notice import NoticeModel
+
+    session = notice_service.session_factory()
+    try:
+        nonexistent_path = tmp_path / "deleted.pdf"
+        n = NoticeModel(
+            id="notice-missing-file",
+            original_filename="deleted.pdf",
+            stored_path=str(nonexistent_path),
+            status="extraction_failed",
+            current_stage="failed",
+            progress=0,
+        )
+        session.add(n)
+        session.commit()
+
+        res = client.post(f"/api/notices/{n.id}/retry")
+        assert res.status_code == 400
+        data = res.json()
+        assert data["error"] == "FILE_NOT_FOUND"
+    finally:
+        session.close()
+
+
+def test_duplicate_retry_prevention(client: TestClient, tmp_path: Path) -> None:
+    """Verify that active retry lock prevents concurrent duplicate retries."""
+    from backend.app.models.notice import NoticeModel
+
+    session = notice_service.session_factory()
+    try:
+        p = tmp_path / "dummy.pdf"
+        p.write_bytes(b"%PDF-1.4 dummy")
+        n = NoticeModel(
+            id="notice-dup-test",
+            original_filename="dummy.pdf",
+            stored_path=str(p),
+            status="extraction_failed",
+            current_stage="failed",
+            progress=0,
+        )
+        session.add(n)
+        session.commit()
+
+        # Simulate notice actively in-flight in retry set
+        notice_service._active_retries.add(n.id)
+        try:
+            res = client.post(f"/api/notices/{n.id}/retry")
+            assert res.status_code == 409
+            data = res.json()
+            assert data["error"] == "ALREADY_PROCESSING"
+        finally:
+            notice_service._active_retries.discard(n.id)
+    finally:
+        session.close()
+
+
+def test_correct_progress_and_status_reset(tmp_path: Path) -> None:
+    """Verify reset_for_retry resets status, stage, progress and removes checklist items."""
+    from backend.app.models.notice import ChecklistItemModel, NoticeModel
+
+    session = notice_service.session_factory()
+    try:
+        p = tmp_path / "test.pdf"
+        p.write_bytes(b"%PDF-1.4 valid dummy")
+        n = NoticeModel(
+            id="notice-reset-check",
+            original_filename="test.pdf",
+            stored_path=str(p),
+            status="timed_out",
+            current_stage="timed_out",
+            progress=65,
+            message="Processing timed out previously.",
+            needs_verification=True,
+            category="scholarship_or_college",
+        )
+        session.add(n)
+        session.commit()
+
+        # Add an initial checklist item
+        item = ChecklistItemModel(notice_id=n.id, item_key="Old Item", status="not_completed")
+        session.add(item)
+        session.commit()
+
+        # Execute reset
+        updated = notice_service.reset_for_retry(session, n.id)
+        assert updated.id == "notice-reset-check"
+        assert updated.status == "processing"
+        assert updated.current_stage == "uploaded"
+        assert updated.progress == 0
+        assert updated.message == "Notice queued for reprocessing."
+        assert updated.needs_verification is False
+        assert updated.category is None
+        assert updated.result_json is None
+
+        # Verify previous checklist items deleted
+        remaining_items = (
+            session.query(ChecklistItemModel).filter(ChecklistItemModel.notice_id == n.id).all()
+        )
+        assert len(remaining_items) == 0
+
+        # Verify no duplicate notices created
+        count = session.query(NoticeModel).filter(NoticeModel.id == "notice-reset-check").count()
+        assert count == 1
+    finally:
+        session.close()
+
+
+def test_successful_retry_after_failure(client: TestClient) -> None:
+    """Verify successful retry flow for a previously failed notice."""
+    from backend.app.models.notice import NoticeModel
+
+    canned_payload = load_sample_scholarship_json()
+    fake_llm = FakeLLMClient(canned_payload)
+    app.dependency_overrides[get_llm] = lambda: fake_llm
+
+    pdf_path = FIXTURES_DIR / "scholarship_or_college.pdf"
+
+    session = notice_service.session_factory()
+    try:
+        n = NoticeModel(
+            id="notice-retry-fail-success",
+            original_filename=pdf_path.name,
+            stored_path=str(pdf_path.resolve()),
+            status="extraction_failed",
+            current_stage="failed",
+            progress=0,
+            message="Previous extraction failure",
+            needs_verification=True,
+        )
+        session.add(n)
+        session.commit()
+
+        res = client.post(f"/api/notices/{n.id}/retry")
+        assert res.status_code == 202
+        body = res.json()
+        assert body["id"] == "notice-retry-fail-success"
+        assert body["notice_id"] == "notice-retry-fail-success"
+        assert body["status"] == "processing"
+        assert body["current_stage"] == "uploaded"
+        assert body["progress"] == 0
+
+        # Since TestClient runs background tasks before returning, verify completed notice
+        session.expire_all()
+        refreshed = (
+            session.query(NoticeModel).filter(NoticeModel.id == "notice-retry-fail-success").first()
+        )
+        assert refreshed is not None
+        assert refreshed.status == "processed"
+        assert refreshed.current_stage == "completed"
+        assert refreshed.progress == 100
+        assert refreshed.result_json is not None
+    finally:
+        session.close()
+
+
+def test_successful_retry_after_timeout(client: TestClient) -> None:
+    """Verify successful retry flow for a previously timed out notice."""
+    from backend.app.models.notice import NoticeModel
+
+    canned_payload = load_sample_scholarship_json()
+    fake_llm = FakeLLMClient(canned_payload)
+    app.dependency_overrides[get_llm] = lambda: fake_llm
+
+    pdf_path = FIXTURES_DIR / "scholarship_or_college.pdf"
+
+    session = notice_service.session_factory()
+    try:
+        n = NoticeModel(
+            id="notice-retry-timeout-success",
+            original_filename=pdf_path.name,
+            stored_path=str(pdf_path.resolve()),
+            status="timed_out",
+            current_stage="timed_out",
+            progress=0,
+            message="Processing timed out previously",
+            needs_verification=True,
+        )
+        session.add(n)
+        session.commit()
+
+        res = client.post(f"/api/notices/{n.id}/retry")
+        assert res.status_code == 202
+        body = res.json()
+        assert body["id"] == "notice-retry-timeout-success"
+        assert body["status"] == "processing"
+
+        session.expire_all()
+        refreshed = (
+            session.query(NoticeModel)
+            .filter(NoticeModel.id == "notice-retry-timeout-success")
+            .first()
+        )
+        assert refreshed is not None
+        assert refreshed.status == "processed"
+        assert refreshed.current_stage == "completed"
+        assert refreshed.progress == 100
+    finally:
+        session.close()
+
+
+def test_background_pipeline_failure_during_retry(client: TestClient, tmp_path: Path) -> None:
+    """Verify that a failing background pipeline during retry transitions to extraction_failed."""
+    from backend.app.models.notice import NoticeModel
+
+    # Corrupted PDF file that will cause pipeline failure
+    bad_pdf = tmp_path / "corrupted.pdf"
+    bad_pdf.write_bytes(b"%PDF-1.4 CORRUPTED CONTENT NOT REAL PDF")
+
+    session = notice_service.session_factory()
+    try:
+        n = NoticeModel(
+            id="notice-retry-fails-again",
+            original_filename="corrupted.pdf",
+            stored_path=str(bad_pdf.resolve()),
+            status="timed_out",
+            current_stage="timed_out",
+            progress=0,
+            message="Previous failure",
+            needs_verification=True,
+        )
+        session.add(n)
+        session.commit()
+
+        res = client.post(f"/api/notices/{n.id}/retry")
+        assert res.status_code == 202
+
+        # Verify final state after failed background processing
+        session.expire_all()
+        refreshed = (
+            session.query(NoticeModel).filter(NoticeModel.id == "notice-retry-fails-again").first()
+        )
+        assert refreshed is not None
+        assert refreshed.status in ("extraction_failed", "needs_clearer_document", "failed")
+        assert refreshed.current_stage == "failed"
+        assert refreshed.progress == 0
+        assert refreshed.status != "processing"
+    finally:
+        session.close()

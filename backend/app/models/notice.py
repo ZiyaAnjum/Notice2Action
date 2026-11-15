@@ -25,6 +25,8 @@ class NoticeModel(Base):
     result_json = Column(JSON, nullable=True)
     needs_verification = Column(Boolean, default=False, nullable=False)
     message = Column(Text, nullable=True)
+    current_stage = Column(String(64), nullable=True, default="uploaded")
+    progress = Column(Integer, default=0, nullable=False)
 
     # Relationships with automatic cascade deletion
     checklist_items = relationship(
@@ -52,6 +54,8 @@ class NoticeModel(Base):
             "result_json": self.result_json,
             "needs_verification": self.needs_verification,
             "message": self.message,
+            "current_stage": self.current_stage,
+            "progress": self.progress,
         }
 
 

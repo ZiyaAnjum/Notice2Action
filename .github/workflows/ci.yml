@@ -1,0 +1,80 @@
+name: CI
+
+"on":
+  push:
+    branches:
+      - "**"
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  backend-checks:
+    name: Backend Lint & Tests
+    runs-on: ubuntu-latest
+
+    env:
+      DISABLE_SQLALCHEMY_C_EXTENSIONS: "1"
+      DATABASE_URL: "sqlite:///./ci_test.db"
+      PIPELINE_TOTAL_TIMEOUT_SEC: "60"
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+          cache-dependency-path: |
+            backend/requirements.txt
+            extraction/requirements.txt
+            validation/requirements.txt
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r backend/requirements.txt -r extraction/requirements.txt -r validation/requirements.txt
+
+      - name: Run Ruff linter
+        run: |
+          python -m ruff check backend/
+
+      - name: Run Pytest test suite
+        run: |
+          python -m pytest backend/tests/ -v
+
+  frontend-checks:
+    name: Frontend Tests & Build
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: frontend
+
+    env:
+      VITE_API_BASE_URL: "http://localhost:8000"
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies (clean install)
+        run: npm ci
+
+      - name: Run Frontend unit tests
+        run: npm test
+
+      - name: Run Frontend production build
+        run: npm run build

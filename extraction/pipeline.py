@@ -719,6 +719,7 @@ def process_notice(
     file_path: str | Path,
     client: BaseLLMClient | None = None,
     ocr_mode: str | None = None,
+    stage_callback: Any = None,
 ) -> dict[str, Any]:
     """Execute the complete end-to-end notice processing pipeline.
 
@@ -748,6 +749,9 @@ def process_notice(
     )
 
     path = Path(file_path)
+
+    if stage_callback:
+        stage_callback("extracting_text", 15)
 
     # Step 1: Extract pages (with OCR fallback for scanned pages when OCR_MODE is enabled)
     try:
@@ -816,6 +820,8 @@ def process_notice(
     detected_language = lang_info.get("language", "en")
 
     # Step 3: Two-step Triage (Fast Rule-based guess -> LLM triage if ambiguous or new category)
+    if stage_callback:
+        stage_callback("analysing_notice", 35)
     rb_classification = classify_notice(readable_pages)
     rb_category = rb_classification.get("category")
     rb_confidence = float(rb_classification.get("confidence", 0.0) or 0.0)
@@ -909,6 +915,8 @@ def process_notice(
                 }
 
     # Step 4: LLM Structured Extraction (with whole-page chunking for long documents)
+    if stage_callback:
+        stage_callback("identifying_deadline", 55)
     page_chunks = chunk_pages(readable_pages, char_budget=char_budget)
     is_long_document = len(page_chunks) > 1
 
@@ -987,6 +995,8 @@ def process_notice(
             }
 
         chunk_results.append(extraction_res["data"])
+        if stage_callback:
+            stage_callback("generating_action_plan", 75)
 
     # Merge extracted chunk data if document was partitioned
     if is_long_document:
@@ -995,6 +1005,8 @@ def process_notice(
         extracted_data = chunk_results[0]
 
     # Step 5: Schema and Evidence Grounding Validation
+    if stage_callback:
+        stage_callback("validating_results", 90)
     page_texts = [p.get("text", "") for p in pages]
     validation_report = validate_notice(extracted_data, page_texts=page_texts)
 

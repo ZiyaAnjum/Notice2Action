@@ -21,6 +21,17 @@ class NoticeUploadResponse(BaseModel):
     message: str = Field(..., description="Status summary message")
 
 
+class NoticeRetryResponse(BaseModel):
+    """Response returned upon successfully accepting a retry request for background processing."""
+
+    id: str = Field(..., description="Unique notice record identifier")
+    notice_id: str = Field(..., description="Alias identifier for backward compatibility")
+    status: str = Field("processing", description="Current processing status")
+    current_stage: str = Field("uploaded", description="Processing stage reset to uploaded")
+    progress: int = Field(0, description="Processing progress reset to 0")
+    message: str = Field("Notice queued for reprocessing.", description="Status summary message")
+
+
 class NoticeListItem(BaseModel):
     """Compact notice item for list views."""
 
@@ -31,6 +42,8 @@ class NoticeListItem(BaseModel):
     deadline_summary: str | None = Field(None, description="Summary of upcoming deadlines")
     needs_verification: bool = Field(False, description="Verification caution flag")
     created_at: str = Field(..., description="ISO 8601 creation timestamp")
+    current_stage: str | None = Field(None)
+    progress: int = Field(0)
 
 
 class ChecklistItemResponse(BaseModel):
@@ -94,6 +107,19 @@ class NoticeDetailResponse(BaseModel):
     result: dict[str, Any] | None = None
     checklist: list[ChecklistItemResponse] = []
     reminders: list[ReminderResponse] = []
+    current_stage: str | None = Field(None, description="Current processing stage identifier")
+    progress: int = Field(0, description="Processing progress percentage 0-100")
+    error_message: str | None = Field(None, description="Human-readable error detail when status is failed or timed_out")
+
+
+class ProcessingStatusResponse(BaseModel):
+    """Lightweight processing status for efficient polling during pipeline execution."""
+
+    notice_id: str
+    status: str
+    current_stage: str | None = None
+    progress: int = 0
+    error_message: str | None = None
 
 
 class PageTextResponse(BaseModel):
@@ -112,3 +138,5 @@ class HealthResponse(BaseModel):
     version: str = "1.0.0"
     app: str = "Notice to Action API"
     environment: str = "development"
+    database_type: str = "sqlite"
+    supabase_configured: bool = False

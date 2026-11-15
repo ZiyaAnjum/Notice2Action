@@ -325,8 +325,9 @@ export function NoticeDashboardPage() {
     );
   }
 
-  // 4. extraction_failed or unconfigured AI service
-  if (notice.status === "extraction_failed") {
+  // 4. extraction_failed, timed_out or unconfigured AI service
+  if (notice.status === "extraction_failed" || notice.status === "timed_out") {
+    const isTimeout = notice.status === "timed_out";
     return (
       <main className="max-w-3xl mx-auto px-4 py-12 space-y-6">
         <div
@@ -339,10 +340,12 @@ export function NoticeDashboardPage() {
 
           <div className="space-y-2">
             <h1 className="text-2xl sm:text-3xl font-black text-slate-950">
-              Notice Extraction Could Not Complete
+              {isTimeout ? "Notice Processing Timed Out" : "Notice Extraction Could Not Complete"}
             </h1>
             <p className="text-base text-slate-700 font-medium">
-              The AI service could not process this notice. This might happen if the file is corrupted, or if the AI service is currently unavailable.
+              {isTimeout
+                ? "The notice processing exceeded the maximum permitted time limit. This can happen with very large documents or when the AI service is busy."
+                : "The AI service could not process this notice. This might happen if the file is corrupted, or if the AI service is currently unavailable."}
             </p>
             {notice.message && (
               <div className="p-4 bg-rose-50 rounded-xl border border-rose-200 text-sm text-rose-950 font-medium">
