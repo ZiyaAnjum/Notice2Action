@@ -67,7 +67,7 @@ describe("NoticeDashboardPage", () => {
     // Check that supported categories are listed
     expect(screen.getByText(/Tax & Payment/i)).toBeInTheDocument();
     expect(screen.getByText(/Scholarship & Education/i)).toBeInTheDocument();
-    expect(screen.getByText(/Government Schemes/i)).toBeInTheDocument();
+    expect(screen.getByText(/Government Scheme/i)).toBeInTheDocument();
     expect(screen.queryByText(/Action Plan/i)).not.toBeInTheDocument();
   });
 

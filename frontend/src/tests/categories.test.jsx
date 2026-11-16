@@ -8,10 +8,8 @@ import {
 } from "../utils/categories";
 
 describe("categories utility", () => {
-  it("defines all five canonical categories in SUPPORTED_CATEGORIES", () => {
-    expect(SUPPORTED_CATEGORIES).toHaveLength(5);
-    const keys = SUPPORTED_CATEGORIES.map((c) => c.key);
-    expect(keys).toEqual([
+  it("defines the five canonical categories with usable metadata", () => {
+    expect(SUPPORTED_CATEGORIES.map((category) => category.key)).toEqual([
       "scholarship_or_college",
       "bank",
       "utility",
@@ -19,57 +17,73 @@ describe("categories utility", () => {
       "government_scheme",
     ]);
 
-    SUPPORTED_CATEGORIES.forEach((cat) => {
-      expect(cat).toHaveProperty("key");
-      expect(cat).toHaveProperty("label");
-      expect(cat).toHaveProperty("description");
-      expect(cat.label.trim().length).toBeGreaterThan(0);
-      expect(cat.description.trim().length).toBeGreaterThan(0);
+    SUPPORTED_CATEGORIES.forEach((category) => {
+      expect(category.key).toBeTruthy();
+      expect(category.label.trim().length).toBeGreaterThan(0);
+      expect(category.description.trim().length).toBeGreaterThan(0);
     });
   });
 
-  it("returns human-friendly labels for the five canonical categories", () => {
+  it("returns current institutional labels for canonical categories", () => {
     expect(getCategoryLabel("scholarship_or_college")).toBe("Scholarship & Education");
-    expect(getCategoryLabel("bank")).toBe("Banking & KYC");
-    expect(getCategoryLabel("utility")).toBe("Utilities & Services");
+    expect(getCategoryLabel("bank")).toBe("Bank & Financial");
+    expect(getCategoryLabel("utility")).toBe("Utility Services");
     expect(getCategoryLabel("tax_or_payment")).toBe("Tax & Payment");
-    expect(getCategoryLabel("government_scheme")).toBe("Government Schemes");
+    expect(getCategoryLabel("government_scheme")).toBe("Government Scheme");
   });
 
-  it("handles other_out_of_scope appropriately", () => {
-    expect(CATEGORY_LABELS.other_out_of_scope).toBe("Unsupported Notice");
-    expect(getCategoryLabel("other_out_of_scope")).toBe("Unsupported Notice");
-    expect(OUT_OF_SCOPE_CATEGORY.key).toBe("other_out_of_scope");
-    expect(OUT_OF_SCOPE_CATEGORY.label).toBe("Unsupported Notice");
-    expect(OUT_OF_SCOPE_CATEGORY.description).toContain("outside the 5 supported categories");
-  });
-
-  it("verifies isSupportedCategory correctly", () => {
-    expect(isSupportedCategory("scholarship_or_college")).toBe(true);
-    expect(isSupportedCategory("bank")).toBe(true);
-    expect(isSupportedCategory("utility")).toBe(true);
-    expect(isSupportedCategory("tax_or_payment")).toBe(true);
-    expect(isSupportedCategory("government_scheme")).toBe(true);
-
-    expect(isSupportedCategory("other_out_of_scope")).toBe(false);
-    expect(isSupportedCategory("unsupported")).toBe(false);
-    expect(isSupportedCategory(null)).toBe(false);
-    expect(isSupportedCategory(undefined)).toBe(false);
-    expect(isSupportedCategory("")).toBe(false);
-    expect(isSupportedCategory("random_category")).toBe(false);
-  });
-
-  it("returns General Notice when category is falsy", () => {
-    expect(getCategoryLabel(null)).toBe("General Notice");
-    expect(getCategoryLabel("")).toBe("General Notice");
-    expect(getCategoryLabel(undefined)).toBe("General Notice");
-  });
-
-  it("handles legacy aliases and unmapped category fallbacks cleanly", () => {
+  it("maps legacy aliases to the current canonical labels", () => {
+    expect(getCategoryLabel("scholarship")).toBe("Scholarship & Education");
     expect(getCategoryLabel("tax")).toBe("Tax & Payment");
     expect(getCategoryLabel("tax_revenue")).toBe("Tax & Payment");
-    expect(getCategoryLabel("scholarship")).toBe("Scholarship & Education");
-    expect(getCategoryLabel("govt_scheme")).toBe("Government Schemes");
-    expect(getCategoryLabel("custom_unmapped_notice")).toBe("Custom Unmapped Notice");
+    expect(getCategoryLabel("govt_scheme")).toBe("Government Scheme");
+    expect(getCategoryLabel("government_benefits")).toBe("Government Scheme");
+    expect(getCategoryLabel("utility_services")).toBe("Utility Services");
+    expect(getCategoryLabel("banking_finance")).toBe("Bank & Financial");
+  });
+
+  it("handles out-of-scope labels and descriptions", () => {
+    expect(CATEGORY_LABELS.other_out_of_scope).toBe(
+      "General Communications (Out of Scope)"
+    );
+    expect(getCategoryLabel("other_out_of_scope")).toBe(
+      "General Communications (Out of Scope)"
+    );
+    expect(OUT_OF_SCOPE_CATEGORY.key).toBe("other_out_of_scope");
+    expect(OUT_OF_SCOPE_CATEGORY.label).toBe(
+      "General Communications (Out of Scope)"
+    );
+    expect(OUT_OF_SCOPE_CATEGORY.description).toContain("promotional flyers");
+    expect(getCategoryLabel("out_of_scope")).toBe(
+      "General Communications (Out of Scope)"
+    );
+    expect(getCategoryLabel("unsupported")).toBe(
+      "General Communications (Out of Scope)"
+    );
+  });
+
+  it("only identifies canonical supported categories as supported", () => {
+    SUPPORTED_CATEGORIES.forEach(({ key }) => {
+      expect(isSupportedCategory(key)).toBe(true);
+    });
+    for (const category of [
+      "other_out_of_scope",
+      "unsupported",
+      null,
+      undefined,
+      "",
+      "random_category",
+    ]) {
+      expect(isSupportedCategory(category)).toBe(false);
+    }
+  });
+
+  it("provides safe labels for missing or unrecognized categories", () => {
+    expect(getCategoryLabel(null)).toBe("Official Notice");
+    expect(getCategoryLabel(undefined)).toBe("Official Notice");
+    expect(getCategoryLabel("")).toBe("Official Notice");
+    expect(getCategoryLabel("custom_unmapped_notice")).toBe(
+      "Custom Unmapped Notice"
+    );
   });
 });

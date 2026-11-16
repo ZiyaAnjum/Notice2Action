@@ -31,58 +31,57 @@ const SUMMARY_QUESTIONS = [
 export function SummaryQuestions({ summary = {} }) {
   return (
     <section
-      className="bg-white border-2 border-slate-200 rounded-2xl p-6 sm:p-8 shadow-xs space-y-5"
+      className="bg-white border border-stone-200/90 rounded-3xl p-6 sm:p-8 shadow-card space-y-5"
       aria-labelledby="plain-summary-heading"
     >
-      <div className="flex items-center gap-2.5 border-b border-slate-100 pb-4">
-        <div className="p-2 bg-indigo-50 text-indigo-700 rounded-xl">
-          <HelpCircle className="w-5 h-5" aria-hidden="true" />
-        </div>
-        <div>
-          <span className="text-xs font-bold uppercase tracking-wider text-indigo-700 block">
-            Plain Language Explanation
-          </span>
-          <h2 id="plain-summary-heading" className="text-xl font-extrabold text-slate-950 tracking-tight">
-            5 Simple Questions About Your Notice
-          </h2>
-        </div>
-      </div>
+          <div className="flex items-center gap-2.5 border-b border-stone-100 pb-4">
+            <div className="p-2 bg-teal-50 text-teal-700 rounded-xl">
+              <HelpCircle className="w-5 h-5" aria-hidden="true" />
+            </div>
+            <div>
+                <span className="text-xs font-bold uppercase tracking-wider text-teal-700 block">
+                  Plain Language Explanation
+                </span>
+                  <h2 id="plain-summary-heading" className="text-xl font-black text-stone-950 tracking-tight">
+                    5 Simple Questions About Your Notice
+                  </h2>
+                </div>
+            </div>
 
-      <div className="space-y-4">
-        {SUMMARY_QUESTIONS.map(({ key, question, ariaId }) => {
-          const rawValue = summary ? summary[key] : null;
-          let textValue = rawValue;
-          if (typeof rawValue === "object" && rawValue !== null) {
-            textValue = rawValue.text ?? "";
-          }
-          const textStr = typeof textValue === "string" ? textValue : String(textValue || "");
-          const isMissing =
-            !textStr ||
-            textStr.trim() === "" ||
-            textStr.toLowerCase() === "not_found" ||
-            textStr.toLowerCase() === "not stated in the notice";
-          const displayContent = isMissing ? "Not stated in the notice" : textStr;
+              <div className="space-y-3.5">
+                {SUMMARY_QUESTIONS.map(({ key, question, ariaId }) => {
+                  const rawValue = summary ? summary[key] : null;
+                  let textValue = rawValue;
+                  if (typeof rawValue === "object" && rawValue !== null) {
+                    textValue = rawValue.text ?? "";
+                  }
+                  const textStr = typeof textValue === "string" ? textValue : String(textValue || "");
+                  const isMissing =
+                    !textStr ||
+                    textStr.trim() === "" ||
+                    textStr.toLowerCase() === "not_found" ||
+                    textStr.toLowerCase() === "not stated in the notice";
+                  const displayContent = isMissing ? "Not stated in the notice" : textStr;
 
-          return (
-            <article
-              key={key}
-              className="p-4 sm:p-5 rounded-xl bg-slate-50 border border-slate-200 space-y-1.5"
-              aria-labelledby={ariaId}
-            >
-              <h3 id={ariaId} className="text-base font-extrabold text-slate-900">
-                {question}
-              </h3>
-              <p
-                className={`text-sm sm:text-base leading-relaxed ${
-                  isMissing ? "text-slate-500 italic" : "text-slate-800 font-medium"
-                }`}
-              >
-                {displayContent}
-              </p>
-            </article>
-          );
-        })}
-      </div>
-    </section>
-  );
+                  return (
+                    <article
+                      key={key}
+                      className="p-4 sm:p-5 rounded-2xl bg-stone-50 border border-stone-200/80 space-y-1"
+                      aria-labelledby={ariaId}
+                    >
+                        <h3 id={ariaId} className="text-sm sm:text-base font-extrabold text-stone-900">
+                          {question}
+                        </h3>
+                        <p
+                className={`text-xs sm:text-sm leading-relaxed ${isMissing ? "text-stone-400 italic font-medium" : "text-stone-800 font-medium"
+                            }`}
+                        >
+                          {displayContent}
+                        </p>
+                    </article>
+                  );
+                })}
+              </div>
+            </section>
+            );
 }

@@ -9,8 +9,8 @@
 
 body {
   margin: 0;
-  background-color: #f8fafc;
-  color: #0f172a;
+  background-color: #FAF7F2;
+  color: #1C1917;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
@@ -42,24 +42,50 @@ body {
   background:
     radial-gradient(at 20% 10%, rgba(219, 234, 254, 0.6) 0px, transparent 40%),
     radial-gradient(at 80% 90%, rgba(207, 250, 254, 0.5) 0px, transparent 50%),
-    #f8fafc;
+    #FAF7F2;
+}
+
+/* Warm Ivory Canvas Background */
+.ivory-canvas {
+  background-color: #FAF7F2;
+  background-image:
+    radial-gradient(at 10% 10%, rgba(245, 240, 232, 0.8) 0px, transparent 40%),
+    radial-gradient(at 90% 90%, rgba(240, 253, 250, 0.4) 0px, transparent 40%);
+}
+
+/* Institutional Card styling */
+.institutional-card {
+  background-color: #FFFFFF;
+  border: 1px solid rgba(231, 229, 228, 0.85);
+  /* stone-200 */
+  box-shadow: 0 1px 3px 0 rgba(28, 25, 23, 0.04), 0 1px 2px -1px rgba(28, 25, 23, 0.04);
+}
+
+.institutional-card-hover {
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.institutional-card-hover:hover {
+  border-color: rgba(13, 148, 136, 0.4);
+  box-shadow: 0 10px 25px -4px rgba(28, 25, 23, 0.08), 0 4px 10px -3px rgba(28, 25, 23, 0.04);
+  transform: translateY(-1px);
 }
 
 /* Custom subtle scrollbar */
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 6px;
+  height: 6px;
 }
 
 ::-webkit-scrollbar-track {
-  background: #f1f5f9;
+  background: #F5F0E8;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
-  border-radius: 4px;
+  background: #DDD2C0;
+  border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #94a3b8;
+  background: #C8BAA3;
 }

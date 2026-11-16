@@ -1,17 +1,15 @@
 /**
- * Calendar utilities for Notice to Action.
- * Generates RFC 5545 compliant iCalendar (.ics) files and Google Calendar URLs.
- * Strictly respects date-only formats without assuming unknown times.
+ * Calendar utilities for Notice2Action.
+ * Generates RFC 5545 iCalendar files and Google Calendar URLs.
  */
 
 /**
  * Escapes text for RFC 5545 iCalendar format.
- * Semicolons, commas, backslashes, and newlines must be backslash-escaped.
- * @param {string} text
+ * @param {string|null|undefined} text
  * @returns {string}
  */
 export function escapeIcsText(text) {
-  if (!text) return "";
+  if (text == null || text === "") return "";
   return String(text)
     .replace(/\\/g, "\\\\")
     .replace(/;/g, "\\;")
@@ -20,170 +18,191 @@ export function escapeIcsText(text) {
 }
 
 /**
- * Parses a date or date-time string into RFC 5545 date formats.
- * Handles date-only values (YYYY-MM-DD) without assuming an unknown time.
- * For all-day events, DTEND is the next calendar day per RFC 5545 §3.6.1.
- *
- * @param {string} dateStr - Date string (YYYY-MM-DD or ISO timestamp).
- * @returns {{ isAllDay: boolean, dtStart: string, dtEnd: string, googleDates: string } | null}
+ * Formats a Date as an RFC 5545 UTC timestamp.
+ * @param {Date} [date]
+ * @returns {string}
  */
-export function formatCalendarDates(dateStr) {
-  if (!dateStr || typeof dateStr !== "string") return null;
+export function formatIcsUtcTimestamp(date = new Date()) {
+  const pad = (value) => String(value).padStart(2, "0");
+  return `${date.getUTCFullYear()}${pad(date.getUTCMonth() + 1)}${pad(
+    date.getUTCDate()
+  )}T${pad(date.getUTCHours())}${pad(date.getUTCMinutes())}${pad(
+    date.getUTCSeconds()
+  )}Z`;
+}
+
+function isValidDateOnly(year, month, day) {
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return (
+    date.getUTCFullYear() === year &&
+    date.getUTCMonth() === month - 1 &&
+    date.getUTCDate() === day
+  );
+}
+
+function formatUtcDate(date) {
+  const pad = (value) => String(value).padStart(2, "0");
+  return `${date.getUTCFullYear()}${pad(date.getUTCMonth() + 1)}${pad(
+    date.getUTCDate()
+  )}`;
+}
+
+/**
+ * Parses a date-only value or ISO timestamp for calendar export.
+ * Date-only events remain all-day events; timed events default to one hour.
+ *
+ * @param {string} dateStr
+ * @returns {{ isDateOnly: boolean, dtStart: string, dtEnd: string } | null}
+ */
+export function formatIcsEventDates(dateStr) {
+  if (typeof dateStr !== "string" || !dateStr.trim()) return null;
 
   const trimmed = dateStr.trim();
-
-  // 1. Check for Date-only format (YYYY-MM-DD)
-  const dateOnlyMatch = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  const dateOnlyMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(trimmed);
   if (dateOnlyMatch) {
     const year = Number(dateOnlyMatch[1]);
     const month = Number(dateOnlyMatch[2]);
     const day = Number(dateOnlyMatch[3]);
-    const dateCheck = new Date(Date.UTC(year, month - 1, day));
+    if (!isValidDateOnly(year, month, day)) return null;
 
-    if (
-      dateCheck.getUTCFullYear() !== year ||
-      dateCheck.getUTCMonth() !== month - 1 ||
-      dateCheck.getUTCDate() !== day
-    ) {
-      return null;
-    }
-
-    const yStr = String(year).padStart(4, "0");
-    const mStr = String(month).padStart(2, "0");
-    const dStr = String(day).padStart(2, "0");
-    const dtStart = `${yStr}${mStr}${dStr}`;
-
-    // Calculate next day for DTEND in all-day RFC 5545 events
-    const nextDate = new Date(Date.UTC(year, month - 1, day + 1));
-    const nextY = String(nextDate.getUTCFullYear()).padStart(4, "0");
-    const nextM = String(nextDate.getUTCMonth() + 1).padStart(2, "0");
-    const nextD = String(nextDate.getUTCDate()).padStart(2, "0");
-    const dtEnd = `${nextY}${nextM}${nextD}`;
-
+    const nextDay = new Date(Date.UTC(year, month - 1, day + 1));
+    const start = `${year}${String(month).padStart(2, "0")}${String(day).padStart(2, "0")}`;
     return {
-      isAllDay: true,
-      dtStart: `VALUE=DATE:${dtStart}`,
-      dtEnd: `VALUE=DATE:${dtEnd}`,
-      googleDates: `${dtStart}/${dtEnd}`,
+      isDateOnly: true,
+      dtStart: start,
+      dtEnd: formatUtcDate(nextDay),
     };
   }
 
-  // 2. Date-time format
-  const parsed = new Date(trimmed);
-  if (isNaN(parsed.getTime())) {
+  const dateTimeMatch = /^(\d{4})-(\d{2})-(\d{2})(?:T|\s)/.exec(trimmed);
+  if (
+    dateTimeMatch &&
+    !isValidDateOnly(
+      Number(dateTimeMatch[1]),
+      Number(dateTimeMatch[2]),
+      Number(dateTimeMatch[3])
+    )
+  ) {
     return null;
   }
 
-  // UTC formatting for timed events
-  const pad = (n) => String(n).padStart(2, "0");
-  const y = parsed.getUTCFullYear();
-  const m = pad(parsed.getUTCMonth() + 1);
-  const d = pad(parsed.getUTCDate());
-  const h = pad(parsed.getUTCHours());
-  const min = pad(parsed.getUTCMinutes());
-  const s = pad(parsed.getUTCSeconds());
+  const parsedDate = new Date(trimmed);
+  if (Number.isNaN(parsedDate.getTime())) return null;
+  const endDate = new Date(parsedDate.getTime() + 60 * 60 * 1000);
+  return {
+    isDateOnly: false,
+    dtStart: formatIcsUtcTimestamp(parsedDate),
+    dtEnd: formatIcsUtcTimestamp(endDate),
+  };
+}
 
-  const startUtc = `${y}${m}${d}T${h}${min}${s}Z`;
-
-  // Default duration of 1 hour for timed deadlines
-  const endDate = new Date(parsed.getTime() + 60 * 60 * 1000);
-  const endY = endDate.getUTCFullYear();
-  const endM = pad(endDate.getUTCMonth() + 1);
-  const endD = pad(endDate.getUTCDate());
-  const endH = pad(endDate.getUTCHours());
-  const endMin = pad(endDate.getUTCMinutes());
-  const endS = pad(endDate.getUTCSeconds());
-
-  const endUtc = `${endY}${endM}${endD}T${endH}${endMin}${endS}Z`;
+/**
+ * Legacy date formatting API retained for callers from the shaza branch.
+ * @param {string} dateStr
+ * @returns {{ isAllDay: boolean, dtStart: string, dtEnd: string, googleDates: string } | null}
+ */
+export function formatCalendarDates(dateStr) {
+  const dates = formatIcsEventDates(dateStr);
+  if (!dates) return null;
 
   return {
-    isAllDay: false,
-    dtStart: startUtc,
-    dtEnd: endUtc,
-    googleDates: `${startUtc}/${endUtc}`,
+    isAllDay: dates.isDateOnly,
+    dtStart: dates.isDateOnly ? `VALUE=DATE:${dates.dtStart}` : dates.dtStart,
+    dtEnd: dates.isDateOnly ? `VALUE=DATE:${dates.dtEnd}` : dates.dtEnd,
+    googleDates: `${dates.dtStart}/${dates.dtEnd}`,
   };
 }
 
 /**
  * Generates an RFC 5545 compliant iCalendar string.
- * @param {object} params
- * @param {string} params.title - Event summary.
- * @param {string} [params.description] - Event details.
- * @param {string} params.dateStr - Date or date-time string.
- * @param {string} [params.noticeId] - Notice ID for UID creation.
- * @returns {string|null} RFC 5545 formatted text, or null if date is invalid.
+ * @param {{ title?: string, description?: string, dateStr: string, noticeId?: string }} options
+ * @returns {string|null}
  */
-export function generateIcsContent({ title, description, dateStr, noticeId }) {
-  const dates = formatCalendarDates(dateStr);
+export function generateIcsContent({
+  title,
+  description = "",
+  dateStr,
+  noticeId = "",
+}) {
+  const dates = formatIcsEventDates(dateStr);
   if (!dates) return null;
 
-  const now = new Date();
-  const pad = (n) => String(n).padStart(2, "0");
-  const dtStamp = `${now.getUTCFullYear()}${pad(now.getUTCMonth() + 1)}${pad(
-    now.getUTCDate()
-  )}T${pad(now.getUTCHours())}${pad(now.getUTCMinutes())}${pad(now.getUTCSeconds())}Z`;
-
-  const safeUid = `notice-${noticeId ? encodeURIComponent(noticeId) : Date.now()}-${Math.random()
-    .toString(36)
-    .slice(2, 9)}@notice2action.ai`;
-
   const safeTitle = escapeIcsText(title || "Notice Deadline");
-  const safeDesc = escapeIcsText(description || "Official notice deadline from Notice to Action.");
+  const safeDescription = escapeIcsText(
+    description || "Official notice deadline from Notice2Action."
+  );
+  const safeNoticeId = encodeURIComponent(String(noticeId || "notice"));
+  const uniqueId = `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+  const startProperty = dates.isDateOnly
+    ? `DTSTART;VALUE=DATE:${dates.dtStart}`
+    : `DTSTART:${dates.dtStart}`;
+  const endProperty = dates.isDateOnly
+    ? `DTEND;VALUE=DATE:${dates.dtEnd}`
+    : `DTEND:${dates.dtEnd}`;
 
   const lines = [
     "BEGIN:VCALENDAR",
     "VERSION:2.0",
-    "PRODID:-//Action4AI//Notice to Action//EN",
+    "PRODID:-//Notice2Action//Institutional Notice Management//EN",
     "CALSCALE:GREGORIAN",
     "METHOD:PUBLISH",
     "BEGIN:VEVENT",
-    `UID:${safeUid}`,
-    `DTSTAMP:${dtStamp}`,
-    dates.isAllDay ? `DTSTART;${dates.dtStart}` : `DTSTART:${dates.dtStart}`,
-    dates.isAllDay ? `DTEND;${dates.dtEnd}` : `DTEND:${dates.dtEnd}`,
+    `UID:notice2action-${safeNoticeId}-${uniqueId}@notice2action.ai`,
+    `DTSTAMP:${formatIcsUtcTimestamp()}`,
+    startProperty,
+    endProperty,
     `SUMMARY:${safeTitle}`,
-    `DESCRIPTION:${safeDesc}`,
+    `DESCRIPTION:${safeDescription}`,
     "STATUS:CONFIRMED",
+    "TRANSP:OPAQUE",
     "END:VEVENT",
     "END:VCALENDAR",
   ];
 
-  return lines.join("\r\n");
+  return `${lines.join("\r\n")}\r\n`;
 }
 
 /**
  * Generates a Google Calendar template link.
- * @param {object} params
- * @param {string} params.title
- * @param {string} [params.description]
- * @param {string} params.dateStr
- * @returns {string|null} URL string or null if invalid.
+ * @param {{ title?: string, description?: string, dateStr: string }} options
+ * @returns {string|null}
  */
-export function getGoogleCalendarUrl({ title, description, dateStr }) {
-  const dates = formatCalendarDates(dateStr);
+export function getGoogleCalendarUrl({
+  title,
+  description = "",
+  dateStr,
+}) {
+  const dates = formatIcsEventDates(dateStr);
   if (!dates) return null;
 
-  const text = encodeURIComponent(title || "Notice Deadline");
-  const details = encodeURIComponent(description || "Official notice deadline from Notice to Action.");
-
-  return `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${text}&dates=${dates.googleDates}&details=${details}`;
+  const params = [
+    ["action", "TEMPLATE"],
+    ["text", title || "Notice Deadline"],
+    ["dates", `${dates.dtStart}/${dates.dtEnd}`],
+    ["details", description || "Official notice deadline from Notice2Action."],
+  ]
+    .map(([key, value]) =>
+      `${key}=${key === "dates" ? value : encodeURIComponent(value)}`
+    )
+    .join("&");
+  return `https://calendar.google.com/calendar/render?${params}`;
 }
 
 /**
- * Triggers browser download of an iCalendar .ics file.
- * @param {string} filename - Target filename (e.g. deadline.ics).
- * @param {string} icsContent - RFC 5545 iCalendar content.
+ * Triggers a browser download of an iCalendar file.
+ * @param {string} filename
+ * @param {string} icsContent
  */
 export function triggerIcsDownload(filename, icsContent) {
-  if (!icsContent || typeof window === "undefined") return;
+  if (typeof window === "undefined" || !icsContent) return;
 
   const blob = new Blob([icsContent], { type: "text/calendar;charset=utf-8" });
   const url = window.URL.createObjectURL(blob);
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = filename.endsWith(".ics") ? filename : `${filename}.ics`;
-  document.body.appendChild(anchor);
-  anchor.click();
-  document.body.removeChild(anchor);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
   window.URL.revokeObjectURL(url);
 }

@@ -1,14 +1,15 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import {
   escapeIcsText,
   formatCalendarDates,
+  formatIcsEventDates,
   generateIcsContent,
   getGoogleCalendarUrl,
   triggerIcsDownload,
 } from "../utils/calendar";
 
 describe("calendar utilities", () => {
-  it("escapes special characters for RFC 5545 compliance", () => {
+  it("escapes special characters for RFC 5545 and handles empty text", () => {
     expect(escapeIcsText("Hello, World; test\\run\nNew line")).toBe(
       "Hello\\, World\\; test\\\\run\\nNew line"
     );
@@ -16,103 +17,122 @@ describe("calendar utilities", () => {
     expect(escapeIcsText(null)).toBe("");
   });
 
-  describe("formatCalendarDates", () => {
-    it("handles date-only values as all-day events with next-day DTEND without assuming time", () => {
-      const result = formatCalendarDates("2026-12-31");
-      expect(result).not.toBeNull();
-      expect(result.isAllDay).toBe(true);
-      expect(result.dtStart).toBe("VALUE=DATE:20261231");
-      expect(result.dtEnd).toBe("VALUE=DATE:20270101");
-      expect(result.googleDates).toBe("20261231/20270101");
-    });
+  it("formats date-only events for both branch APIs with an exclusive next-day end", () => {
+    const legacyDates = formatCalendarDates("2026-12-31");
+    const currentDates = formatIcsEventDates("2026-12-31");
 
-    it("handles timed ISO strings in UTC format", () => {
-      const result = formatCalendarDates("2026-11-15T10:00:00Z");
-      expect(result).not.toBeNull();
-      expect(result.isAllDay).toBe(false);
-      expect(result.dtStart).toBe("20261115T100000Z");
-      expect(result.dtEnd).toBe("20261115T110000Z");
-      expect(result.googleDates).toBe("20261115T100000Z/20261115T110000Z");
+    expect(legacyDates).toEqual({
+      isAllDay: true,
+      dtStart: "VALUE=DATE:20261231",
+      dtEnd: "VALUE=DATE:20270101",
+      googleDates: "20261231/20270101",
     });
-
-    it("returns null for invalid or non-date strings", () => {
-      expect(formatCalendarDates("")).toBeNull();
-      expect(formatCalendarDates(null)).toBeNull();
-      expect(formatCalendarDates("not-a-date")).toBeNull();
-      expect(formatCalendarDates("within 15 days")).toBeNull();
-      expect(formatCalendarDates("2026-02-31")).toBeNull();
+    expect(currentDates).toEqual({
+      isDateOnly: true,
+      dtStart: "20261231",
+      dtEnd: "20270101",
     });
   });
 
-  describe("generateIcsContent", () => {
-    it("creates valid RFC 5545 iCalendar content with CRLF line breaks", () => {
-      const ics = generateIcsContent({
-        title: "Property Tax Payment",
-        description: "Payment must be received on or before 31-12-2026",
-        dateStr: "2026-12-31",
-        noticeId: "tax-123",
-      });
-
-      expect(ics).not.toBeNull();
-      expect(ics).toContain("BEGIN:VCALENDAR\r\n");
-      expect(ics).toContain("VERSION:2.0\r\n");
-      expect(ics).toContain("PRODID:-//Action4AI//Notice to Action//EN\r\n");
-      expect(ics).toContain("BEGIN:VEVENT\r\n");
-      expect(ics).toContain("DTSTART;VALUE=DATE:20261231\r\n");
-      expect(ics).toContain("DTEND;VALUE=DATE:20270101\r\n");
-      expect(ics).toContain("SUMMARY:Property Tax Payment\r\n");
-      expect(ics).toContain(
-        "DESCRIPTION:Payment must be received on or before 31-12-2026\r\n"
-      );
-      expect(ics).toContain("END:VEVENT\r\n");
-      expect(ics).toContain("END:VCALENDAR");
-    });
-
-    it("returns null when date is invalid", () => {
-      const ics = generateIcsContent({
-        title: "Invalid Notice",
-        dateStr: "invalid-date",
-      });
-      expect(ics).toBeNull();
+  it("formats timed ISO events in UTC", () => {
+    expect(formatCalendarDates("2026-11-15T10:00:00Z")).toEqual({
+      isAllDay: false,
+      dtStart: "20261115T100000Z",
+      dtEnd: "20261115T110000Z",
+      googleDates: "20261115T100000Z/20261115T110000Z",
     });
   });
 
-  describe("getGoogleCalendarUrl", () => {
-    it("generates correct Google Calendar template URL for all-day deadline", () => {
-      const url = getGoogleCalendarUrl({
-        title: "Scholarship Renewal",
-        description: "Submit documents online",
-        dateStr: "2026-11-15",
-      });
-
-      expect(url).not.toBeNull();
-      expect(url).toContain("https://calendar.google.com/calendar/render?action=TEMPLATE");
-      expect(url).toContain("text=Scholarship%20Renewal");
-      expect(url).toContain("dates=20261115/20261116");
-      expect(url).toContain("details=Submit%20documents%20online");
-    });
+  it("rejects missing, invalid, and relative dates", () => {
+    for (const date of [
+      "",
+      null,
+      "not-a-date",
+      "within 15 days",
+      "2026-02-31",
+      "2026-02-31T12:00:00Z",
+    ]) {
+      expect(formatCalendarDates(date)).toBeNull();
+      expect(formatIcsEventDates(date)).toBeNull();
+    }
+    expect(
+      generateIcsContent({ title: "Invalid Notice", dateStr: "2026-02-31" })
+    ).toBeNull();
   });
 
-  describe("triggerIcsDownload", () => {
-    beforeEach(() => {
-      vi.clearAllMocks();
+  it("generates all-day iCalendar content with CRLF line endings and escaped text", () => {
+    const ics = generateIcsContent({
+      title: "Property Tax, Payment",
+      description: "Pay by 31-12-2026; use portal",
+      dateStr: "2026-12-31",
+      noticeId: "tax-123",
     });
 
-    it("triggers file download using Blob and temporary link in browser environment", () => {
-      const mockCreateObjectURL = vi.fn(() => "blob:mock-url");
-      const mockRevokeObjectURL = vi.fn();
-      window.URL.createObjectURL = mockCreateObjectURL;
-      window.URL.revokeObjectURL = mockRevokeObjectURL;
+    expect(ics).toContain("BEGIN:VCALENDAR\r\n");
+    expect(ics).toContain("VERSION:2.0\r\n");
+    expect(ics).toContain("PRODID:-//Notice2Action//Institutional Notice Management//EN\r\n");
+    expect(ics).toContain("BEGIN:VEVENT\r\n");
+    expect(ics).toContain("DTSTART;VALUE=DATE:20261231\r\n");
+    expect(ics).toContain("DTEND;VALUE=DATE:20270101\r\n");
+    expect(ics).toContain("SUMMARY:Property Tax\\, Payment\r\n");
+    expect(ics).toContain("DESCRIPTION:Pay by 31-12-2026\\; use portal\r\n");
+    expect(ics).toContain("END:VEVENT\r\nEND:VCALENDAR\r\n");
+  });
 
-      const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+  it("generates Google Calendar URLs for all-day deadlines", () => {
+    const url = getGoogleCalendarUrl({
+      title: "Scholarship Renewal",
+      description: "Submit documents online",
+      dateStr: "2026-11-15",
+    });
 
+    expect(url).toContain("https://calendar.google.com/calendar/render?action=TEMPLATE");
+    expect(url).toContain("text=Scholarship%20Renewal");
+    expect(url).toContain("dates=20261115/20261116");
+    expect(url).toContain("details=Submit%20documents%20online");
+  });
+
+  it("triggers download through a temporary anchor and revokes its object URL", () => {
+    const createObjectUrl = vi.fn(() => "blob:mock-url");
+    const revokeObjectUrl = vi.fn();
+    const createDescriptor = Object.getOwnPropertyDescriptor(
+      window.URL,
+      "createObjectURL"
+    );
+    const revokeDescriptor = Object.getOwnPropertyDescriptor(
+      window.URL,
+      "revokeObjectURL"
+    );
+    const clickSpy = vi
+      .spyOn(HTMLAnchorElement.prototype, "click")
+      .mockImplementation(() => {});
+
+    Object.defineProperty(window.URL, "createObjectURL", {
+      configurable: true,
+      value: createObjectUrl,
+    });
+    Object.defineProperty(window.URL, "revokeObjectURL", {
+      configurable: true,
+      value: revokeObjectUrl,
+    });
+
+    try {
       triggerIcsDownload("deadline.ics", "BEGIN:VCALENDAR\r\nEND:VCALENDAR");
-
-      expect(mockCreateObjectURL).toHaveBeenCalled();
+      expect(createObjectUrl).toHaveBeenCalled();
       expect(clickSpy).toHaveBeenCalled();
-      expect(mockRevokeObjectURL).toHaveBeenCalledWith("blob:mock-url");
-
+      expect(revokeObjectUrl).toHaveBeenCalledWith("blob:mock-url");
+    } finally {
       clickSpy.mockRestore();
-    });
+      if (createDescriptor) {
+        Object.defineProperty(window.URL, "createObjectURL", createDescriptor);
+      } else {
+        delete window.URL.createObjectURL;
+      }
+      if (revokeDescriptor) {
+        Object.defineProperty(window.URL, "revokeObjectURL", revokeDescriptor);
+      } else {
+        delete window.URL.revokeObjectURL;
+      }
+    }
   });
 });
