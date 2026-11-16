@@ -9,11 +9,11 @@ import {
   CheckCircle2,
   FileCheck,
   Clock,
-  Sparkles,
   ArrowRight,
   X,
 } from "lucide-react";
 import { uploadNotice, getNotice } from "../api/client";
+import { PageHeader } from "../components/PageHeader";
 
 const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024;
 const POLL_INTERVAL_MS = 1500;
@@ -153,30 +153,25 @@ export function UploadPage() {
   };
 
   return (
-    <main className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12 space-y-8">
-      <header className="text-center space-y-4">
-        <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full text-xs font-bold uppercase tracking-wider bg-teal-50 text-teal-800 border border-teal-200/80">
-          <Sparkles className="w-3.5 h-3.5 text-teal-700" aria-hidden="true" />
-          <span>Institutional Document Intake</span>
-        </div>
-        <h1 className="text-3xl sm:text-5xl font-black text-stone-950 tracking-tight leading-tight">
-          Upload Your Notice
-        </h1>
-        <p className="text-base sm:text-lg text-stone-600 font-medium max-w-2xl mx-auto leading-relaxed">
-          We extract deadlines, required documents, and action steps so you can
-          review what to do next.
-        </p>
-        <div className="flex flex-wrap items-center justify-center gap-3 pt-1 text-xs font-semibold text-stone-600">
-          <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white border border-stone-200 shadow-xs">
-            <FileCheck className="w-3.5 h-3.5 text-teal-700" aria-hidden="true" />
-            PDF notice analysis
-          </span>
-          <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white border border-stone-200 shadow-xs">
-            <Clock className="w-3.5 h-3.5 text-teal-700" aria-hidden="true" />
-            Deadline and action review
-          </span>
-        </div>
-      </header>
+    <main className="page-shell max-w-5xl space-y-6">
+      <PageHeader
+        icon={UploadCloud}
+        eyebrow="Institutional document intake"
+        title="Upload a notice"
+        description="Upload an official PDF to review its extracted deadlines, required documents, and action steps."
+        actions={
+          <>
+            <span className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-600 shadow-xs">
+              <FileCheck className="h-3.5 w-3.5 text-purple-700" aria-hidden="true" />
+              PDF analysis
+            </span>
+            <span className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-600 shadow-xs">
+              <Clock className="h-3.5 w-3.5 text-purple-700" aria-hidden="true" />
+              Deadline review
+            </span>
+          </>
+        }
+      />
 
       {isProcessing && (
         <section
@@ -200,10 +195,11 @@ export function UploadPage() {
             </p>
           </div>
           <div
-            className="max-w-md mx-auto bg-stone-100 rounded-full h-2.5 overflow-hidden border border-stone-200"
+            className="mx-auto h-2.5 max-w-md overflow-hidden rounded-full border border-purple-100 bg-purple-50"
+            role="progressbar"
             aria-label="Notice processing"
           >
-            <div className="bg-teal-600 h-full animate-pulse w-3/4 rounded-full" />
+            <div className="h-full w-full animate-pulse rounded-full bg-purple-200" />
           </div>
         </section>
       )}

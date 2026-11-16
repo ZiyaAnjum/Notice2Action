@@ -40,12 +40,10 @@ export function DeadlineCard({
           </div>
         </div>
         <p className="text-sm text-stone-600 font-medium">
-          No deadline was found in this notice.
+          No deadline is available in the extracted information.
         </p>
         <p className="text-xs text-stone-500">
-          This document does not specify a calendar cutoff. We recommend
-          preparing and submitting required paperwork promptly to avoid
-          administrative delays.
+          Check the original notice before assuming that no deadline applies.
         </p>
       </section>
     );

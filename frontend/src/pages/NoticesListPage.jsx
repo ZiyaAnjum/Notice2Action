@@ -14,11 +14,13 @@ import {
   ArrowRight,
   Search,
   Filter,
+  ArrowUpDown,
 } from "lucide-react";
 import { listNotices, getUpcomingReminders, deleteNotice, updateReminder } from "../api/client";
 import { getCategoryLabel } from "../utils/categories";
 import { formatDate } from "../utils/text";
 import { DeleteConfirmModal } from "../components/DeleteConfirmModal";
+import { PageHeader } from "../components/PageHeader";
 
 export function NoticesListPage() {
   const navigate = useNavigate();
@@ -26,6 +28,7 @@ export function NoticesListPage() {
 
   const [notices, setNotices] = useState([]);
   const [reminders, setReminders] = useState([]);
+  const [reminderError, setReminderError] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
@@ -33,6 +36,7 @@ export function NoticesListPage() {
   const [searchTerm, setSearchTerm] = useState(searchParams.get("q") || "");
   const [selectedCategory, setSelectedCategory] = useState("all");
   const [selectedStatus, setSelectedStatus] = useState("all");
+  const [sortMode, setSortMode] = useState("newest");
 
   // Delete modal state
   const [deleteTarget, setDeleteTarget] = useState(null);
@@ -42,12 +46,22 @@ export function NoticesListPage() {
     setLoading(true);
     setError(null);
     try {
-      const [noticeList, upcomingList] = await Promise.all([
+      const [noticeList, reminderResult] = await Promise.all([
         listNotices(),
-        getUpcomingReminders(14).catch(() => []),
+        getUpcomingReminders(14)
+          .then((data) => ({ data }))
+          .catch((reminderLoadError) => ({ error: reminderLoadError })),
       ]);
       setNotices(noticeList || []);
-      setReminders(upcomingList || []);
+      if (reminderResult.error) {
+        setReminders([]);
+        setReminderError(
+          reminderResult.error.message || "Could not load upcoming reminders."
+        );
+      } else {
+        setReminders(reminderResult.data || []);
+        setReminderError(null);
+      }
     } catch (err) {
       setError(err.message || "Could not load notices. Please try again.");
     } finally {
@@ -58,6 +72,10 @@ export function NoticesListPage() {
   useEffect(() => {
     fetchData();
   }, []);
+
+  useEffect(() => {
+    setSearchTerm(searchParams.get("q") || "");
+  }, [searchParams]);
 
   const handleToggleReminder = async (rem) => {
     try {
@@ -86,7 +104,7 @@ export function NoticesListPage() {
 
   // Filter and search notices
   const filteredNotices = useMemo(() => {
-    return notices.filter((n) => {
+    const filtered = notices.filter((n) => {
       // Search term
       if (searchTerm.trim()) {
         const query = searchTerm.toLowerCase();
@@ -106,33 +124,33 @@ export function NoticesListPage() {
       }
       return true;
     });
-  }, [notices, searchTerm, selectedCategory, selectedStatus]);
+    return filtered.sort((first, second) => {
+      if (sortMode === "title") {
+        return (first.title || "").localeCompare(second.title || "");
+      }
+      const firstDate = new Date(first.created_at || 0).getTime();
+      const secondDate = new Date(second.created_at || 0).getTime();
+      return sortMode === "oldest" ? firstDate - secondDate : secondDate - firstDate;
+    });
+  }, [notices, searchTerm, selectedCategory, selectedStatus, sortMode]);
 
   return (
-      <main className="space-y-6 sm:space-y-8">
-        {/* Header & Quick Action */}
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-stone-200 pb-5">
-            <div>
-                <div className="flex items-center gap-2">
-                  <span className="p-1.5 rounded-lg bg-teal-50 text-teal-700">
-                    <FileText className="w-5 h-5" />
-                  </span>
-                  <h1 className="text-2xl sm:text-3xl font-black text-stone-900 tracking-tight">
-                    Your Past Notices
-                  </h1>
-                </div>
-                <p className="text-stone-600 text-sm mt-1 font-medium">
-                  Review your notices, check deadline dates, and track completion progress.
-                </p>
-            </div>
+      <main className="page-shell space-y-6">
+        <PageHeader
+          icon={FileText}
+          eyebrow="Notice library"
+          title="All notices"
+          description="Search, filter, and review uploaded notices, deadlines, and action status."
+          actions={
             <Link
               to="/upload"
-              className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl font-bold text-sm text-white bg-teal-600 hover:bg-teal-700 shadow-xs focus:outline-hidden focus:ring-2 focus:ring-teal-600 min-h-[44px]"
+              className="focus-ring inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-purple-700 px-4 py-2.5 text-sm font-bold text-white shadow-xs transition hover:bg-purple-800"
             >
-              <Upload className="w-4 h-4" aria-hidden="true" />
-              <span>Upload New Notice</span>
+              <Upload className="h-4 w-4" aria-hidden="true" />
+              <span>Upload notice</span>
             </Link>
-          </div>
+          }
+        />
 
           {loading && (
               <div className="py-16 flex flex-col items-center justify-center gap-3 text-stone-600">
@@ -183,7 +201,7 @@ export function NoticesListPage() {
 
                           {reminders.length === 0 ? (
                               <p className="text-xs sm:text-sm text-stone-500 font-medium py-2">
-                                No upcoming reminders scheduled for the next 14 days.
+                                {reminderError || "No upcoming reminders scheduled for the next 14 days."}
                               </p>
                               ) : (
                               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -240,24 +258,24 @@ export function NoticesListPage() {
                       </section>
 
                       {/* Search & Filter Toolbar */}
-                      <div className="bg-white border border-stone-200/90 rounded-2xl p-4 shadow-card flex flex-col md:flex-row gap-3 items-center justify-between">
+                      <div className="surface-card flex flex-col items-stretch justify-between gap-3 p-4 md:flex-row md:items-center">
                         <div className="relative w-full md:w-72">
-                          <Search className="w-4 h-4 text-stone-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-stone-400" />
                           <input
                             type="text"
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
                             placeholder="Filter by title or keyword..."
-                            className="w-full pl-9 pr-3 py-1.5 text-xs sm:text-sm bg-stone-50 border border-stone-200 rounded-xl text-stone-900 placeholder-stone-400 focus:outline-hidden focus:ring-2 focus:ring-teal-600"
+                            className="focus-ring h-11 w-full rounded-xl border border-stone-200 bg-stone-50 py-1.5 pl-9 pr-3 text-xs text-stone-900 placeholder-stone-400 sm:text-sm"
                           />
                         </div>
 
-                        <div className="flex items-center gap-2 w-full md:w-auto overflow-x-auto pb-1 md:pb-0">
-                          <Filter className="w-4 h-4 text-stone-400 flex-shrink-0" />
+                        <div className="flex w-full flex-wrap items-center gap-2 md:w-auto">
+                          <Filter className="h-4 w-4 shrink-0 text-stone-400" />
                           <select
                             value={selectedCategory}
                             onChange={(e) => setSelectedCategory(e.target.value)}
-                            className="text-xs font-bold text-stone-700 bg-stone-50 border border-stone-200 rounded-xl px-2.5 py-1.5 focus:outline-hidden focus:ring-2 focus:ring-teal-600"
+                            className="focus-ring h-10 min-w-0 flex-1 rounded-xl border border-stone-200 bg-stone-50 px-2.5 text-xs font-bold text-stone-700 sm:flex-none"
                           >
                             <option value="all">All Categories</option>
                             <option value="scholarship_or_college">Scholarships &amp; Academics</option>
@@ -271,7 +289,7 @@ export function NoticesListPage() {
                           <select
                             value={selectedStatus}
                             onChange={(e) => setSelectedStatus(e.target.value)}
-                            className="text-xs font-bold text-stone-700 bg-stone-50 border border-stone-200 rounded-xl px-2.5 py-1.5 focus:outline-hidden focus:ring-2 focus:ring-teal-600"
+                            className="focus-ring h-10 min-w-0 flex-1 rounded-xl border border-stone-200 bg-stone-50 px-2.5 text-xs font-bold text-stone-700 sm:flex-none"
                           >
                             <option value="all">All Statuses</option>
                             <option value="processed">Processed</option>
@@ -279,6 +297,21 @@ export function NoticesListPage() {
                             <option value="needs_clearer_document">Needs Clearer Scan</option>
                             <option value="out_of_scope">Out of Scope</option>
                           </select>
+
+                          <label className="sr-only" htmlFor="notice-sort">Sort notices</label>
+                          <span className="flex h-10 items-center gap-1.5 rounded-xl border border-stone-200 bg-stone-50 px-2.5 text-stone-500">
+                            <ArrowUpDown className="h-3.5 w-3.5" aria-hidden="true" />
+                            <select
+                              id="notice-sort"
+                              value={sortMode}
+                              onChange={(event) => setSortMode(event.target.value)}
+                              className="focus-ring min-w-0 bg-transparent text-xs font-bold text-stone-700 outline-none"
+                            >
+                              <option value="newest">Newest</option>
+                              <option value="oldest">Oldest</option>
+                              <option value="title">Title</option>
+                            </select>
+                          </span>
                         </div>
                       </div>
 
@@ -295,6 +328,7 @@ export function NoticesListPage() {
                                 setSearchTerm("");
                                 setSelectedCategory("all");
                                 setSelectedStatus("all");
+                                setSortMode("newest");
                               }}
                               className="text-xs text-teal-700 font-bold hover:underline"
                             >

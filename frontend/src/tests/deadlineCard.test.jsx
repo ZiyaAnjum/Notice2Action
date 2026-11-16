@@ -81,7 +81,9 @@ describe("DeadlineCard Component", () => {
 
   it("renders empty state when no deadlines are present", () => {
     render(<DeadlineCard deadlines={[]} />);
-    expect(screen.getByText("No deadline was found in this notice.")).toBeInTheDocument();
+    expect(
+      screen.getByText("No deadline is available in the extracted information.")
+    ).toBeInTheDocument();
   });
 
   it("renders Add to Calendar button and toggles download/web options", async () => {

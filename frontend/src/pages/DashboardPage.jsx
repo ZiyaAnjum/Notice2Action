@@ -9,7 +9,6 @@ import {
   CheckCircle2,
   Circle,
   ArrowRight,
-  ShieldCheck,
   Loader2,
   Sparkles,
 } from "lucide-react";
@@ -27,10 +26,8 @@ export function DashboardPage() {
     setError(null);
     try {
       const [noticeList, upcomingList] = await Promise.all([
-        listNotices().catch((e) => {
-          throw e;
-        }),
-        getUpcomingReminders(14).catch(() => []),
+        listNotices(),
+        getUpcomingReminders(14),
       ]);
       setNotices(noticeList || []);
       setReminders(upcomingList || []);
@@ -65,6 +62,9 @@ export function DashboardPage() {
     const totalNotices = notices.length;
     const actionsPending = reminders.filter((r) => !r.done).length;
     const upcomingDeadlines = reminders.filter((r) => !r.done && r.remind_on).length;
+    const overdueItems = reminders.filter(
+      (r) => !r.done && getCountdownDetails(r.remind_on)?.urgency === "overdue"
+    ).length;
     const requiresAttention = notices.filter(
       (n) =>
         n.needs_verification ||
@@ -76,6 +76,7 @@ export function DashboardPage() {
       totalNotices,
       actionsPending,
       upcomingDeadlines,
+      overdueItems,
       requiresAttention,
     };
   }, [notices, reminders]);
@@ -97,8 +98,20 @@ export function DashboardPage() {
     return Math.round((completed / reminders.length) * 100);
   }, [reminders]);
 
+  const recentNotices = useMemo(
+    () =>
+      [...notices]
+        .sort(
+          (first, second) =>
+            new Date(second.created_at || 0).getTime() -
+            new Date(first.created_at || 0).getTime()
+        )
+        .slice(0, 3),
+    [notices]
+  );
+
   return (
-    <div className="space-y-6 sm:space-y-8">
+    <main className="page-shell space-y-6 sm:space-y-8">
       {/* 1. Welcome Section */}
       <section
         className="relative overflow-hidden rounded-3xl bg-gradient-to-r from-charcoal-900 via-charcoal-800 to-forest-900 text-white p-6 sm:p-8 lg:p-10 shadow-elevated border border-charcoal-800"
@@ -108,16 +121,16 @@ export function DashboardPage() {
           <div className="space-y-2 max-w-xl">
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-bold bg-teal-500/20 text-teal-300 border border-teal-500/30">
               <Sparkles className="w-3.5 h-3.5" />
-              <span>AITM Institutional Dashboard</span>
+              <span>ANJUMAN INSTITUTE · WORKSPACE</span>
             </div>
             <h1
               id="welcome-banner-heading"
               className="text-2xl sm:text-4xl font-black tracking-tight text-white leading-tight"
             >
-              Welcome back, Aysha! 👋
+              Welcome to your workspace
             </h1>
             <p className="text-stone-300 text-sm sm:text-base font-medium">
-              Stay informed. Meet your deadlines. Zero-hallucination institutional notice management.
+              Review institutional notices, important dates, and action status in one place.
             </p>
           </div>
 
@@ -190,7 +203,7 @@ export function DashboardPage() {
           {/* 2. Top Metric Stat Cards */}
           <section
             aria-label="Summary Statistics"
-            className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-5"
+            className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 xl:grid-cols-5"
           >
             {/* Total Notices */}
             <div className="bg-white rounded-2xl p-4 sm:p-5 border border-stone-200/90 shadow-card flex items-start justify-between gap-3">
@@ -199,7 +212,7 @@ export function DashboardPage() {
                   Total Notices
                 </span>
                 <p className="text-2xl sm:text-3xl font-black text-stone-900">
-                  {stats.totalNotices}
+                  {error ? "—" : stats.totalNotices}
                 </p>
                 <span className="text-[11px] text-stone-500 font-medium block">
                   Logged in system
@@ -217,7 +230,7 @@ export function DashboardPage() {
                   Actions Pending
                 </span>
                 <p className="text-2xl sm:text-3xl font-black text-stone-900">
-                  {stats.actionsPending}
+                  {error ? "—" : stats.actionsPending}
                 </p>
                 <span className="text-[11px] text-stone-500 font-medium block">
                   Active checklist steps
@@ -235,7 +248,7 @@ export function DashboardPage() {
                   Upcoming Deadlines
                 </span>
                 <p className="text-2xl sm:text-3xl font-black text-stone-900">
-                  {stats.upcomingDeadlines}
+                  {error ? "—" : stats.upcomingDeadlines}
                 </p>
                 <span className="text-[11px] text-stone-500 font-medium block">
                   Next 14 calendar days
@@ -246,6 +259,24 @@ export function DashboardPage() {
               </div>
             </div>
 
+            {/* Overdue Items */}
+            <div className="bg-white rounded-2xl p-4 sm:p-5 border border-stone-200/90 shadow-card flex items-start justify-between gap-3">
+              <div className="space-y-1">
+                <span className="text-xs font-bold uppercase tracking-wider text-stone-500">
+                  Overdue Items
+                </span>
+                <p className="text-2xl sm:text-3xl font-black text-stone-900">
+                  {error ? "—" : stats.overdueItems}
+                </p>
+                <span className="text-[11px] text-stone-500 font-medium block">
+                  Reminders past their date
+                </span>
+              </div>
+              <div className="w-10 h-10 rounded-xl bg-coral-100 text-coral-800 flex items-center justify-center flex-shrink-0">
+                <AlertTriangle className="w-5 h-5" />
+              </div>
+            </div>
+
             {/* Requires Attention */}
             <div className="bg-white rounded-2xl p-4 sm:p-5 border border-stone-200/90 shadow-card flex items-start justify-between gap-3">
               <div className="space-y-1">
@@ -253,7 +284,7 @@ export function DashboardPage() {
                   Requires Attention
                 </span>
                 <p className="text-2xl sm:text-3xl font-black text-stone-900">
-                  {stats.requiresAttention}
+                  {error ? "—" : stats.requiresAttention}
                 </p>
                 <span className="text-[11px] text-stone-500 font-medium block">
                   Needs verification
@@ -271,7 +302,7 @@ export function DashboardPage() {
           </section>
 
           {/* 3. Three-Column Interactive Layout matching reference */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
+          <div className="grid grid-cols-1 items-stretch gap-5 lg:grid-cols-3">
             {/* Column 1: Important Deadlines Section */}
             <section
               className="bg-white rounded-3xl p-5 sm:p-6 border border-stone-200/90 shadow-card space-y-4"
@@ -298,7 +329,11 @@ export function DashboardPage() {
                 </Link>
               </div>
 
-              {reminders.length === 0 ? (
+              {error ? (
+                <p className="py-6 text-center text-xs leading-5 text-stone-500">
+                  Deadline information is unavailable until the reminder service responds.
+                </p>
+              ) : reminders.length === 0 ? (
                 <div className="text-center py-8 space-y-2 text-stone-500">
                   <Clock className="w-8 h-8 mx-auto text-stone-300" />
                   <p className="text-xs sm:text-sm font-medium">No deadlines recorded yet.</p>
@@ -378,21 +413,26 @@ export function DashboardPage() {
                 </Link>
               </div>
 
-              {/* Progress bar */}
-              <div className="space-y-1.5">
-                <div className="flex justify-between text-xs font-bold text-stone-700">
-                  <span>Task Completion</span>
-                  <span>{checklistProgress}%</span>
+              {!error && (
+                <div className="space-y-1.5">
+                  <div className="flex justify-between text-xs font-bold text-stone-700">
+                    <span>Task Completion</span>
+                    <span>{checklistProgress}%</span>
+                  </div>
+                  <div className="w-full bg-stone-100 rounded-full h-2.5 overflow-hidden">
+                    <div
+                      className="bg-teal-600 h-full rounded-full transition-all duration-300"
+                      style={{ width: `${checklistProgress}%` }}
+                    />
+                  </div>
                 </div>
-                <div className="w-full bg-stone-100 rounded-full h-2.5 overflow-hidden">
-                  <div
-                    className="bg-teal-600 h-full rounded-full transition-all duration-300"
-                    style={{ width: `${checklistProgress}%` }}
-                  />
-                </div>
-              </div>
+              )}
 
-              {reminders.length === 0 ? (
+              {error ? (
+                <p className="py-4 text-center text-xs leading-5 text-stone-500">
+                  Action steps are unavailable until reminder data can be loaded.
+                </p>
+              ) : reminders.length === 0 ? (
                 <div className="text-center py-8 space-y-2 text-stone-500">
                   <CheckCircle2 className="w-8 h-8 mx-auto text-stone-300" />
                   <p className="text-xs sm:text-sm font-medium">No active action steps.</p>
@@ -470,50 +510,74 @@ export function DashboardPage() {
                       <ArrowRight className="w-3 h-3" />
                     </Link>
                   </div>
+                ) : error ? (
+                  <div className="p-4 rounded-2xl bg-stone-50 border border-stone-200 space-y-1">
+                    <p className="text-xs font-extrabold text-stone-800">Review status unavailable</p>
+                    <p className="text-[11px] text-stone-600 font-medium">
+                      Connect to the notice service to check which records need review.
+                    </p>
+                  </div>
                 ) : (
                   <div className="p-4 rounded-2xl bg-sage-50/80 border border-sage-200/80 space-y-1">
-                    <p className="text-xs font-extrabold text-sage-950">All Clear &amp; Grounded</p>
+                    <p className="text-xs font-extrabold text-sage-950">No current review flags</p>
                     <p className="text-[11px] text-sage-900 font-medium">
-                      No conflicting dates or ungrounded claims detected across your uploaded notices.
+                      No notice returned by the service is currently flagged for manual review. Check original documents before acting.
                     </p>
                   </div>
                 )}
               </section>
 
-              {/* Source Verified Institutional Trust Card */}
+              {/* Recent activity from live notice records */}
               <section
                 className="bg-white rounded-3xl p-5 sm:p-6 border border-stone-200/90 shadow-card space-y-3"
-                aria-labelledby="source-verified-title"
+                aria-labelledby="recent-activity-title"
               >
-                <div className="flex items-center gap-2">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
                   <div className="p-1.5 rounded-lg bg-teal-50 text-teal-700">
-                    <ShieldCheck className="w-4 h-4" />
+                      <FileText className="w-4 h-4" />
                   </div>
-                  <h2
-                    id="source-verified-title"
-                    className="font-extrabold text-base text-stone-950"
-                  >
-                    Source Verified
-                  </h2>
-                </div>
-                <div className="space-y-1 text-xs text-stone-600 leading-relaxed font-medium">
-                  <p>
-                    Information is extracted strictly from official notice documents. Every deadline,
-                    checklist requirement, and action item links back to its exact source page and
-                    verbatim quote.
-                  </p>
-                </div>
-                <div className="pt-2 border-t border-stone-100 flex items-center justify-between text-[11px]">
-                  <span className="font-bold text-teal-700">Zero Hallucination Guarantee</span>
-                  <Link to="/settings" className="text-stone-500 hover:text-stone-900 underline">
-                    Learn more
+                    <h2 id="recent-activity-title" className="font-extrabold text-base text-stone-950">
+                      Recent Activity
+                    </h2>
+                  </div>
+                  <Link to="/notices" className="text-xs font-bold text-teal-700 hover:text-teal-900">
+                    View all
                   </Link>
                 </div>
+                {error ? (
+                  <p className="rounded-xl bg-stone-50 p-3 text-xs leading-5 text-stone-500">
+                    Activity is unavailable until notice records can be loaded.
+                  </p>
+                ) : recentNotices.length === 0 ? (
+                  <p className="rounded-xl bg-stone-50 p-3 text-xs leading-5 text-stone-500">
+                    Recent notice activity will appear here after notices are available.
+                  </p>
+                ) : (
+                  <ul className="divide-y divide-stone-100">
+                    {recentNotices.map((notice) => (
+                      <li key={notice.id} className="flex items-center justify-between gap-3 py-2.5 first:pt-0 last:pb-0">
+                        <Link
+                          to={`/notices/${notice.id}`}
+                          className="min-w-0 truncate text-xs font-semibold text-stone-800 hover:text-teal-800"
+                        >
+                          {notice.title || "Official notice"}
+                        </Link>
+                        <time className="shrink-0 text-[10px] text-stone-500">
+                          {formatDate(notice.created_at)}
+                        </time>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                <p className="border-t border-stone-100 pt-2 text-[11px] leading-5 text-stone-500">
+                  Review extracted dates and requirements against each original document.
+                </p>
               </section>
             </div>
           </div>
         </>
       )}
-    </div>
+    </main>
   );
 }

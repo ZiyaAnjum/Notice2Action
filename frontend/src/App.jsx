@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate, Outlet } from "react-router-dom";
 import { InstitutionalLayout } from "./components/InstitutionalLayout";
 import { DashboardPage } from "./pages/DashboardPage";
 import { UploadPage } from "./pages/UploadPage";
@@ -7,13 +7,36 @@ import { NoticeDashboardPage } from "./pages/NoticeDashboardPage";
 import { CalendarPage } from "./pages/CalendarPage";
 import { RemindersPage } from "./pages/RemindersPage";
 import { SettingsPage } from "./pages/SettingsPage";
+import { AuthPage } from "./pages/AuthPage";
+import { AuthProvider } from "./context/AuthContext";
+import { useAuth } from "./context/useAuth";
 
-export default function App() {
+function RequireAuthentication() {
+  const { isAuthenticated } = useAuth();
+  return isAuthenticated ? <Outlet /> : <Navigate to="/login" replace />;
+}
+
+function GuestOnly({ mode }) {
+  const { isAuthenticated } = useAuth();
+  return isAuthenticated ? <Navigate to="/dashboard" replace /> : <AuthPage mode={mode} />;
+}
+
+export function AppRoutes() {
+  const { isAuthenticated } = useAuth();
+
   return (
-    <BrowserRouter>
-      <InstitutionalLayout>
-        <Routes>
-          <Route path="/" element={<DashboardPage />} />
+    <Routes>
+      <Route
+        path="/"
+        element={<Navigate to={isAuthenticated ? "/dashboard" : "/login"} replace />}
+      />
+      <Route path="/login" element={<GuestOnly mode="login" />} />
+      <Route path="/signup" element={<GuestOnly mode="signup" />} />
+      <Route path="/forgot-password" element={<GuestOnly mode="forgot-password" />} />
+      <Route path="/reset-password" element={<GuestOnly mode="reset-password" />} />
+
+      <Route element={<RequireAuthentication />}>
+        <Route element={<InstitutionalLayout />}>
           <Route path="/dashboard" element={<DashboardPage />} />
           <Route path="/upload" element={<UploadPage />} />
           <Route path="/notices" element={<NoticesListPage />} />
@@ -21,8 +44,20 @@ export default function App() {
           <Route path="/calendar" element={<CalendarPage />} />
           <Route path="/reminders" element={<RemindersPage />} />
           <Route path="/settings" element={<SettingsPage />} />
-        </Routes>
-      </InstitutionalLayout>
+        </Route>
+      </Route>
+
+      <Route path="*" element={<Navigate to="/" replace />} />
+    </Routes>
+  );
+}
+
+export default function App() {
+  return (
+    <BrowserRouter>
+      <AuthProvider>
+        <AppRoutes />
+      </AuthProvider>
     </BrowserRouter>
   );
 }

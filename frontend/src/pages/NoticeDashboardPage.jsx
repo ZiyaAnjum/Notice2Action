@@ -163,7 +163,7 @@ export function NoticeDashboardPage() {
   // -------------------------------------------------------------
   if (loading) {
     return (
-      <main className="max-w-4xl mx-auto px-4 py-16 text-center space-y-4">
+      <main className="page-shell max-w-4xl space-y-4 py-10 text-center sm:py-14">
         <Loader2 className="w-12 h-12 text-indigo-600 animate-spin mx-auto" />
         <h1 className="text-xl font-bold text-slate-800">Loading notice dashboard...</h1>
       </main>
@@ -172,7 +172,7 @@ export function NoticeDashboardPage() {
 
   if (fetchError || !notice) {
     return (
-      <main className="max-w-3xl mx-auto px-4 py-12 space-y-6">
+      <main className="page-shell max-w-3xl space-y-6">
         <div className="p-6 rounded-2xl bg-rose-50 border-2 border-rose-300 text-rose-950 space-y-3">
           <h1 className="text-xl font-extrabold">Notice not available</h1>
           <p className="text-sm font-medium">{fetchError || "The requested notice could not be found."}</p>
@@ -196,7 +196,7 @@ export function NoticeDashboardPage() {
   // 1. Processing
   if (notice.status === "processing") {
     return (
-      <main className="max-w-3xl mx-auto px-4 py-16 text-center space-y-6">
+      <main className="page-shell max-w-3xl space-y-6 py-10 text-center sm:py-14">
         <div className="p-8 sm:p-12 bg-white border-2 border-indigo-200 rounded-3xl shadow-sm space-y-4">
           <Loader2 className="w-14 h-14 text-indigo-600 animate-spin mx-auto" />
           <h1 className="text-2xl sm:text-3xl font-black text-slate-950">
@@ -223,7 +223,7 @@ export function NoticeDashboardPage() {
   // 2. needs_clearer_document
   if (notice.status === "needs_clearer_document") {
     return (
-      <main className="max-w-3xl mx-auto px-4 py-12 space-y-6">
+      <main className="page-shell max-w-3xl space-y-6">
         <div
           role="alert"
           className="bg-white border-2 border-amber-400 rounded-3xl p-6 sm:p-10 shadow-sm space-y-5"
@@ -248,7 +248,7 @@ export function NoticeDashboardPage() {
 
           <div className="pt-2 flex flex-wrap gap-3">
             <Link
-              to="/"
+              to="/upload"
               className="inline-flex items-center gap-2 px-6 py-3 rounded-xl font-black text-white bg-indigo-600 hover:bg-indigo-700 shadow-md min-h-[48px]"
             >
               <Upload className="w-5 h-5" />
@@ -269,7 +269,7 @@ export function NoticeDashboardPage() {
   // 3. out_of_scope
   if (notice.status === "out_of_scope") {
     return (
-      <main className="max-w-3xl mx-auto px-4 py-12 space-y-6">
+      <main className="page-shell max-w-3xl space-y-6">
         <div
           role="alert"
           className="bg-white border-2 border-slate-300 rounded-3xl p-6 sm:p-10 shadow-sm space-y-6"
@@ -307,7 +307,7 @@ export function NoticeDashboardPage() {
 
           <div className="pt-2 flex flex-wrap gap-3">
             <Link
-              to="/"
+              to="/upload"
               className="inline-flex items-center gap-2 px-6 py-3 rounded-xl font-black text-white bg-indigo-600 hover:bg-indigo-700 min-h-[48px]"
             >
               <Upload className="w-5 h-5" />
@@ -328,7 +328,7 @@ export function NoticeDashboardPage() {
   // 4. extraction_failed or unconfigured AI service
   if (notice.status === "extraction_failed") {
     return (
-      <main className="max-w-3xl mx-auto px-4 py-12 space-y-6">
+      <main className="page-shell max-w-3xl space-y-6">
         <div
           role="alert"
           className="bg-white border-2 border-rose-300 rounded-3xl p-6 sm:p-10 shadow-sm space-y-5"
@@ -353,7 +353,7 @@ export function NoticeDashboardPage() {
 
           <div className="pt-2 flex flex-wrap gap-3">
             <Link
-              to="/"
+              to="/upload"
               className="inline-flex items-center gap-2 px-6 py-3 rounded-xl font-black text-white bg-indigo-600 hover:bg-indigo-700 min-h-[48px]"
             >
               <Upload className="w-5 h-5" />
@@ -405,7 +405,7 @@ export function NoticeDashboardPage() {
   const pdfFileUrl = getNoticeFileUrl(id);
 
   return (
-    <main className="max-w-6xl mx-auto px-4 sm:px-6 py-8 sm:py-12 space-y-8">
+    <main className="page-shell max-w-6xl space-y-6 sm:space-y-8">
       {/* Prominent Verification Alert Banner (if needs_verification is true) */}
       {notice.needs_verification && (
         <div

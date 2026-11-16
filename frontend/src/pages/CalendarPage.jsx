@@ -1,37 +1,64 @@
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import {
-  Calendar as CalendarIcon,
-  Clock,
-  Loader2,
   AlertCircle,
+  ArrowLeft,
   ArrowRight,
+  CalendarDays,
+  Clock,
   Filter,
+  Loader2,
 } from "lucide-react";
 import { getUpcomingReminders, listNotices } from "../api/client";
 import { formatDate, getCountdownDetails } from "../utils/text";
 import { AddToCalendarButton } from "../components/AddToCalendarButton";
+import { PageHeader } from "../components/PageHeader";
+
+const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+function parseLocalDate(value) {
+  if (typeof value !== "string" || !value) return null;
+  const [year, month, day] = value.slice(0, 10).split("-").map(Number);
+  if (!year || !month || !day) return null;
+  return new Date(year, month - 1, day);
+}
+
+function dateKey(date) {
+  return [
+    date.getFullYear(),
+    String(date.getMonth() + 1).padStart(2, "0"),
+    String(date.getDate()).padStart(2, "0"),
+  ].join("-");
+}
+
+function sameDay(first, second) {
+  return first && second && dateKey(first) === dateKey(second);
+}
 
 export function CalendarPage() {
   const [reminders, setReminders] = useState([]);
   const [notices, setNotices] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [filterMode, setFilterMode] = useState("all"); // "all", "upcoming", "overdue", "completed"
+  const [filterMode, setFilterMode] = useState("all");
+  const [visibleMonth, setVisibleMonth] = useState(
+    () => new Date(new Date().getFullYear(), new Date().getMonth(), 1)
+  );
+  const [selectedDate, setSelectedDate] = useState(() => new Date());
 
   useEffect(() => {
     async function loadCalendarData() {
       setLoading(true);
       setError(null);
       try {
-        const [rems, nots] = await Promise.all([
-          getUpcomingReminders(90).catch(() => []),
-          listNotices().catch(() => []),
+        const [reminderList, noticeList] = await Promise.all([
+          getUpcomingReminders(90),
+          listNotices(),
         ]);
-        setReminders(rems || []);
-        setNotices(nots || []);
-      } catch (err) {
-        setError(err.message || "Failed to load calendar deadlines.");
+        setReminders(reminderList || []);
+        setNotices(noticeList || []);
+      } catch (loadError) {
+        setError(loadError.message || "Failed to load calendar deadlines.");
       } finally {
         setLoading(false);
       }
@@ -39,182 +66,379 @@ export function CalendarPage() {
     loadCalendarData();
   }, []);
 
-  const noticesMap = useMemo(() => {
-    const map = {};
-    notices.forEach((n) => {
-      map[n.id] = n;
+  const noticesMap = useMemo(
+    () => Object.fromEntries(notices.map((notice) => [notice.id, notice])),
+    [notices]
+  );
+
+  const filteredReminders = useMemo(
+    () =>
+      reminders.filter((reminder) => {
+        if (filterMode === "completed") return reminder.done;
+        if (reminder.done && filterMode !== "all") return false;
+        const countdown = reminder.remind_on
+          ? getCountdownDetails(reminder.remind_on)
+          : null;
+        if (filterMode === "overdue") return countdown?.urgency === "overdue";
+        if (filterMode === "upcoming") return countdown?.urgency !== "overdue";
+        return true;
+      }),
+    [reminders, filterMode]
+  );
+
+  const remindersByDate = useMemo(() => {
+    const map = new Map();
+    filteredReminders.forEach((reminder) => {
+      const date = parseLocalDate(reminder.remind_on);
+      if (!date) return;
+      const key = dateKey(date);
+      map.set(key, [...(map.get(key) || []), reminder]);
     });
     return map;
-  }, [notices]);
+  }, [filteredReminders]);
 
-  const filteredReminders = useMemo(() => {
-    return reminders.filter((r) => {
-      if (filterMode === "completed") return r.done;
-      if (r.done && filterMode !== "all") return false;
-
-      const countdown = r.remind_on ? getCountdownDetails(r.remind_on) : null;
-      if (filterMode === "overdue") {
-        return countdown?.urgency === "overdue";
-      }
-      if (filterMode === "upcoming") {
-        return countdown?.urgency !== "overdue";
-      }
-      return true;
+  const calendarDays = useMemo(() => {
+    const firstOfMonth = new Date(
+      visibleMonth.getFullYear(),
+      visibleMonth.getMonth(),
+      1
+    );
+    const gridStart = new Date(
+      firstOfMonth.getFullYear(),
+      firstOfMonth.getMonth(),
+      1 - firstOfMonth.getDay()
+    );
+    return Array.from({ length: 42 }, (_, index) => {
+      const date = new Date(
+        gridStart.getFullYear(),
+        gridStart.getMonth(),
+        gridStart.getDate() + index
+      );
+      return { date, reminders: remindersByDate.get(dateKey(date)) || [] };
     });
-  }, [reminders, filterMode]);
+  }, [visibleMonth, remindersByDate]);
+
+  const selectedReminders = remindersByDate.get(dateKey(selectedDate)) || [];
+  const visibleMonthReminderCount = calendarDays.reduce(
+    (count, day) =>
+      day.date.getMonth() === visibleMonth.getMonth() &&
+      day.date.getFullYear() === visibleMonth.getFullYear()
+        ? count + day.reminders.length
+        : count,
+    0
+  );
+  const orderedDeadlines = useMemo(
+    () =>
+      [...filteredReminders]
+        .filter((reminder) => reminder.remind_on)
+        .sort(
+          (first, second) =>
+            new Date(first.remind_on).getTime() - new Date(second.remind_on).getTime()
+        )
+        .slice(0, 5),
+    [filteredReminders]
+  );
+
+  const changeMonth = (amount) => {
+    setVisibleMonth(
+      (current) => new Date(current.getFullYear(), current.getMonth() + amount, 1)
+    );
+    setSelectedDate(
+      (current) => new Date(current.getFullYear(), current.getMonth() + amount, 1)
+    );
+  };
+
+  const filterTabs = [
+    { key: "all", label: "All" },
+    { key: "upcoming", label: "Upcoming" },
+    { key: "overdue", label: "Overdue" },
+    { key: "completed", label: "Completed" },
+  ];
 
   return (
-    <div className="space-y-6 sm:space-y-8">
-      {/* Page Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-stone-200 pb-5">
-        <div>
-          <div className="flex items-center gap-2">
-            <span className="p-1.5 rounded-lg bg-teal-50 text-teal-700">
-              <CalendarIcon className="w-5 h-5" />
-            </span>
-            <h1 className="text-2xl sm:text-3xl font-black text-stone-900 tracking-tight">
-              Institutional Calendar &amp; Deadlines
-            </h1>
+    <main className="page-shell space-y-6">
+      <PageHeader
+        icon={CalendarDays}
+        eyebrow="Plan ahead"
+        title="Institutional calendar & deadlines"
+        description="Review saved notice reminders by date. This calendar uses the existing 90-day reminder feed; verify each deadline against its original notice."
+        actions={
+          <div className="flex flex-wrap items-center gap-1.5" aria-label="Filter deadlines">
+            <Filter className="mr-1 h-4 w-4 text-slate-400" aria-hidden="true" />
+            {filterTabs.map((tab) => (
+              <button
+                key={tab.key}
+                type="button"
+                onClick={() => setFilterMode(tab.key)}
+                aria-pressed={filterMode === tab.key}
+                className={`focus-ring min-h-9 rounded-xl px-3 text-xs font-bold transition ${
+                  filterMode === tab.key
+                    ? "bg-purple-700 text-white shadow-xs"
+                    : "border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
           </div>
-          <p className="text-stone-600 text-sm mt-1 font-medium">
-            Track all cutoffs, download RFC 5545 iCalendar files, or sync directly to Google Calendar.
-          </p>
-        </div>
-
-        {/* Filter Chips */}
-        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0">
-          <Filter className="w-4 h-4 text-stone-400 mr-1 flex-shrink-0" />
-          {[
-            { key: "all", label: "All Deadlines" },
-            { key: "upcoming", label: "Upcoming" },
-            { key: "overdue", label: "Overdue" },
-            { key: "completed", label: "Completed" },
-          ].map((tab) => (
-            <button
-              key={tab.key}
-              type="button"
-              onClick={() => setFilterMode(tab.key)}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all min-h-[36px] ${
-                filterMode === tab.key
-                  ? "bg-teal-600 text-white shadow-xs"
-                  : "bg-white text-stone-600 border border-stone-200 hover:bg-stone-50"
-              }`}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </div>
-      </div>
+        }
+      />
 
       {loading && (
-        <div className="py-16 flex flex-col items-center justify-center gap-3 text-stone-600">
-          <Loader2 className="w-10 h-10 animate-spin text-teal-600" />
-          <p className="font-bold text-sm">Aggregating deadlines across institutional notices...</p>
+        <div className="surface-card flex flex-col items-center justify-center gap-3 py-16 text-slate-600">
+          <Loader2 className="h-9 w-9 animate-spin text-purple-600" aria-hidden="true" />
+          <p className="text-sm font-semibold">Loading saved deadlines…</p>
         </div>
       )}
 
       {error && !loading && (
         <div
           role="alert"
-          className="p-5 rounded-2xl bg-amber-50 border border-amber-300 text-amber-950 space-y-2"
+          className="rounded-2xl border border-amber-300 bg-amber-50 p-5 text-amber-950"
         >
           <div className="flex items-center gap-2">
-            <AlertCircle className="w-5 h-5 text-amber-700" />
-            <h2 className="font-extrabold text-sm">Could not load deadlines</h2>
+            <AlertCircle className="h-5 w-5 text-amber-700" aria-hidden="true" />
+            <h2 className="text-sm font-extrabold">Could not load deadlines</h2>
           </div>
-          <p className="text-xs text-amber-900">{error}</p>
+          <p className="mt-2 text-xs leading-5 text-amber-900">{error}</p>
         </div>
       )}
 
       {!loading && !error && (
-        <>
-          {filteredReminders.length === 0 ? (
-            <div className="bg-white rounded-3xl p-10 text-center border border-stone-200 space-y-3">
-              <Clock className="w-12 h-12 text-stone-300 mx-auto" />
-              <h2 className="font-extrabold text-stone-900 text-lg">No Deadlines Found</h2>
-              <p className="text-xs text-stone-500 max-w-md mx-auto">
-                No deadlines match the current filter. Upload an official notice to extract deadlines automatically.
-              </p>
-              <Link
-                to="/upload"
-                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold text-xs text-white bg-teal-600 hover:bg-teal-700 shadow-xs"
-              >
-                Upload Notice
-              </Link>
+        <div className="grid min-w-0 grid-cols-1 items-start gap-5 xl:grid-cols-[minmax(0,1.65fr)_minmax(280px,0.85fr)]">
+          <section className="surface-card min-w-0 overflow-hidden p-4 sm:p-5" aria-label="Monthly calendar">
+            <div className="mb-4 flex items-center justify-between gap-3">
+              <div>
+                <h2 className="text-lg font-extrabold text-navy-950">
+                  {visibleMonth.toLocaleDateString(undefined, {
+                    month: "long",
+                    year: "numeric",
+                  })}
+                </h2>
+                <p className="mt-0.5 text-xs text-slate-500">
+                  {visibleMonthReminderCount} reminder{visibleMonthReminderCount === 1 ? "" : "s"} this month
+                </p>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => changeMonth(-1)}
+                  aria-label="Previous month"
+                  className="focus-ring flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50"
+                >
+                  <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const today = new Date();
+                    setVisibleMonth(new Date(today.getFullYear(), today.getMonth(), 1));
+                    setSelectedDate(today);
+                  }}
+                  className="focus-ring h-9 rounded-lg border border-slate-200 px-3 text-xs font-bold text-slate-700 hover:bg-slate-50"
+                >
+                  Today
+                </button>
+                <button
+                  type="button"
+                  onClick={() => changeMonth(1)}
+                  aria-label="Next month"
+                  className="focus-ring flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50"
+                >
+                  <ArrowRight className="h-4 w-4" aria-hidden="true" />
+                </button>
+              </div>
             </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {filteredReminders.map((rem) => {
-                const notice = noticesMap[rem.notice_id];
-                const countdown = rem.remind_on ? getCountdownDetails(rem.remind_on) : null;
-                const isOverdue = countdown?.urgency === "overdue";
 
+            <div className="grid grid-cols-7 border-b border-slate-100 pb-2 text-center">
+              {WEEKDAYS.map((day) => (
+                <span key={day} className="py-1 text-[10px] font-bold uppercase tracking-wide text-slate-400 sm:text-xs">
+                  {day}
+                </span>
+              ))}
+            </div>
+            <div className="grid grid-cols-7 border-l border-t border-slate-100">
+              {calendarDays.map(({ date, reminders: dayReminders }) => {
+                const outsideMonth = date.getMonth() !== visibleMonth.getMonth();
+                const isToday = sameDay(date, new Date());
+                const isSelected = sameDay(date, selectedDate);
                 return (
-                  <div
-                    key={rem.id}
-                    className={`bg-white rounded-2xl p-5 border shadow-card flex flex-col justify-between gap-4 transition-all ${
-                      rem.done
-                        ? "border-stone-200 opacity-60"
-                        : isOverdue
-                        ? "border-coral-300 bg-coral-50/20"
-                        : "border-stone-200/90 hover:border-teal-400"
-                    }`}
+                  <button
+                    key={dateKey(date)}
+                    type="button"
+                    onClick={() => setSelectedDate(date)}
+                    aria-label={`${date.toLocaleDateString(undefined, {
+                      month: "long",
+                      day: "numeric",
+                      year: "numeric",
+                    })}${dayReminders.length ? `, ${dayReminders.length} reminder${dayReminders.length === 1 ? "" : "s"}` : ""}`}
+                    aria-pressed={isSelected}
+                    className={`focus-ring flex min-h-[76px] min-w-0 flex-col items-start border-b border-r border-slate-100 p-1.5 text-left transition sm:min-h-[94px] sm:p-2 ${
+                      outsideMonth ? "bg-slate-50/60 text-slate-300" : "bg-white text-slate-700"
+                    } ${isSelected ? "z-10 ring-2 ring-inset ring-purple-500" : "hover:bg-purple-50/50"}`}
                   >
-                    <div className="space-y-2.5">
-                      <div className="flex items-center justify-between gap-2 flex-wrap">
-                        {countdown && (
+                    <span
+                      className={`flex h-6 min-w-6 items-center justify-center rounded-full px-1 text-[11px] font-bold ${
+                        isToday
+                          ? "bg-navy-950 text-white"
+                          : outsideMonth
+                            ? "text-slate-300"
+                            : "text-slate-700"
+                      }`}
+                    >
+                      {date.getDate()}
+                    </span>
+                    <span className="mt-1 flex w-full flex-col gap-1 overflow-hidden">
+                      {dayReminders.slice(0, 2).map((reminder) => {
+                        const overdue =
+                          !reminder.done &&
+                          getCountdownDetails(reminder.remind_on)?.urgency === "overdue";
+                        return (
                           <span
-                            className={`px-2.5 py-0.5 rounded-full text-xs font-bold uppercase tracking-wider ${
-                              isOverdue
-                                ? "bg-coral-100 text-coral-900 border border-coral-300"
-                                : "bg-teal-50 text-teal-900 border border-teal-200"
+                            key={reminder.id}
+                            className={`w-full truncate rounded px-1 py-0.5 text-left text-[9px] font-semibold leading-3 sm:text-[10px] ${
+                              reminder.done
+                                ? "bg-slate-100 text-slate-500 line-through"
+                                : overdue
+                                  ? "bg-rose-100 text-rose-800"
+                                  : "bg-purple-50 text-purple-800"
                             }`}
                           >
-                            {countdown.label}
+                            {reminder.note || reminder.deadline_ref || "Deadline"}
                           </span>
-                        )}
-                        <span className="text-xs font-mono font-bold text-stone-700">
-                          {formatDate(rem.remind_on)}
+                        );
+                      })}
+                      {dayReminders.length > 2 && (
+                        <span className="text-[9px] font-semibold text-slate-500">
+                          +{dayReminders.length - 2} more
                         </span>
-                      </div>
-
-                      <h3 className="font-extrabold text-base text-stone-950 leading-snug">
-                        {rem.note || rem.deadline_ref || "Official Deadline"}
-                      </h3>
-
-                      {notice && (
-                        <p className="text-xs text-stone-500 font-medium">
-                          From: <span className="text-stone-800 font-bold">{notice.title}</span>
-                        </p>
                       )}
-                    </div>
-
-                    <div className="pt-3 border-t border-stone-100 flex items-center justify-between gap-2 flex-wrap">
-                      <AddToCalendarButton
-                        title={rem.note || rem.deadline_ref || "Notice Deadline"}
-                        description={notice ? `Deadline from notice: ${notice.title}` : ""}
-                        dateStr={rem.remind_on}
-                        noticeId={rem.notice_id}
-                      />
-
-                      {rem.notice_id && (
-                        <Link
-                          to={`/notices/${rem.notice_id}`}
-                          className="inline-flex items-center gap-1 text-xs font-bold text-teal-700 hover:text-teal-900"
-                        >
-                          <span>Open Notice</span>
-                          <ArrowRight className="w-3.5 h-3.5" />
-                        </Link>
-                      )}
-                    </div>
-                  </div>
+                    </span>
+                  </button>
                 );
               })}
             </div>
-          )}
-        </>
+
+            <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 text-[11px] text-slate-500">
+              <span className="inline-flex items-center gap-1.5">
+                <span className="h-2 w-2 rounded-full bg-purple-500" /> Upcoming
+              </span>
+              <span className="inline-flex items-center gap-1.5">
+                <span className="h-2 w-2 rounded-full bg-rose-500" /> Overdue
+              </span>
+              <span className="inline-flex items-center gap-1.5">
+                <span className="h-2 w-2 rounded-full bg-slate-400" /> Completed
+              </span>
+            </div>
+          </section>
+
+          <aside className="space-y-5">
+            <section className="surface-card p-5" aria-labelledby="selected-day-title">
+              <div className="mb-4 border-b border-slate-100 pb-3">
+                <p className="page-heading-eyebrow">Selected day</p>
+                <h2 id="selected-day-title" className="mt-1 text-base font-extrabold text-navy-950">
+                  {selectedDate.toLocaleDateString(undefined, {
+                    weekday: "long",
+                    month: "long",
+                    day: "numeric",
+                  })}
+                </h2>
+              </div>
+              {selectedReminders.length === 0 ? (
+                <p className="py-3 text-sm leading-6 text-slate-500">
+                  No saved reminders for this date.
+                </p>
+              ) : (
+                <div className="space-y-3">
+                  {selectedReminders.map((reminder) => {
+                    const notice = noticesMap[reminder.notice_id];
+                    const countdown = getCountdownDetails(reminder.remind_on);
+                    return (
+                      <article key={reminder.id} className="rounded-xl border border-slate-200 bg-slate-50/70 p-3">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <span className={`rounded-full px-2 py-1 text-[10px] font-bold ${
+                            reminder.done
+                              ? "bg-slate-200 text-slate-600"
+                              : countdown?.urgency === "overdue"
+                                ? "bg-rose-100 text-rose-800"
+                                : "bg-purple-100 text-purple-800"
+                          }`}>
+                            {reminder.done ? "Completed" : countdown?.label || "Upcoming"}
+                          </span>
+                          <span className="text-[11px] font-medium text-slate-500">
+                            {formatDate(reminder.remind_on)}
+                          </span>
+                        </div>
+                        <h3 className="mt-2 text-sm font-bold leading-5 text-navy-950">
+                          {reminder.note || reminder.deadline_ref || "Official deadline"}
+                        </h3>
+                        {notice && (
+                          <p className="mt-1 text-xs leading-5 text-slate-500">
+                            From: <span className="font-semibold text-slate-700">{notice.title}</span>
+                          </p>
+                        )}
+                        <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-slate-200 pt-2.5">
+                          <AddToCalendarButton
+                            title={reminder.note || reminder.deadline_ref || "Notice deadline"}
+                            description={notice ? `Deadline from notice: ${notice.title}` : ""}
+                            dateStr={reminder.remind_on}
+                            noticeId={reminder.notice_id}
+                          />
+                          {reminder.notice_id && (
+                            <Link
+                              to={`/notices/${reminder.notice_id}`}
+                              className="text-xs font-bold text-purple-700 hover:text-purple-900"
+                            >
+                              Open notice
+                            </Link>
+                          )}
+                        </div>
+                      </article>
+                    );
+                  })}
+                </div>
+              )}
+            </section>
+
+            <section className="surface-card p-5" aria-labelledby="deadline-overview-title">
+              <div className="mb-3 flex items-center gap-2 border-b border-slate-100 pb-3">
+                <Clock className="h-4 w-4 text-purple-700" aria-hidden="true" />
+                <h2 id="deadline-overview-title" className="text-sm font-extrabold text-navy-950">
+                  Deadline overview
+                </h2>
+              </div>
+              {orderedDeadlines.length === 0 ? (
+                <p className="py-2 text-xs leading-5 text-slate-500">
+                  No saved deadlines match this filter. Add reminders from a notice detail page.
+                </p>
+              ) : (
+                <ul className="space-y-3">
+                  {orderedDeadlines.map((reminder) => (
+                    <li key={reminder.id} className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="truncate text-xs font-semibold text-slate-800">
+                          {reminder.note || reminder.deadline_ref || "Notice deadline"}
+                        </p>
+                        {reminder.notice_id && (
+                          <Link
+                            to={`/notices/${reminder.notice_id}`}
+                            className="mt-1 inline-block text-[11px] font-semibold text-purple-700 hover:underline"
+                          >
+                            View notice
+                          </Link>
+                        )}
+                      </div>
+                      <time className="shrink-0 text-[11px] font-medium text-slate-500">
+                        {formatDate(reminder.remind_on)}
+                      </time>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+          </aside>
+        </div>
       )}
-    </div>
+    </main>
   );
 }
-

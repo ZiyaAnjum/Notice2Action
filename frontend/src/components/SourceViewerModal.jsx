@@ -68,7 +68,7 @@ export function SourceViewerModal({ noticeId, page, quote, isOpen, onClose }) {
                     Notice Evidence • Page {page}
                   </h2>
                   <span className="text-xs text-stone-500 font-medium">
-                    Verbatim institutional document grounding
+                    Text extracted from the uploaded institutional document
                   </span>
                 </div>
               </div>
@@ -152,7 +152,7 @@ export function SourceViewerModal({ noticeId, page, quote, isOpen, onClose }) {
                                 <div className="space-y-2">
                                   <div className="flex items-center justify-between text-xs text-stone-400">
                                     <span>Page {pageData.page_number} transcript ({pageData.char_count || 0} characters)</span>
-                                    <span>Grounding Guarantee</span>
+                                    <span>Compare with original PDF</span>
                                   </div>
                                   <div className="p-4 rounded-2xl bg-stone-50 border border-stone-200 font-mono text-xs sm:text-sm leading-relaxed text-stone-800 whitespace-pre-wrap select-text max-h-[50vh] overflow-y-auto">
                                     {highlightResult ? (

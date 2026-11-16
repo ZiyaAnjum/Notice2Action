@@ -155,7 +155,7 @@ export function Home() {
         <div className="max-w-6xl mx-auto px-4">
           <p className="font-semibold text-slate-700">Notice to Action • Team Action4AI</p>
           <p className="mt-1">
-            Zero-hallucination AI notice analysis. Verifiable evidence links for all critical claims.
+            AI-assisted notice review with available source evidence to help you check important claims.
           </p>
         </div>
       </footer>

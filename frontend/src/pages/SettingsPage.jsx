@@ -1,27 +1,35 @@
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import {
+  Bell,
+  CheckCircle2,
+  FileCheck,
+  LifeBuoy,
+  LockKeyhole,
+  LogOut,
+  Palette,
+  Server,
   Settings,
   ShieldCheck,
-  Server,
-  FileCheck,
-  CheckCircle2,
-  Lock,
-  GraduationCap,
+  UserRound,
 } from "lucide-react";
 import { API_BASE_URL } from "../api/client";
 import { SUPPORTED_CATEGORIES, OUT_OF_SCOPE_CATEGORY } from "../utils/categories";
+import { useAuth } from "../context/useAuth";
+import { PageHeader } from "../components/PageHeader";
 
 export function SettingsPage() {
   const [health, setHealth] = useState(null);
   const [checkingHealth, setCheckingHealth] = useState(true);
+  const navigate = useNavigate();
+  const { endDemoSession } = useAuth();
 
   useEffect(() => {
     async function checkBackendHealth() {
       try {
-        const res = await fetch(`${API_BASE_URL}/api/health`).catch(() => null);
-        if (res && res.ok) {
-          const data = await res.json();
-          setHealth(data);
+        const response = await fetch(`${API_BASE_URL}/api/health`);
+        if (response.ok) {
+          setHealth(await response.json());
         } else {
           setHealth({ status: "offline" });
         }
@@ -34,183 +42,238 @@ export function SettingsPage() {
     checkBackendHealth();
   }, []);
 
+  const handleLogout = () => {
+    endDemoSession();
+    navigate("/login", { replace: true });
+  };
+
   return (
-    <div className="space-y-6 sm:space-y-8 max-w-4xl">
-      {/* Header */}
-      <div className="border-b border-stone-200 pb-5">
-        <div className="flex items-center gap-2">
-          <span className="p-1.5 rounded-lg bg-teal-50 text-teal-700">
-            <Settings className="w-5 h-5" />
-          </span>
-          <h1 className="text-2xl sm:text-3xl font-black text-stone-900 tracking-tight">
-            Institutional Settings &amp; Specifications
-          </h1>
-        </div>
-        <p className="text-stone-600 text-sm mt-1 font-medium">
-          Notice to Action (Action4AI) · Alliance Institute of Technology &amp; Management Architecture.
-        </p>
+    <main className="page-shell max-w-5xl space-y-6">
+      <PageHeader
+        icon={Settings}
+        eyebrow="Workspace preferences"
+        title="Settings"
+        description="Review the current frontend session, appearance, support information, and connected service status."
+      />
+
+      <div className="grid grid-cols-1 items-stretch gap-4 md:grid-cols-2">
+        <section className="surface-card p-5 sm:p-6" aria-labelledby="profile-title">
+          <div className="flex items-start gap-3">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-purple-50 text-purple-700">
+              <UserRound className="h-5 w-5" aria-hidden="true" />
+            </span>
+            <div className="min-w-0">
+              <h2 id="profile-title" className="text-base font-extrabold text-navy-950">
+                Profile & account
+              </h2>
+              <p className="mt-1 text-xs leading-5 text-slate-500">
+                Account identity is not connected to an authentication service.
+              </p>
+            </div>
+          </div>
+          <dl className="mt-5 divide-y divide-slate-100 rounded-xl border border-slate-100">
+            <div className="flex items-center justify-between gap-3 px-3.5 py-3">
+              <dt className="text-xs font-medium text-slate-500">Session</dt>
+              <dd className="rounded-full bg-amber-50 px-2.5 py-1 text-[11px] font-bold text-amber-800">
+                Frontend demo
+              </dd>
+            </div>
+            <div className="px-3.5 py-3">
+              <dt className="text-xs font-medium text-slate-500">Institution</dt>
+              <dd className="mt-1 text-xs font-semibold leading-5 text-slate-800">
+                ANJUMAN INSTITUTE OF TECHNOLOGY AND MANAGEMENT, BHATKAL
+              </dd>
+            </div>
+          </dl>
+          <p className="mt-3 text-[11px] leading-5 text-slate-500">
+            Profile editing and account verification will be available after backend authentication is integrated.
+          </p>
+        </section>
+
+        <section className="surface-card p-5 sm:p-6" aria-labelledby="notifications-title">
+          <div className="flex items-start gap-3">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-cyan-50 text-cyan-800">
+              <Bell className="h-5 w-5" aria-hidden="true" />
+            </span>
+            <div>
+              <h2 id="notifications-title" className="text-base font-extrabold text-navy-950">
+                Notification preferences
+              </h2>
+              <p className="mt-1 text-xs leading-5 text-slate-500">
+                Push and email notifications are not configured in this frontend.
+              </p>
+            </div>
+          </div>
+          <div className="mt-5 rounded-xl border border-slate-100 bg-slate-50 p-4">
+            <p className="text-sm font-bold text-slate-800">Reminder tracking is available</p>
+            <p className="mt-1 text-xs leading-5 text-slate-600">
+              Saved reminders can be reviewed and managed from the Calendar and Reminders pages. This setting does not change delivery preferences.
+            </p>
+          </div>
+        </section>
+
+        <section className="surface-card p-5 sm:p-6" aria-labelledby="appearance-title">
+          <div className="flex items-start gap-3">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-purple-50 text-purple-700">
+              <Palette className="h-5 w-5" aria-hidden="true" />
+            </span>
+            <div>
+              <h2 id="appearance-title" className="text-base font-extrabold text-navy-950">
+                Appearance
+              </h2>
+              <p className="mt-1 text-xs leading-5 text-slate-500">
+                The current application theme is applied consistently across the workspace.
+              </p>
+            </div>
+          </div>
+          <div className="mt-5 flex items-center justify-between gap-3 rounded-xl border border-slate-100 bg-slate-50 p-4">
+            <div>
+              <p className="text-sm font-bold text-slate-800">Navy & violet</p>
+              <p className="mt-1 text-xs text-slate-500">Light workspace theme</p>
+            </div>
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-purple-100 bg-white px-2.5 py-1 text-[11px] font-semibold text-purple-800">
+              <span className="h-2 w-2 rounded-full bg-purple-600" />
+              Active theme
+            </span>
+          </div>
+          <p className="mt-3 text-[11px] leading-5 text-slate-500">
+            Theme switching is not enabled; no appearance preference is saved.
+          </p>
+        </section>
+
+        <section className="surface-card p-5 sm:p-6" aria-labelledby="backend-status-title">
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex items-start gap-3">
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-navy-950 text-cyan-200">
+                <Server className="h-5 w-5" aria-hidden="true" />
+              </span>
+              <div className="min-w-0">
+                <h2 id="backend-status-title" className="text-base font-extrabold text-navy-950">
+                  Connected service
+                </h2>
+                <p className="mt-1 break-all font-mono text-[11px] text-slate-500">{API_BASE_URL}</p>
+              </div>
+            </div>
+            <span
+              className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-bold ${
+                checkingHealth
+                  ? "bg-slate-100 text-slate-600"
+                  : health?.status === "healthy"
+                    ? "border border-emerald-200 bg-emerald-50 text-emerald-800"
+                    : "border border-rose-200 bg-rose-50 text-rose-800"
+              }`}
+            >
+              <span className={`h-1.5 w-1.5 rounded-full ${
+                checkingHealth
+                  ? "bg-slate-400"
+                  : health?.status === "healthy"
+                    ? "bg-emerald-500"
+                    : "bg-rose-500"
+              }`} />
+              {checkingHealth
+                ? "Checking"
+                : health?.status === "healthy"
+                  ? "Operational"
+                  : "Offline"}
+            </span>
+          </div>
+          {health?.status === "healthy" && (
+            <div className="mt-5 grid grid-cols-1 gap-2 sm:grid-cols-3">
+              {[
+                ["Version", health.version || "Not reported"],
+                ["Database", health.database || "Not reported"],
+                ["Environment", health.environment || "Not reported"],
+              ].map(([label, value]) => (
+                <div key={label} className="rounded-xl border border-slate-100 bg-slate-50 p-3">
+                  <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">{label}</p>
+                  <p className="mt-1 break-words text-xs font-semibold text-slate-800">{value}</p>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
       </div>
 
-      {/* Backend Health Diagnostic Card */}
-      <section
-        className="bg-white rounded-3xl p-5 sm:p-6 border border-stone-200/90 shadow-card space-y-4"
-        aria-labelledby="backend-status-title"
-      >
-        <div className="flex items-center justify-between gap-3 flex-wrap">
-          <div className="flex items-center gap-2.5">
-            <div className="p-2 rounded-xl bg-charcoal-900 text-teal-400">
-              <Server className="w-5 h-5" />
-            </div>
-            <div>
-              <h2 id="backend-status-title" className="font-extrabold text-base text-stone-950">
-                Backend System Status
-              </h2>
-              <span className="text-xs text-stone-500 font-mono">{API_BASE_URL}</span>
-            </div>
-          </div>
-
-          <span
-            className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold ${
-              checkingHealth
-                ? "bg-stone-100 text-stone-600"
-                : health?.status === "healthy"
-                ? "bg-sage-100 text-sage-900 border border-sage-300"
-                : "bg-coral-100 text-coral-900 border border-coral-300"
-            }`}
-          >
-            <span
-              className={`w-2 h-2 rounded-full ${
-                health?.status === "healthy" ? "bg-emerald-500" : "bg-coral-500"
-              }`}
-            />
-            {checkingHealth
-              ? "Checking..."
-              : health?.status === "healthy"
-              ? "Operational (Healthy)"
-              : "Backend Offline"}
+      <section className="surface-card p-5 sm:p-6" aria-labelledby="category-title">
+        <div className="flex items-start gap-3">
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-purple-50 text-purple-700">
+            <FileCheck className="h-5 w-5" aria-hidden="true" />
           </span>
-        </div>
-
-        {health && health.status === "healthy" && (
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 pt-2 text-xs">
-            <div className="p-3 rounded-xl bg-stone-50 border border-stone-200">
-              <span className="text-stone-500 font-bold block">App Version</span>
-              <span className="text-stone-900 font-extrabold">{health.version || "1.0.0"}</span>
-            </div>
-            <div className="p-3 rounded-xl bg-stone-50 border border-stone-200">
-              <span className="text-stone-500 font-bold block">Database</span>
-              <span className="text-stone-900 font-extrabold">{health.database || "Connected"}</span>
-            </div>
-            <div className="p-3 rounded-xl bg-stone-50 border border-stone-200">
-              <span className="text-stone-500 font-bold block">Environment</span>
-              <span className="text-stone-900 font-extrabold">{health.environment || "Development"}</span>
-            </div>
-          </div>
-        )}
-      </section>
-
-      {/* Supported Categories Specification */}
-      <section
-        className="bg-white rounded-3xl p-5 sm:p-6 border border-stone-200/90 shadow-card space-y-4"
-        aria-labelledby="categories-spec-title"
-      >
-        <div className="flex items-center gap-2.5">
-          <div className="p-2 rounded-xl bg-teal-50 text-teal-700">
-            <FileCheck className="w-5 h-5" />
-          </div>
           <div>
-            <h2 id="categories-spec-title" className="font-extrabold text-base text-stone-950">
-              Phase 7a Supported Notice Categories
+            <h2 id="category-title" className="text-base font-extrabold text-navy-950">
+              Supported notice categories
             </h2>
-            <p className="text-xs text-stone-500">
-              Strictly grounded taxonomy configured for high-consequence institutional documents.
+            <p className="mt-1 text-xs leading-5 text-slate-500">
+              Categories currently recognised by the notice processing integration.
             </p>
           </div>
         </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
-          {SUPPORTED_CATEGORIES.map((cat) => (
-            <div
-              key={cat.key}
-              className="p-3.5 rounded-2xl bg-stone-50 border border-stone-200/80 space-y-1"
-            >
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-black text-stone-900">{cat.label}</span>
-                <span className="text-[10px] font-mono text-stone-400 font-bold bg-white px-1.5 py-0.5 rounded border border-stone-200">
-                  {cat.key}
+        <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+          {SUPPORTED_CATEGORIES.map((category) => (
+            <article key={category.key} className="rounded-xl border border-slate-100 bg-slate-50 p-3.5">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h3 className="text-xs font-bold text-slate-900">{category.label}</h3>
+                <span className="rounded border border-slate-200 bg-white px-1.5 py-0.5 font-mono text-[10px] font-semibold text-slate-500">
+                  {category.key}
                 </span>
               </div>
-              <p className="text-[11px] text-stone-600 font-medium leading-relaxed">
-                {cat.description}
-              </p>
-            </div>
+              <p className="mt-1.5 text-[11px] leading-5 text-slate-600">{category.description}</p>
+            </article>
           ))}
-
-          {/* Out of scope */}
-          <div className="p-3.5 rounded-2xl bg-stone-50 border border-stone-200/80 space-y-1 sm:col-span-2">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-black text-stone-700">{OUT_OF_SCOPE_CATEGORY.label}</span>
-              <span className="text-[10px] font-mono text-stone-400 font-bold bg-white px-1.5 py-0.5 rounded border border-stone-200">
+          <article className="rounded-xl border border-slate-100 bg-slate-50 p-3.5 sm:col-span-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h3 className="text-xs font-bold text-slate-900">{OUT_OF_SCOPE_CATEGORY.label}</h3>
+              <span className="rounded border border-slate-200 bg-white px-1.5 py-0.5 font-mono text-[10px] font-semibold text-slate-500">
                 {OUT_OF_SCOPE_CATEGORY.key}
               </span>
             </div>
-            <p className="text-[11px] text-stone-500 font-medium leading-relaxed">
-              {OUT_OF_SCOPE_CATEGORY.description}
-            </p>
-          </div>
+            <p className="mt-1.5 text-[11px] leading-5 text-slate-600">{OUT_OF_SCOPE_CATEGORY.description}</p>
+          </article>
         </div>
       </section>
 
-      {/* Privacy and Technical Policies */}
-      <section
-        className="bg-white rounded-3xl p-5 sm:p-6 border border-stone-200/90 shadow-card space-y-4"
-        aria-labelledby="privacy-policy-title"
-      >
-        <div className="flex items-center gap-2.5">
-          <div className="p-2 rounded-xl bg-sage-100 text-sage-800">
-            <ShieldCheck className="w-5 h-5" />
+      <section className="grid grid-cols-1 gap-4 md:grid-cols-[minmax(0,1fr)_auto]">
+        <div className="surface-card p-5 sm:p-6">
+          <div className="flex items-start gap-3">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-cyan-50 text-cyan-800">
+              <LifeBuoy className="h-5 w-5" aria-hidden="true" />
+            </span>
+            <div>
+              <h2 className="text-base font-extrabold text-navy-950">Help & review guidance</h2>
+              <p className="mt-1 text-xs leading-5 text-slate-600">
+                Check the original notice PDF before acting on extracted dates, amounts, or requirements. Use the notice details page to review available source information.
+              </p>
+            </div>
           </div>
+        </div>
+        <div className="surface-card flex flex-col justify-between gap-4 p-5 sm:min-w-64 sm:p-6">
           <div>
-            <h2 id="privacy-policy-title" className="font-extrabold text-base text-stone-950">
-              Institutional Guarantees &amp; Security Policy
-            </h2>
-            <p className="text-xs text-stone-500">Notice2Action engineering and trust principles.</p>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-1 text-xs">
-          <div className="p-4 rounded-2xl bg-stone-50 border border-stone-200 space-y-1.5">
-            <div className="flex items-center gap-1.5 text-stone-900 font-bold">
-              <Lock className="w-4 h-4 text-teal-600" />
-              <span>10MB Upload Limit</span>
+            <div className="flex items-center gap-2 text-sm font-bold text-navy-950">
+              <LockKeyhole className="h-4 w-4 text-purple-700" aria-hidden="true" />
+              Demo session controls
             </div>
-            <p className="text-[11px] text-stone-600 leading-relaxed">
-              Document uploads are constrained to official PDF notices up to 10MB to guarantee fast, memory-safe OCR and extraction.
+            <p className="mt-1 text-xs leading-5 text-slate-500">
+              Leaving this demo clears its local preview session.
             </p>
           </div>
-
-          <div className="p-4 rounded-2xl bg-stone-50 border border-stone-200 space-y-1.5">
-            <div className="flex items-center gap-1.5 text-stone-900 font-bold">
-              <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-              <span>Zero Hallucination</span>
-            </div>
-            <p className="text-[11px] text-stone-600 leading-relaxed">
-              Every extracted deadline, fine amount, and requirement includes an exact citation page and verbatim quote from the uploaded notice.
-            </p>
-          </div>
-
-          <div className="p-4 rounded-2xl bg-stone-50 border border-stone-200 space-y-1.5">
-            <div className="flex items-center gap-1.5 text-stone-900 font-bold">
-              <GraduationCap className="w-4 h-4 text-charcoal-800" />
-              <span>College Mini-Project</span>
-            </div>
-            <p className="text-[11px] text-stone-600 leading-relaxed">
-              Notice to Action (Action4AI) · First review milestone prototype developed with React, Vite, and FastAPI.
-            </p>
-          </div>
+          <button
+            type="button"
+            onClick={handleLogout}
+            className="focus-ring inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border border-slate-200 px-3.5 text-xs font-bold text-slate-700 transition hover:border-rose-200 hover:bg-rose-50 hover:text-rose-800"
+          >
+            <LogOut className="h-4 w-4" aria-hidden="true" />
+            Exit demo
+          </button>
         </div>
       </section>
-    </div>
+
+      <p className="flex items-center gap-2 text-xs leading-5 text-slate-500">
+        <ShieldCheck className="h-4 w-4 shrink-0 text-purple-700" aria-hidden="true" />
+        <span>
+          <CheckCircle2 className="mr-1 inline h-3.5 w-3.5" aria-hidden="true" />
+          These settings describe current frontend behavior; no unsupported preference changes are presented as saved.
+        </span>
+      </p>
+    </main>
   );
 }
-

@@ -12,13 +12,15 @@ import {
   Filter,
 } from "lucide-react";
 import { getUpcomingReminders, updateReminder, deleteReminder } from "../api/client";
-import { formatDate } from "../utils/text";
+import { formatDate, getCountdownDetails } from "../utils/text";
+import { PageHeader } from "../components/PageHeader";
 
 export function RemindersPage() {
   const [reminders, setReminders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [filterMode, setFilterMode] = useState("all"); // "all", "pending", "completed"
+  const [filterMode, setFilterMode] = useState("all");
+  const [actionError, setActionError] = useState(null);
 
   const fetchReminders = async () => {
     setLoading(true);
@@ -38,23 +40,25 @@ export function RemindersPage() {
   }, []);
 
   const handleToggle = async (rem) => {
+    setActionError(null);
     try {
       const updated = await updateReminder(rem.id, { done: !rem.done });
       setReminders((prev) =>
         prev.map((item) => (item.id === rem.id ? updated : item))
       );
     } catch (err) {
-      alert(err.message || "Could not update reminder status.");
+      setActionError(err.message || "Could not update reminder status.");
     }
   };
 
   const handleDelete = async (id) => {
     if (!window.confirm("Are you sure you want to delete this reminder?")) return;
+    setActionError(null);
     try {
       await deleteReminder(id);
       setReminders((prev) => prev.filter((r) => r.id !== id));
     } catch (err) {
-      alert(err.message || "Failed to delete reminder.");
+      setActionError(err.message || "Failed to delete reminder.");
     }
   };
 
@@ -62,51 +66,46 @@ export function RemindersPage() {
     return reminders.filter((r) => {
       if (filterMode === "pending") return !r.done;
       if (filterMode === "completed") return r.done;
+      if (filterMode === "overdue") {
+        return !r.done && getCountdownDetails(r.remind_on)?.urgency === "overdue";
+      }
       return true;
     });
   }, [reminders, filterMode]);
 
   return (
-    <div className="space-y-6 sm:space-y-8">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-stone-200 pb-5">
-        <div>
-          <div className="flex items-center gap-2">
-            <span className="p-1.5 rounded-lg bg-teal-50 text-teal-700">
-              <Bell className="w-5 h-5" />
-            </span>
-            <h1 className="text-2xl sm:text-3xl font-black text-stone-900 tracking-tight">
-              Action Reminders Tracker
-            </h1>
+    <main className="page-shell space-y-6">
+      <PageHeader
+        icon={Bell}
+        eyebrow="Stay on top of next steps"
+        title="Action reminders"
+        description="Track saved reminder dates, review overdue items, and update completion status."
+        actions={
+          <div className="flex flex-wrap items-center gap-1.5" aria-label="Filter reminders">
+            <Filter className="mr-1 h-4 w-4 text-stone-400" aria-hidden="true" />
+            {[
+              { key: "all", label: "All" },
+              { key: "pending", label: "Pending" },
+              { key: "overdue", label: "Overdue" },
+              { key: "completed", label: "Completed" },
+            ].map((tab) => (
+              <button
+                key={tab.key}
+                type="button"
+                onClick={() => setFilterMode(tab.key)}
+                aria-pressed={filterMode === tab.key}
+                className={`focus-ring min-h-9 rounded-xl px-3 text-xs font-bold transition ${
+                  filterMode === tab.key
+                    ? "bg-purple-700 text-white shadow-xs"
+                    : "border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
           </div>
-          <p className="text-stone-600 text-sm mt-1 font-medium">
-            Manage institutional notification triggers and track execution of notice action steps.
-          </p>
-        </div>
-
-        {/* Filter Buttons */}
-        <div className="flex items-center gap-1.5">
-          <Filter className="w-4 h-4 text-stone-400 mr-1" />
-          {[
-            { key: "all", label: "All" },
-            { key: "pending", label: "Pending" },
-            { key: "completed", label: "Completed" },
-          ].map((tab) => (
-            <button
-              key={tab.key}
-              type="button"
-              onClick={() => setFilterMode(tab.key)}
-              className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all min-h-[36px] ${
-                filterMode === tab.key
-                  ? "bg-teal-600 text-white shadow-xs"
-                  : "bg-white text-stone-600 border border-stone-200 hover:bg-stone-50"
-              }`}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </div>
-      </div>
+        }
+      />
 
       {loading && (
         <div className="py-16 flex flex-col items-center justify-center gap-3 text-stone-600">
@@ -128,10 +127,16 @@ export function RemindersPage() {
         </div>
       )}
 
+      {actionError && (
+        <div role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
+          {actionError}
+        </div>
+      )}
+
       {!loading && !error && (
         <div className="space-y-3">
           {filtered.length === 0 ? (
-            <div className="bg-white rounded-3xl p-10 text-center border border-stone-200 space-y-3">
+            <div className="surface-card space-y-3 p-10 text-center">
               <CheckCircle2 className="w-12 h-12 text-stone-300 mx-auto" />
               <h2 className="font-extrabold text-stone-900 text-lg">No Reminders Found</h2>
               <p className="text-xs text-stone-500 max-w-md mx-auto">
@@ -139,20 +144,20 @@ export function RemindersPage() {
               </p>
               <Link
                 to="/notices"
-                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold text-xs text-white bg-teal-600 hover:bg-teal-700 shadow-xs"
+                className="focus-ring inline-flex min-h-10 items-center gap-2 rounded-xl bg-purple-700 px-5 py-2.5 text-xs font-bold text-white shadow-xs hover:bg-purple-800"
               >
                 Browse Notices
               </Link>
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 items-stretch gap-4 md:grid-cols-2">
               {filtered.map((rem) => (
                 <div
                   key={rem.id}
-                  className={`bg-white rounded-2xl p-4 border shadow-card flex items-start justify-between gap-3 transition-all ${
+                  className={`surface-card surface-card-hover flex items-start justify-between gap-3 p-4 ${
                     rem.done
                       ? "border-stone-200 opacity-60 bg-stone-50/50"
-                      : "border-stone-200/90 hover:border-teal-400"
+                      : "border-stone-200/90"
                   }`}
                 >
                   <div className="flex items-start gap-3 min-w-0 flex-1">
@@ -160,7 +165,7 @@ export function RemindersPage() {
                       type="button"
                       onClick={() => handleToggle(rem)}
                       aria-label={rem.done ? "Mark incomplete" : "Mark completed"}
-                      className="mt-0.5 text-stone-400 hover:text-teal-600 focus:outline-hidden focus:ring-2 focus:ring-teal-600 rounded p-0.5"
+                      className="focus-ring mt-0.5 rounded p-0.5 text-stone-400 hover:text-purple-700"
                     >
                       {rem.done ? (
                         <CheckCircle2 className="w-5 h-5 text-emerald-600" />
@@ -180,10 +185,24 @@ export function RemindersPage() {
                         <Calendar className="w-3.5 h-3.5 text-stone-400" />
                         <span>Remind Date: {formatDate(rem.remind_on)}</span>
                       </div>
+                      {!rem.done && (() => {
+                        const countdown = getCountdownDetails(rem.remind_on);
+                        return countdown ? (
+                          <span className={`mt-1 inline-flex rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                            countdown.urgency === "overdue"
+                              ? "bg-rose-100 text-rose-800"
+                              : countdown.urgency === "urgent" || countdown.urgency === "critical"
+                                ? "bg-amber-100 text-amber-900"
+                                : "bg-purple-50 text-purple-800"
+                          }`}>
+                            {countdown.label}
+                          </span>
+                        ) : null;
+                      })()}
                       {rem.notice_id && (
                         <Link
                           to={`/notices/${rem.notice_id}`}
-                          className="inline-flex items-center gap-1 text-[11px] font-bold text-teal-700 hover:text-teal-900 underline mt-1"
+                          className="mt-1 inline-flex items-center gap-1 text-[11px] font-bold text-purple-700 underline hover:text-purple-900"
                         >
                           <span>Notice Details</span>
                           <ArrowRight className="w-3 h-3" />
@@ -195,7 +214,7 @@ export function RemindersPage() {
                   <button
                     type="button"
                     onClick={() => handleDelete(rem.id)}
-                    className="p-1.5 text-stone-400 hover:text-coral-600 hover:bg-coral-50 rounded-lg transition-colors"
+                    className="focus-ring rounded-lg p-1.5 text-stone-400 transition-colors hover:bg-coral-50 hover:text-coral-600"
                     aria-label="Delete reminder"
                   >
                     <Trash2 className="w-4 h-4" />
@@ -206,7 +225,7 @@ export function RemindersPage() {
           )}
         </div>
       )}
-    </div>
+    </main>
   );
 }
 
