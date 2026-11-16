@@ -10,6 +10,7 @@ import { SettingsPage } from "./pages/SettingsPage";
 import { AuthPage } from "./pages/AuthPage";
 import { AuthProvider } from "./context/AuthContext";
 import { useAuth } from "./context/useAuth";
+import { WorkspacePreferencesProvider } from "./context/WorkspacePreferencesContext";
 
 function RequireAuthentication() {
   const { isAuthenticated } = useAuth();
@@ -55,9 +56,11 @@ export function AppRoutes() {
 export default function App() {
   return (
     <BrowserRouter>
-      <AuthProvider>
-        <AppRoutes />
-      </AuthProvider>
+      <WorkspacePreferencesProvider>
+        <AuthProvider>
+          <AppRoutes />
+        </AuthProvider>
+      </WorkspacePreferencesProvider>
     </BrowserRouter>
   );
 }

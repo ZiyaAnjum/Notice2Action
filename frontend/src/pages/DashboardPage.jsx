@@ -1,102 +1,203 @@
-import { useEffect, useState, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import {
-  FileText,
-  Upload,
-  Calendar,
+  AlertCircle,
   AlertTriangle,
-  Clock,
-  CheckCircle2,
-  Circle,
   ArrowRight,
+  BellRing,
+  CalendarDays,
+  CheckCircle2,
+  Clock3,
+  FileText,
   Loader2,
+  RefreshCw,
   Sparkles,
+  Upload,
 } from "lucide-react";
-import { listNotices, getUpcomingReminders, updateReminder } from "../api/client";
-import { getCountdownDetails, formatDate } from "../utils/text";
+import {
+  getUpcomingReminders,
+  listNotices,
+  updateReminder,
+} from "../api/client";
+import { useWorkspacePreferences } from "../context/useWorkspacePreferences";
+import { getCategoryLabel } from "../utils/categories";
+import { formatDate, getCountdownDetails } from "../utils/text";
+import {
+  getNoticeField,
+  getNoticePriority,
+  isHighPriorityNotice,
+} from "../utils/notices";
+
+const REMINDER_WINDOW_DAYS = 90;
+
+function isNoticeForReview(notice) {
+  return (
+    notice.needs_verification ||
+    ["needs_clearer_document", "extraction_failed"].includes(notice.status)
+  );
+}
+
+function MetricCard({ label, value, note, icon: Icon, tone }) {
+  const tones = {
+    purple: "bg-purple-50 text-purple-700",
+    cyan: "bg-cyan-50 text-cyan-800",
+    amber: "bg-amber-50 text-amber-800",
+    rose: "bg-rose-50 text-rose-800",
+    navy: "bg-navy-50 text-navy-700",
+  };
+
+  return (
+    <article className="surface-card flex min-h-32 items-start justify-between gap-3 p-4 sm:p-5">
+      <div className="min-w-0">
+        <p className="text-xs font-bold uppercase tracking-wide text-slate-500">
+          {label}
+        </p>
+        <p className="mt-2 text-3xl font-extrabold tracking-tight text-navy-950">
+          {value}
+        </p>
+        <p className="mt-1 text-[11px] leading-4 text-slate-500">{note}</p>
+      </div>
+      <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${tones[tone]}`}>
+        <Icon className="h-5 w-5" aria-hidden="true" />
+      </span>
+    </article>
+  );
+}
+
+function NoticeLink({ notice, attention = false }) {
+  const title =
+    getNoticeField(notice, ["title", "notice_title"]) ||
+    notice.original_filename ||
+    "Untitled document";
+  const source =
+    getNoticeField(notice, [
+      "source_organisation",
+      "source_organization",
+      "issuing_organisation",
+      "issuing_organization",
+      "issuer",
+    ]) || "Source organisation not listed";
+  const category = getCategoryLabel(notice.category);
+  const issueDate = getNoticeField(notice, ["issue_date", "issued_at"]);
+  const status = (notice.status || "Status not reported").replaceAll("_", " ");
+
+  return (
+    <article className="rounded-xl border border-slate-200 bg-white p-3.5 transition hover:border-purple-200 hover:bg-purple-50/30">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div className="min-w-0">
+          <Link
+            to={`/notices/${notice.id}`}
+            className="focus-ring rounded-sm text-sm font-bold leading-5 text-navy-950 hover:text-purple-800"
+          >
+            {title}
+          </Link>
+          <p className="mt-1 truncate text-xs text-slate-500">{source}</p>
+        </div>
+        {attention ? (
+          <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-amber-50 px-2 py-1 text-[10px] font-bold text-amber-800">
+            <AlertTriangle className="h-3 w-3" aria-hidden="true" />
+            Review
+          </span>
+        ) : (
+          <span className="max-w-36 truncate rounded-full bg-slate-100 px-2 py-1 text-[10px] font-semibold text-slate-600">
+            {category}
+          </span>
+        )}
+      </div>
+      <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-500">
+        <span className="capitalize">{status}</span>
+        <span>
+          {issueDate ? `Issued ${formatDate(issueDate)}` : `Added ${formatDate(notice.created_at)}`}
+        </span>
+        {getNoticePriority(notice) && (
+          <span className="font-semibold text-rose-700">
+            {getNoticePriority(notice)} priority
+          </span>
+        )}
+      </div>
+    </article>
+  );
+}
 
 export function DashboardPage() {
   const [notices, setNotices] = useState([]);
   const [reminders, setReminders] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const [noticeError, setNoticeError] = useState(null);
+  const [reminderError, setReminderError] = useState(null);
+  const [actionError, setActionError] = useState(null);
+  const { focusCategories } = useWorkspacePreferences();
 
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     setLoading(true);
-    setError(null);
-    try {
-      const [noticeList, upcomingList] = await Promise.all([
-        listNotices(),
-        getUpcomingReminders(14),
-      ]);
-      setNotices(noticeList || []);
-      setReminders(upcomingList || []);
-    } catch (err) {
-      setError(
-        err.message ||
-        "Could not connect to the backend server. Please verify the API is running."
+    setNoticeError(null);
+    setReminderError(null);
+    const [noticeResult, reminderResult] = await Promise.allSettled([
+      listNotices(),
+      getUpcomingReminders(REMINDER_WINDOW_DAYS),
+    ]);
+
+    if (noticeResult.status === "fulfilled") {
+      setNotices(Array.isArray(noticeResult.value) ? noticeResult.value : []);
+    } else {
+      setNoticeError(
+        noticeResult.reason?.message || "Could not load notices from the service."
       );
-    } finally {
-      setLoading(false);
     }
-  };
+
+    if (reminderResult.status === "fulfilled") {
+      setReminders(Array.isArray(reminderResult.value) ? reminderResult.value : []);
+    } else {
+      setReminderError(
+        reminderResult.reason?.message ||
+          "Could not load saved action reminders from the service."
+      );
+    }
+    setLoading(false);
+  }, []);
 
   useEffect(() => {
     fetchData();
-  }, []);
+  }, [fetchData]);
 
-  // Toggle reminder status directly from dashboard checklist
-  const handleToggleReminder = async (rem) => {
+  const handleToggleReminder = async (reminder) => {
+    setActionError(null);
     try {
-      const updated = await updateReminder(rem.id, { done: !rem.done });
-      setReminders((prev) =>
-        prev.map((item) => (item.id === rem.id ? updated : item))
+      const updated = await updateReminder(reminder.id, {
+        done: !reminder.done,
+      });
+      setReminders((current) =>
+        current.map((item) => (item.id === reminder.id ? updated : item))
       );
-    } catch (err) {
-      alert(err.message || "Could not update checklist item.");
+    } catch (error) {
+      setActionError(error.message || "Could not update this reminder.");
     }
   };
 
-  // Derive real statistics from live data
   const stats = useMemo(() => {
-    const totalNotices = notices.length;
-    const actionsPending = reminders.filter((r) => !r.done).length;
-    const upcomingDeadlines = reminders.filter((r) => !r.done && r.remind_on).length;
-    const overdueItems = reminders.filter(
-      (r) => !r.done && getCountdownDetails(r.remind_on)?.urgency === "overdue"
-    ).length;
-    const requiresAttention = notices.filter(
-      (n) =>
-        n.needs_verification ||
-        n.status === "needs_clearer_document" ||
-        n.status === "extraction_failed"
-    ).length;
-
+    const openReminders = reminders.filter((reminder) => !reminder.done);
     return {
-      totalNotices,
-      actionsPending,
-      upcomingDeadlines,
-      overdueItems,
-      requiresAttention,
+      pending: openReminders.length,
+      upcoming: openReminders.filter((reminder) => {
+        const countdown = getCountdownDetails(reminder.remind_on);
+        return countdown && countdown.daysRemaining >= 0;
+      }).length,
+      overdue: openReminders.filter(
+        (reminder) =>
+          getCountdownDetails(reminder.remind_on)?.urgency === "overdue"
+      ).length,
+      attention: notices.filter(isNoticeForReview).length,
     };
   }, [notices, reminders]);
 
-  // Derive alert notice (e.g. first notice requiring attention or conflicting dates)
-  const alertNotice = useMemo(() => {
-    return notices.find(
-      (n) =>
-        n.needs_verification ||
-        n.status === "needs_clearer_document" ||
-        n.status === "extraction_failed"
-    );
+  const categoryCounts = useMemo(() => {
+    const counts = new Map();
+    notices.forEach((notice) => {
+      const key = notice.category || "unclassified";
+      counts.set(key, (counts.get(key) || 0) + 1);
+    });
+    return [...counts.entries()].sort((first, second) => second[1] - first[1]);
   }, [notices]);
-
-  // Action steps checklist progress
-  const checklistProgress = useMemo(() => {
-    if (reminders.length === 0) return 0;
-    const completed = reminders.filter((r) => r.done).length;
-    return Math.round((completed / reminders.length) * 100);
-  }, [reminders]);
 
   const recentNotices = useMemo(
     () =>
@@ -106,475 +207,322 @@ export function DashboardPage() {
             new Date(second.created_at || 0).getTime() -
             new Date(first.created_at || 0).getTime()
         )
-        .slice(0, 3),
+        .slice(0, 4),
     [notices]
   );
 
+  const attentionNotices = useMemo(
+    () => notices.filter(isNoticeForReview).slice(0, 3),
+    [notices]
+  );
+
+  const highPriorityNotices = useMemo(
+    () => notices.filter(isHighPriorityNotice).slice(0, 3),
+    [notices]
+  );
+
+  const sortedReminders = useMemo(
+    () =>
+      [...reminders]
+        .sort((first, second) => {
+          if (first.done !== second.done) return first.done ? 1 : -1;
+          return (
+            new Date(first.remind_on || 0).getTime() -
+            new Date(second.remind_on || 0).getTime()
+          );
+        })
+        .slice(0, 5),
+    [reminders]
+  );
+
   return (
-    <main className="page-shell space-y-6 sm:space-y-8">
-      {/* 1. Welcome Section */}
-      <section
-        className="relative overflow-hidden rounded-3xl bg-gradient-to-r from-charcoal-900 via-charcoal-800 to-forest-900 text-white p-6 sm:p-8 lg:p-10 shadow-elevated border border-charcoal-800"
-        aria-labelledby="welcome-banner-heading"
-      >
-        <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
-          <div className="space-y-2 max-w-xl">
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-bold bg-teal-500/20 text-teal-300 border border-teal-500/30">
-              <Sparkles className="w-3.5 h-3.5" />
-              <span>ANJUMAN INSTITUTE · WORKSPACE</span>
-            </div>
-            <h1
-              id="welcome-banner-heading"
-              className="text-2xl sm:text-4xl font-black tracking-tight text-white leading-tight"
-            >
-              Welcome to your workspace
+    <main className="page-shell space-y-6">
+      <section className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-navy-950 via-navy-900 to-purple-900 p-6 text-white shadow-elevated sm:p-8 lg:p-9">
+        <div className="relative z-10 flex flex-col justify-between gap-6 lg:flex-row lg:items-end">
+          <div className="max-w-2xl">
+            <span className="inline-flex items-center gap-2 rounded-full border border-cyan-200/20 bg-white/10 px-3 py-1.5 text-xs font-semibold text-cyan-100">
+              <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
+              Notice intelligence workspace
+            </span>
+            <h1 className="mt-4 text-3xl font-extrabold tracking-tight sm:text-4xl">
+              Turn complex notices into clear next steps.
             </h1>
-            <p className="text-stone-300 text-sm sm:text-base font-medium">
-              Review institutional notices, important dates, and action status in one place.
+            <p className="mt-3 max-w-xl text-sm leading-6 text-slate-200 sm:text-base">
+              Organise communications from different organisations, review extracted
+              information, and keep deadlines and actions together. Developed at
+              AITM; this workspace is designed for broader use.
             </p>
           </div>
-
-          <div className="flex flex-wrap items-center gap-3">
+          <div className="flex flex-wrap gap-2.5">
             <Link
               to="/upload"
-              className="inline-flex items-center gap-2 px-5 py-3 rounded-xl font-extrabold text-sm text-charcoal-950 bg-teal-400 hover:bg-teal-300 shadow-teal transition-all min-h-[44px]"
+              className="focus-ring inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-cyan-300 px-4 py-2.5 text-sm font-bold text-navy-950 transition hover:bg-cyan-200"
             >
-              <Upload className="w-4 h-4" />
-              <span>Upload New Notice</span>
+              <Upload className="h-4 w-4" aria-hidden="true" />
+              Upload document
             </Link>
             <Link
               to="/notices"
-              className="inline-flex items-center gap-2 px-4 py-3 rounded-xl font-bold text-sm text-stone-200 bg-charcoal-800/80 hover:bg-charcoal-700 border border-charcoal-700 transition-all min-h-[44px]"
+              className="focus-ring inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-white/20 bg-white/10 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-white/15"
             >
-              <span>View All Notices</span>
-              <ArrowRight className="w-4 h-4" />
+              Browse notices
+              <ArrowRight className="h-4 w-4" aria-hidden="true" />
             </Link>
           </div>
         </div>
-
-        {/* Subtle background decorative shapes */}
-        <div className="absolute -right-10 -bottom-10 w-60 h-60 bg-teal-500/10 rounded-full blur-3xl pointer-events-none" />
+        <div className="pointer-events-none absolute -right-20 -top-32 h-80 w-80 rounded-full border-[48px] border-white/[0.035]" />
       </section>
 
-      {/* Backend connection error banner if offline */}
-      {error && !loading && (
-        <div
+      {(noticeError || reminderError) && !loading && (
+        <section
           role="alert"
-          className="p-5 sm:p-6 rounded-2xl bg-amber-50 border-2 border-amber-300 text-amber-950 space-y-3 shadow-xs"
+          className="flex flex-col gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-amber-950 sm:flex-row sm:items-center sm:justify-between"
         >
-          <div className="flex items-start gap-3">
-            <AlertTriangle className="w-6 h-6 text-amber-700 flex-shrink-0 mt-0.5" />
-            <div className="space-y-1">
-              <h2 className="text-base font-extrabold text-amber-950">
-                Backend Connection Notice
-              </h2>
-              <p className="text-sm text-amber-900 leading-relaxed font-medium">
-                {error}
-              </p>
-              <p className="text-xs text-amber-800">
-                Ensure the FastAPI backend server is running via{" "}
-                <code className="bg-amber-100 px-1.5 py-0.5 rounded font-mono font-bold">
-                  uvicorn backend.app.main:app --port 8000
-                </code>
-                .
-              </p>
+          <div className="flex items-start gap-2.5">
+            <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-amber-700" aria-hidden="true" />
+            <div className="space-y-1 text-sm">
+              <p className="font-bold">Some workspace data is unavailable.</p>
+              {noticeError && <p className="text-xs leading-5">{noticeError}</p>}
+              {reminderError && <p className="text-xs leading-5">{reminderError}</p>}
             </div>
           </div>
           <button
             type="button"
             onClick={fetchData}
-            className="px-4 py-2 rounded-xl text-xs font-bold text-white bg-amber-800 hover:bg-amber-900 transition-colors"
+            className="focus-ring inline-flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-lg border border-amber-300 bg-white px-3 text-xs font-bold text-amber-900 hover:bg-amber-100"
           >
-            Retry Connection
+            <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
+            Retry
           </button>
-        </div>
+        </section>
       )}
 
-      {/* Loading State */}
-      {loading && (
-        <div className="py-16 flex flex-col items-center justify-center gap-3 text-stone-600">
-          <Loader2 className="w-10 h-10 animate-spin text-teal-600" />
-          <p className="font-bold text-sm sm:text-base">Loading live institutional metrics...</p>
-        </div>
+      {actionError && (
+        <p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
+          {actionError}
+        </p>
       )}
 
-      {!loading && (
+      {loading ? (
+        <div className="surface-card flex min-h-56 flex-col items-center justify-center gap-3 text-slate-600">
+          <Loader2 className="h-9 w-9 animate-spin text-purple-600" aria-hidden="true" />
+          <p className="text-sm font-semibold">Loading your workspace data…</p>
+        </div>
+      ) : (
         <>
-          {/* 2. Top Metric Stat Cards */}
           <section
-            aria-label="Summary Statistics"
-            className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 xl:grid-cols-5"
+            aria-label="Workspace statistics"
+            className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-5"
           >
-            {/* Total Notices */}
-            <div className="bg-white rounded-2xl p-4 sm:p-5 border border-stone-200/90 shadow-card flex items-start justify-between gap-3">
-              <div className="space-y-1">
-                <span className="text-xs font-bold uppercase tracking-wider text-stone-500">
-                  Total Notices
-                </span>
-                <p className="text-2xl sm:text-3xl font-black text-stone-900">
-                  {error ? "—" : stats.totalNotices}
-                </p>
-                <span className="text-[11px] text-stone-500 font-medium block">
-                  Logged in system
-                </span>
-              </div>
-              <div className="w-10 h-10 rounded-xl bg-teal-50 text-teal-700 flex items-center justify-center flex-shrink-0">
-                <FileText className="w-5 h-5" />
-              </div>
-            </div>
-
-            {/* Actions Pending */}
-            <div className="bg-white rounded-2xl p-4 sm:p-5 border border-stone-200/90 shadow-card flex items-start justify-between gap-3">
-              <div className="space-y-1">
-                <span className="text-xs font-bold uppercase tracking-wider text-stone-500">
-                  Actions Pending
-                </span>
-                <p className="text-2xl sm:text-3xl font-black text-stone-900">
-                  {error ? "—" : stats.actionsPending}
-                </p>
-                <span className="text-[11px] text-stone-500 font-medium block">
-                  Active checklist steps
-                </span>
-              </div>
-              <div className="w-10 h-10 rounded-xl bg-sage-100 text-sage-800 flex items-center justify-center flex-shrink-0">
-                <CheckCircle2 className="w-5 h-5" />
-              </div>
-            </div>
-
-            {/* Upcoming Deadlines */}
-            <div className="bg-white rounded-2xl p-4 sm:p-5 border border-stone-200/90 shadow-card flex items-start justify-between gap-3">
-              <div className="space-y-1">
-                <span className="text-xs font-bold uppercase tracking-wider text-stone-500">
-                  Upcoming Deadlines
-                </span>
-                <p className="text-2xl sm:text-3xl font-black text-stone-900">
-                  {error ? "—" : stats.upcomingDeadlines}
-                </p>
-                <span className="text-[11px] text-stone-500 font-medium block">
-                  Next 14 calendar days
-                </span>
-              </div>
-              <div className="w-10 h-10 rounded-xl bg-amber-50 text-amber-700 flex items-center justify-center flex-shrink-0">
-                <Calendar className="w-5 h-5" />
-              </div>
-            </div>
-
-            {/* Overdue Items */}
-            <div className="bg-white rounded-2xl p-4 sm:p-5 border border-stone-200/90 shadow-card flex items-start justify-between gap-3">
-              <div className="space-y-1">
-                <span className="text-xs font-bold uppercase tracking-wider text-stone-500">
-                  Overdue Items
-                </span>
-                <p className="text-2xl sm:text-3xl font-black text-stone-900">
-                  {error ? "—" : stats.overdueItems}
-                </p>
-                <span className="text-[11px] text-stone-500 font-medium block">
-                  Reminders past their date
-                </span>
-              </div>
-              <div className="w-10 h-10 rounded-xl bg-coral-100 text-coral-800 flex items-center justify-center flex-shrink-0">
-                <AlertTriangle className="w-5 h-5" />
-              </div>
-            </div>
-
-            {/* Requires Attention */}
-            <div className="bg-white rounded-2xl p-4 sm:p-5 border border-stone-200/90 shadow-card flex items-start justify-between gap-3">
-              <div className="space-y-1">
-                <span className="text-xs font-bold uppercase tracking-wider text-stone-500">
-                  Requires Attention
-                </span>
-                <p className="text-2xl sm:text-3xl font-black text-stone-900">
-                  {error ? "—" : stats.requiresAttention}
-                </p>
-                <span className="text-[11px] text-stone-500 font-medium block">
-                  Needs verification
-                </span>
-              </div>
-              <div
-                className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${stats.requiresAttention > 0
-                    ? "bg-coral-100 text-coral-800"
-                    : "bg-stone-100 text-stone-500"
-                  }`}
-              >
-                <AlertTriangle className="w-5 h-5" />
-              </div>
-            </div>
+            <MetricCard
+              label="Total notices"
+              value={noticeError ? "—" : notices.length}
+              note="Records returned by the service"
+              icon={FileText}
+              tone="purple"
+            />
+            <MetricCard
+              label="Pending actions"
+              value={reminderError ? "—" : stats.pending}
+              note={`Saved reminders in the ${REMINDER_WINDOW_DAYS}-day feed`}
+              icon={CheckCircle2}
+              tone="cyan"
+            />
+            <MetricCard
+              label="Upcoming deadlines"
+              value={reminderError ? "—" : stats.upcoming}
+              note="Open reminders due today or later"
+              icon={CalendarDays}
+              tone="amber"
+            />
+            <MetricCard
+              label="Overdue actions"
+              value={reminderError ? "—" : stats.overdue}
+              note="Open reminders past their date"
+              icon={Clock3}
+              tone="rose"
+            />
+            <MetricCard
+              label="Needs review"
+              value={noticeError ? "—" : stats.attention}
+              note="Extraction or verification flags"
+              icon={AlertTriangle}
+              tone="navy"
+            />
           </section>
 
-          {/* 3. Three-Column Interactive Layout matching reference */}
-          <div className="grid grid-cols-1 items-stretch gap-5 lg:grid-cols-3">
-            {/* Column 1: Important Deadlines Section */}
-            <section
-              className="bg-white rounded-3xl p-5 sm:p-6 border border-stone-200/90 shadow-card space-y-4"
-              aria-labelledby="dashboard-deadlines-title"
-            >
-              <div className="flex items-center justify-between gap-2 border-b border-stone-100 pb-3">
-                <div className="flex items-center gap-2">
-                  <div className="p-1.5 rounded-lg bg-teal-50 text-teal-700">
-                    <Calendar className="w-4 h-4" />
+          <div className="grid min-w-0 gap-5 xl:grid-cols-[minmax(0,1.3fr)_minmax(300px,0.8fr)]">
+            <div className="min-w-0 space-y-5">
+              <section className="surface-card p-5 sm:p-6" aria-labelledby="recent-notices-title">
+                <div className="mb-4 flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-3">
+                  <div>
+                    <p className="page-heading-eyebrow">Recently added</p>
+                    <h2 id="recent-notices-title" className="text-lg font-extrabold text-navy-950">
+                      Recent notices and documents
+                    </h2>
                   </div>
-                  <h2
-                    id="dashboard-deadlines-title"
-                    className="font-extrabold text-base text-stone-950"
-                  >
-                    Important Deadlines
-                  </h2>
+                  <Link to="/notices" className="focus-ring inline-flex items-center gap-1 rounded text-xs font-bold text-purple-700 hover:text-purple-900">
+                    All notices <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
+                  </Link>
                 </div>
-                <Link
-                  to="/calendar"
-                  className="text-xs font-bold text-teal-700 hover:text-teal-900 flex items-center gap-1"
-                >
-                  <span>View All</span>
-                  <ArrowRight className="w-3 h-3" />
-                </Link>
-              </div>
-
-              {error ? (
-                <p className="py-6 text-center text-xs leading-5 text-stone-500">
-                  Deadline information is unavailable until the reminder service responds.
-                </p>
-              ) : reminders.length === 0 ? (
-                <div className="text-center py-8 space-y-2 text-stone-500">
-                  <Clock className="w-8 h-8 mx-auto text-stone-300" />
-                  <p className="text-xs sm:text-sm font-medium">No deadlines recorded yet.</p>
-                  <p className="text-[11px] text-stone-400">
-                    Upload an official notice to track its cutoffs automatically.
-                  </p>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {reminders.slice(0, 4).map((rem) => {
-                    const countdown = rem.remind_on ? getCountdownDetails(rem.remind_on) : null;
-                    let badgeClass = "bg-teal-50 text-teal-800 border-teal-200";
-                    if (countdown?.urgency === "overdue" || countdown?.urgency === "critical") {
-                      badgeClass = "bg-coral-100 text-coral-900 border-coral-300 font-black";
-                    } else if (countdown?.urgency === "urgent") {
-                      badgeClass = "bg-amber-100 text-amber-900 border-amber-300";
-                    }
-
-                    return (
-                      <div
-                        key={rem.id}
-                        className="p-3 rounded-2xl bg-stone-50 border border-stone-200/80 hover:border-teal-300 transition-all space-y-2"
-                      >
-                        <div className="flex items-start justify-between gap-2">
-                          <span
-                            className={`px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider border ${badgeClass}`}
-                          >
-                            {countdown?.label || "Upcoming"}
-                          </span>
-                          <span className="text-[11px] font-mono text-stone-500">
-                            {formatDate(rem.remind_on)}
-                          </span>
-                        </div>
-                        <div>
-                          <p className="text-xs sm:text-sm font-extrabold text-stone-900 leading-snug">
-                            {rem.note || rem.deadline_ref || "Notice Requirement"}
-                          </p>
-                          {rem.notice_id && (
-                            <Link
-                              to={`/notices/${rem.notice_id}`}
-                              className="text-[11px] text-teal-700 hover:text-teal-900 font-semibold underline mt-1 inline-block"
-                            >
-                              Notice #{rem.notice_id.slice(0, 8)} &rarr;
-                            </Link>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </section>
-
-            {/* Column 2: Action Steps Checklist with Progress Bar */}
-            <section
-              className="bg-white rounded-3xl p-5 sm:p-6 border border-stone-200/90 shadow-card space-y-4"
-              aria-labelledby="dashboard-actions-title"
-            >
-              <div className="flex items-center justify-between gap-2 border-b border-stone-100 pb-3">
-                <div className="flex items-center gap-2">
-                  <div className="p-1.5 rounded-lg bg-sage-100 text-sage-800">
-                    <CheckCircle2 className="w-4 h-4" />
-                  </div>
-                  <h2
-                    id="dashboard-actions-title"
-                    className="font-extrabold text-base text-stone-950"
-                  >
-                    Your Action Steps
-                  </h2>
-                </div>
-                <Link
-                  to="/reminders"
-                  className="text-xs font-bold text-teal-700 hover:text-teal-900 flex items-center gap-1"
-                >
-                  <span>View All</span>
-                  <ArrowRight className="w-3 h-3" />
-                </Link>
-              </div>
-
-              {!error && (
-                <div className="space-y-1.5">
-                  <div className="flex justify-between text-xs font-bold text-stone-700">
-                    <span>Task Completion</span>
-                    <span>{checklistProgress}%</span>
-                  </div>
-                  <div className="w-full bg-stone-100 rounded-full h-2.5 overflow-hidden">
-                    <div
-                      className="bg-teal-600 h-full rounded-full transition-all duration-300"
-                      style={{ width: `${checklistProgress}%` }}
-                    />
-                  </div>
-                </div>
-              )}
-
-              {error ? (
-                <p className="py-4 text-center text-xs leading-5 text-stone-500">
-                  Action steps are unavailable until reminder data can be loaded.
-                </p>
-              ) : reminders.length === 0 ? (
-                <div className="text-center py-8 space-y-2 text-stone-500">
-                  <CheckCircle2 className="w-8 h-8 mx-auto text-stone-300" />
-                  <p className="text-xs sm:text-sm font-medium">No active action steps.</p>
-                  <p className="text-[11px] text-stone-400">
-                    Notice requirements will populate as interactive checklist items.
-                  </p>
-                </div>
-              ) : (
-                <div className="space-y-2.5">
-                  {reminders.slice(0, 4).map((rem) => (
-                    <div
-                      key={rem.id}
-                      className="p-2.5 rounded-xl border border-stone-200/80 hover:bg-stone-50 transition-colors flex items-start gap-2.5"
-                    >
-                      <button
-                        type="button"
-                        onClick={() => handleToggleReminder(rem)}
-                        aria-label={rem.done ? "Mark undone" : "Mark action done"}
-                        className="mt-0.5 text-stone-400 hover:text-teal-600 focus:outline-hidden focus:ring-2 focus:ring-teal-600 rounded p-0.5"
-                      >
-                        {rem.done ? (
-                          <CheckCircle2 className="w-5 h-5 text-emerald-600" />
-                        ) : (
-                          <Circle className="w-5 h-5 text-stone-400" />
-                        )}
-                      </button>
-                      <div className="min-w-0 flex-1">
-                        <p
-                          className={`text-xs font-bold leading-snug ${rem.done ? "line-through text-stone-400" : "text-stone-900"
-                            }`}
-                        >
-                          {rem.note || rem.deadline_ref || "Review and execute required notice step"}
-                        </p>
-                        <span className="text-[10px] text-stone-500 font-medium">
-                          Due: {formatDate(rem.remind_on)}
-                        </span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </section>
-
-            {/* Column 3: Notice Alert & Source Verification */}
-            <div className="space-y-6">
-              {/* Notice Alert Card */}
-              <section
-                className="bg-white rounded-3xl p-5 sm:p-6 border border-stone-200/90 shadow-card space-y-3"
-                aria-labelledby="notice-alert-title"
-              >
-                <div className="flex items-center gap-2">
-                  <div className="p-1.5 rounded-lg bg-coral-100 text-coral-800">
-                    <AlertTriangle className="w-4 h-4" />
-                  </div>
-                  <h2 id="notice-alert-title" className="font-extrabold text-base text-stone-950">
-                    Notice Alert
-                  </h2>
-                </div>
-
-                {alertNotice ? (
-                  <div className="p-4 rounded-2xl bg-coral-50/80 border border-coral-200/80 space-y-2">
-                    <p className="text-xs font-bold text-coral-950 leading-snug">
-                      Notice requires check: {alertNotice.title || "Official Notice"}
-                    </p>
-                    <p className="text-[11px] text-coral-900 leading-relaxed font-medium">
-                      {alertNotice.status === "needs_clearer_document"
-                        ? "The uploaded file has blurry or scanned text requiring a clearer scan."
-                        : "One or more dates/claims need cross-verification against the original PDF."}
-                    </p>
-                    <Link
-                      to={`/notices/${alertNotice.id}`}
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-extrabold bg-coral-600 text-white hover:bg-coral-700 transition-colors shadow-xs"
-                    >
-                      <span>View Details</span>
-                      <ArrowRight className="w-3 h-3" />
-                    </Link>
-                  </div>
-                ) : error ? (
-                  <div className="p-4 rounded-2xl bg-stone-50 border border-stone-200 space-y-1">
-                    <p className="text-xs font-extrabold text-stone-800">Review status unavailable</p>
-                    <p className="text-[11px] text-stone-600 font-medium">
-                      Connect to the notice service to check which records need review.
-                    </p>
+                {noticeError ? (
+                  <p className="py-5 text-sm text-slate-500">Recent records are unavailable until the notice service responds.</p>
+                ) : recentNotices.length ? (
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    {recentNotices.map((notice) => (
+                      <NoticeLink key={notice.id} notice={notice} />
+                    ))}
                   </div>
                 ) : (
-                  <div className="p-4 rounded-2xl bg-sage-50/80 border border-sage-200/80 space-y-1">
-                    <p className="text-xs font-extrabold text-sage-950">No current review flags</p>
-                    <p className="text-[11px] text-sage-900 font-medium">
-                      No notice returned by the service is currently flagged for manual review. Check original documents before acting.
-                    </p>
+                  <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/70 px-4 py-8 text-center">
+                    <FileText className="mx-auto h-8 w-8 text-slate-300" aria-hidden="true" />
+                    <p className="mt-2 text-sm font-semibold text-slate-700">Your notice library is ready.</p>
+                    <p className="mt-1 text-xs text-slate-500">Upload a supported PDF to start reviewing extracted information and actions.</p>
+                    <Link to="/upload" className="mt-3 inline-flex text-xs font-bold text-purple-700 hover:underline">Upload a document</Link>
                   </div>
                 )}
               </section>
 
-              {/* Recent activity from live notice records */}
-              <section
-                className="bg-white rounded-3xl p-5 sm:p-6 border border-stone-200/90 shadow-card space-y-3"
-                aria-labelledby="recent-activity-title"
-              >
-                <div className="flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-2">
-                  <div className="p-1.5 rounded-lg bg-teal-50 text-teal-700">
-                      <FileText className="w-4 h-4" />
+              <section className="surface-card p-5 sm:p-6" aria-labelledby="actions-title">
+                <div className="mb-4 flex items-center justify-between gap-2 border-b border-slate-100 pb-3">
+                  <div>
+                    <p className="page-heading-eyebrow">What to do next</p>
+                    <h2 id="actions-title" className="text-lg font-extrabold text-navy-950">Saved action reminders</h2>
                   </div>
-                    <h2 id="recent-activity-title" className="font-extrabold text-base text-stone-950">
-                      Recent Activity
-                    </h2>
-                  </div>
-                  <Link to="/notices" className="text-xs font-bold text-teal-700 hover:text-teal-900">
-                    View all
+                  <Link to="/reminders" className="focus-ring inline-flex items-center gap-1 rounded text-xs font-bold text-purple-700 hover:text-purple-900">
+                    Manage <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
                   </Link>
                 </div>
-                {error ? (
-                  <p className="rounded-xl bg-stone-50 p-3 text-xs leading-5 text-stone-500">
-                    Activity is unavailable until notice records can be loaded.
-                  </p>
-                ) : recentNotices.length === 0 ? (
-                  <p className="rounded-xl bg-stone-50 p-3 text-xs leading-5 text-stone-500">
-                    Recent notice activity will appear here after notices are available.
-                  </p>
+                {reminderError ? (
+                  <p className="py-5 text-sm text-slate-500">Saved reminders are unavailable until the reminder service responds.</p>
+                ) : sortedReminders.length ? (
+                  <ul className="divide-y divide-slate-100">
+                    {sortedReminders.map((reminder) => {
+                      const countdown = getCountdownDetails(reminder.remind_on);
+                      return (
+                        <li key={reminder.id} className="flex items-start gap-3 py-3 first:pt-0 last:pb-0">
+                          <button
+                            type="button"
+                            onClick={() => handleToggleReminder(reminder)}
+                            aria-label={reminder.done ? "Mark reminder incomplete" : "Mark reminder complete"}
+                            className="focus-ring mt-0.5 rounded text-slate-400 hover:text-purple-700"
+                          >
+                            <CheckCircle2 className={`h-5 w-5 ${reminder.done ? "text-emerald-600" : ""}`} aria-hidden="true" />
+                          </button>
+                          <div className="min-w-0 flex-1">
+                            <p className={`text-sm font-semibold ${reminder.done ? "text-slate-400 line-through" : "text-slate-800"}`}>
+                              {reminder.note || reminder.deadline_ref || "Saved action"}
+                            </p>
+                            <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-500">
+                              <span>{formatDate(reminder.remind_on)}</span>
+                              {!reminder.done && countdown && (
+                                <span className={countdown.urgency === "overdue" ? "font-bold text-rose-700" : "font-semibold text-purple-700"}>
+                                  {countdown.label}
+                                </span>
+                              )}
+                              {reminder.notice_id && (
+                                <Link to={`/notices/${reminder.notice_id}`} className="font-semibold text-purple-700 hover:underline">
+                                  Source notice
+                                </Link>
+                              )}
+                            </div>
+                          </div>
+                        </li>
+                      );
+                    })}
+                  </ul>
                 ) : (
-                  <ul className="divide-y divide-stone-100">
-                    {recentNotices.map((notice) => (
-                      <li key={notice.id} className="flex items-center justify-between gap-3 py-2.5 first:pt-0 last:pb-0">
-                        <Link
-                          to={`/notices/${notice.id}`}
-                          className="min-w-0 truncate text-xs font-semibold text-stone-800 hover:text-teal-800"
-                        >
-                          {notice.title || "Official notice"}
-                        </Link>
-                        <time className="shrink-0 text-[10px] text-stone-500">
-                          {formatDate(notice.created_at)}
-                        </time>
+                  <div className="py-6 text-center">
+                    <BellRing className="mx-auto h-7 w-7 text-slate-300" aria-hidden="true" />
+                    <p className="mt-2 text-sm font-semibold text-slate-700">No saved reminders in this feed.</p>
+                    <p className="mt-1 text-xs text-slate-500">Create a reminder from a notice deadline to keep an action visible here.</p>
+                  </div>
+                )}
+              </section>
+            </div>
+
+            <aside className="min-w-0 space-y-5">
+              <section className="surface-card p-5 sm:p-6" aria-labelledby="category-summary-title">
+                <div className="mb-4">
+                  <p className="page-heading-eyebrow">Across your library</p>
+                  <h2 id="category-summary-title" className="text-lg font-extrabold text-navy-950">Category summary</h2>
+                  <p className="mt-1 text-xs leading-5 text-slate-500">Counts reflect categories returned by the current processor, not a limit on the platform’s intended use.</p>
+                </div>
+                {noticeError ? (
+                  <p className="py-4 text-sm text-slate-500">Category data is unavailable.</p>
+                ) : categoryCounts.length ? (
+                  <ul className="space-y-2.5">
+                    {categoryCounts.map(([category, count]) => (
+                      <li key={category} className="flex items-center justify-between gap-3">
+                        <span className="min-w-0 truncate text-sm font-medium text-slate-700">{getCategoryLabel(category === "unclassified" ? null : category)}</span>
+                        <span className="inline-flex h-7 min-w-7 items-center justify-center rounded-lg bg-purple-50 px-2 text-xs font-bold text-purple-800">{count}</span>
                       </li>
                     ))}
                   </ul>
+                ) : (
+                  <p className="py-4 text-sm text-slate-500">Category summaries will appear when the service returns notice records.</p>
                 )}
-                <p className="border-t border-stone-100 pt-2 text-[11px] leading-5 text-stone-500">
-                  Review extracted dates and requirements against each original document.
-                </p>
+                {focusCategories.length > 0 && (
+                  <div className="mt-4 border-t border-slate-100 pt-4">
+                    <p className="mb-2 text-[11px] font-bold uppercase tracking-wide text-slate-500">Your focus categories</p>
+                    <div className="flex flex-wrap gap-2">
+                      {focusCategories.map((category) => {
+                        const count = categoryCounts.find(([key]) => key === category)?.[1] || 0;
+                        return (
+                          <Link
+                            key={category}
+                            to={`/notices?category=${encodeURIComponent(category)}`}
+                            className="focus-ring inline-flex items-center gap-2 rounded-full border border-purple-100 bg-purple-50 px-2.5 py-1.5 text-[11px] font-semibold text-purple-800 hover:bg-purple-100"
+                          >
+                            {getCategoryLabel(category)} <span className="font-bold">{count}</span>
+                          </Link>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
               </section>
-            </div>
+
+              <section className="surface-card p-5 sm:p-6" aria-labelledby="attention-title">
+                <div className="mb-4 flex items-center gap-2 border-b border-slate-100 pb-3">
+                  <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-50 text-amber-800">
+                    <AlertTriangle className="h-4 w-4" aria-hidden="true" />
+                  </span>
+                  <h2 id="attention-title" className="text-base font-extrabold text-navy-950">Needs your review</h2>
+                </div>
+                {noticeError ? (
+                  <p className="py-3 text-sm text-slate-500">Review flags are unavailable.</p>
+                ) : attentionNotices.length ? (
+                  <div className="space-y-2.5">
+                    {attentionNotices.map((notice) => (
+                      <NoticeLink key={notice.id} notice={notice} attention />
+                    ))}
+                  </div>
+                ) : (
+                  <p className="py-3 text-sm leading-5 text-slate-500">No review flags were returned for these records. Check extracted details against their originals before acting.</p>
+                )}
+              </section>
+
+              <section className="surface-card p-5 sm:p-6" aria-labelledby="priority-title">
+                <div className="mb-4 flex items-center gap-2 border-b border-slate-100 pb-3">
+                  <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-rose-50 text-rose-700">
+                    <AlertCircle className="h-4 w-4" aria-hidden="true" />
+                  </span>
+                  <h2 id="priority-title" className="text-base font-extrabold text-navy-950">High-priority notices</h2>
+                </div>
+                {noticeError ? (
+                  <p className="py-3 text-sm text-slate-500">Priority data is unavailable.</p>
+                ) : highPriorityNotices.length ? (
+                  <div className="space-y-2.5">
+                    {highPriorityNotices.map((notice) => (
+                      <NoticeLink key={notice.id} notice={notice} />
+                    ))}
+                  </div>
+                ) : (
+                  <p className="py-3 text-sm leading-5 text-slate-500">No priority ratings were supplied by the current notice service.</p>
+                )}
+              </section>
+            </aside>
           </div>
         </>
       )}

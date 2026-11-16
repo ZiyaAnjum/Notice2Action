@@ -16,6 +16,7 @@ import {
 import { API_BASE_URL } from "../api/client";
 import { SUPPORTED_CATEGORIES, OUT_OF_SCOPE_CATEGORY } from "../utils/categories";
 import { useAuth } from "../context/useAuth";
+import { useWorkspacePreferences } from "../context/useWorkspacePreferences";
 import { PageHeader } from "../components/PageHeader";
 
 export function SettingsPage() {
@@ -23,6 +24,7 @@ export function SettingsPage() {
   const [checkingHealth, setCheckingHealth] = useState(true);
   const navigate = useNavigate();
   const { endDemoSession } = useAuth();
+  const { focusCategories, setFocusCategories } = useWorkspacePreferences();
 
   useEffect(() => {
     async function checkBackendHealth() {
@@ -45,6 +47,13 @@ export function SettingsPage() {
   const handleLogout = () => {
     endDemoSession();
     navigate("/login", { replace: true });
+  };
+
+  const toggleFocusCategory = (categoryKey) => {
+    const next = focusCategories.includes(categoryKey)
+      ? focusCategories.filter((key) => key !== categoryKey)
+      : [...focusCategories, categoryKey];
+    setFocusCategories(next);
   };
 
   return (
@@ -79,7 +88,7 @@ export function SettingsPage() {
               </dd>
             </div>
             <div className="px-3.5 py-3">
-              <dt className="text-xs font-medium text-slate-500">Institution</dt>
+              <dt className="text-xs font-medium text-slate-500">Project affiliation</dt>
               <dd className="mt-1 text-xs font-semibold leading-5 text-slate-800">
                 ANJUMAN INSTITUTE OF TECHNOLOGY AND MANAGEMENT, BHATKAL
               </dd>
@@ -100,14 +109,14 @@ export function SettingsPage() {
                 Notification preferences
               </h2>
               <p className="mt-1 text-xs leading-5 text-slate-500">
-                Push and email notifications are not configured in this frontend.
+                Reminder delivery preferences are not connected to a notification service.
               </p>
             </div>
           </div>
           <div className="mt-5 rounded-xl border border-slate-100 bg-slate-50 p-4">
             <p className="text-sm font-bold text-slate-800">Reminder tracking is available</p>
             <p className="mt-1 text-xs leading-5 text-slate-600">
-              Saved reminders can be reviewed and managed from the Calendar and Reminders pages. This setting does not change delivery preferences.
+              Saved reminders can be reviewed and managed from the Calendar and Reminders pages. In-app reminder links work; email and push delivery are not configured.
             </p>
           </div>
         </section>
@@ -201,10 +210,10 @@ export function SettingsPage() {
           </span>
           <div>
             <h2 id="category-title" className="text-base font-extrabold text-navy-950">
-              Supported notice categories
+              Categories recognised by the current processor
             </h2>
             <p className="mt-1 text-xs leading-5 text-slate-500">
-              Categories currently recognised by the notice processing integration.
+              Notice2Action is designed for communications from different organisations. These are the categories currently returned by the connected processing service; broader classification support requires backend integration.
             </p>
           </div>
         </div>
@@ -230,6 +239,57 @@ export function SettingsPage() {
             <p className="mt-1.5 text-[11px] leading-5 text-slate-600">{OUT_OF_SCOPE_CATEGORY.description}</p>
           </article>
         </div>
+      </section>
+
+      <section className="surface-card p-5 sm:p-6" aria-labelledby="focus-categories-title">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="flex items-start gap-3">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-purple-50 text-purple-700">
+              <FileCheck className="h-5 w-5" aria-hidden="true" />
+            </span>
+            <div>
+              <h2 id="focus-categories-title" className="text-base font-extrabold text-navy-950">
+                Your focus categories
+              </h2>
+              <p className="mt-1 max-w-2xl text-xs leading-5 text-slate-500">
+                Choose categories to pin to the dashboard. This preference is saved only in this browser and does not change how documents are processed.
+              </p>
+            </div>
+          </div>
+          {focusCategories.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setFocusCategories([])}
+              className="focus-ring self-start rounded-lg px-2.5 py-1.5 text-xs font-bold text-purple-700 hover:bg-purple-50"
+            >
+              Clear selection
+            </button>
+          )}
+        </div>
+        <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+          {SUPPORTED_CATEGORIES.map((category) => (
+            <label
+              key={category.key}
+              className="flex min-h-12 cursor-pointer items-start gap-2.5 rounded-xl border border-slate-200 bg-slate-50/70 p-3 transition hover:border-purple-200 hover:bg-purple-50/40"
+            >
+              <input
+                type="checkbox"
+                checked={focusCategories.includes(category.key)}
+                onChange={() => toggleFocusCategory(category.key)}
+                className="mt-0.5 h-4 w-4 shrink-0 rounded border-slate-300 text-purple-700 focus:ring-purple-500"
+              />
+              <span className="min-w-0">
+                <span className="block text-xs font-bold text-slate-800">{category.label}</span>
+                <span className="mt-0.5 block text-[11px] leading-4 text-slate-500">{category.description}</span>
+              </span>
+            </label>
+          ))}
+        </div>
+        <p className="mt-3 text-[11px] font-medium text-slate-500">
+          {focusCategories.length
+            ? `${focusCategories.length} ${focusCategories.length === 1 ? "category" : "categories"} saved locally.`
+            : "No focus categories selected."}
+        </p>
       </section>
 
       <section className="grid grid-cols-1 gap-4 md:grid-cols-[minmax(0,1fr)_auto]">

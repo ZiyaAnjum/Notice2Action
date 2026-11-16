@@ -65,6 +65,10 @@ export function RemindersPage() {
   const filtered = useMemo(() => {
     return reminders.filter((r) => {
       if (filterMode === "pending") return !r.done;
+      if (filterMode === "upcoming") {
+        const countdown = getCountdownDetails(r.remind_on);
+        return !r.done && countdown && countdown.urgency !== "overdue";
+      }
       if (filterMode === "completed") return r.done;
       if (filterMode === "overdue") {
         return !r.done && getCountdownDetails(r.remind_on)?.urgency === "overdue";
@@ -79,13 +83,14 @@ export function RemindersPage() {
         icon={Bell}
         eyebrow="Stay on top of next steps"
         title="Action reminders"
-        description="Track saved reminder dates, review overdue items, and update completion status."
+        description="Manage saved actions linked to your documents. This page uses the reminder service’s current 90-day feed; it may not include every extracted date."
         actions={
           <div className="flex flex-wrap items-center gap-1.5" aria-label="Filter reminders">
             <Filter className="mr-1 h-4 w-4 text-stone-400" aria-hidden="true" />
             {[
               { key: "all", label: "All" },
               { key: "pending", label: "Pending" },
+              { key: "upcoming", label: "Upcoming" },
               { key: "overdue", label: "Overdue" },
               { key: "completed", label: "Completed" },
             ].map((tab) => (

@@ -21,6 +21,8 @@ import { NoticeRemindersList } from "../components/NoticeRemindersList";
 import { SourceViewerModal } from "../components/SourceViewerModal";
 import { ReminderModal } from "../components/ReminderModal";
 import { UncertainBadge } from "../components/UncertainBadge";
+import { getNoticeField } from "../utils/notices";
+import { formatDate } from "../utils/text";
 
 export function NoticeDashboardPage() {
   const { id } = useParams();
@@ -51,6 +53,8 @@ export function NoticeDashboardPage() {
 
   const fetchNoticeData = useCallback(async () => {
     if (!id) return;
+    setLoading(true);
+    setFetchError(null);
     try {
       const data = await getNotice(id);
       setNotice(data);
@@ -78,6 +82,13 @@ export function NoticeDashboardPage() {
                 pollIntervalRef.current = null;
                 setNotice(refreshed);
                 setReminders(refreshed.reminders || []);
+                setChecklistMap(
+                  Object.fromEntries(
+                    (Array.isArray(refreshed.checklist) ? refreshed.checklist : []).map(
+                      (item) => [item.item_key, item.status]
+                    )
+                  )
+                );
               }
             } catch {
               // ignore transient error
@@ -165,7 +176,7 @@ export function NoticeDashboardPage() {
     return (
       <main className="page-shell max-w-4xl space-y-4 py-10 text-center sm:py-14">
         <Loader2 className="w-12 h-12 text-indigo-600 animate-spin mx-auto" />
-        <h1 className="text-xl font-bold text-slate-800">Loading notice dashboard...</h1>
+        <h1 className="text-xl font-bold text-slate-800">Loading document details...</h1>
       </main>
     );
   }
@@ -174,14 +185,14 @@ export function NoticeDashboardPage() {
     return (
       <main className="page-shell max-w-3xl space-y-6">
         <div className="p-6 rounded-2xl bg-rose-50 border-2 border-rose-300 text-rose-950 space-y-3">
-          <h1 className="text-xl font-extrabold">Notice not available</h1>
-          <p className="text-sm font-medium">{fetchError || "The requested notice could not be found."}</p>
+          <h1 className="text-xl font-extrabold">Document not available</h1>
+          <p className="text-sm font-medium">{fetchError || "The requested document could not be found."}</p>
           <div className="pt-2">
             <Link
               to="/notices"
               className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold bg-rose-600 text-white hover:bg-rose-700 min-h-[44px]"
             >
-              Back to Past Notices
+              Back to document library
             </Link>
           </div>
         </div>
@@ -200,10 +211,10 @@ export function NoticeDashboardPage() {
         <div className="p-8 sm:p-12 bg-white border-2 border-indigo-200 rounded-3xl shadow-sm space-y-4">
           <Loader2 className="w-14 h-14 text-indigo-600 animate-spin mx-auto" />
           <h1 className="text-2xl sm:text-3xl font-black text-slate-950">
-            Reading and Analyzing Your Notice
+            Processing your document
           </h1>
           <p className="text-base text-slate-600 max-w-md mx-auto">
-            Our AI service is reviewing the document to extract deadlines, actions, and requirements. This screen will update automatically.
+            The connected processing service is extracting available information. This view will refresh when it reports a result; extracted details still need review against the original.
           </p>
           <div className="pt-2">
             <button
@@ -258,7 +269,7 @@ export function NoticeDashboardPage() {
               to="/notices"
               className="inline-flex items-center gap-2 px-5 py-3 rounded-xl font-bold text-slate-700 bg-white border border-slate-300 hover:bg-slate-100 min-h-[48px]"
             >
-              <span>Back to Past Notices</span>
+              <span>Back to document library</span>
             </Link>
           </div>
         </div>
@@ -280,17 +291,17 @@ export function NoticeDashboardPage() {
 
           <div className="space-y-2">
             <h1 className="text-2xl sm:text-3xl font-black text-slate-950">
-              Notice Type Not Supported Yet
+              Document Not Yet Classified
             </h1>
             <p className="text-base text-slate-700 leading-relaxed font-medium">
-              This document does not match any of our supported official notice categories. Notice to Action is designed specifically for actionable official and legal communications.
+              The current processing service did not classify this document, so no extracted action plan is available. Notice2Action is intended for communications from different organisations, but category coverage depends on the connected processing integration.
             </p>
           </div>
 
           {/* Supported Categories List */}
           <div className="space-y-3 pt-2 border-t border-slate-200">
             <h2 className="text-sm font-bold uppercase tracking-wider text-slate-500">
-              Supported Notice Categories:
+              Categories currently recognised by the processing service:
             </h2>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {SUPPORTED_CATEGORIES.map((cat) => (
@@ -317,7 +328,7 @@ export function NoticeDashboardPage() {
               to="/notices"
               className="inline-flex items-center gap-2 px-5 py-3 rounded-xl font-bold text-slate-700 bg-white border border-slate-300 hover:bg-slate-100 min-h-[48px]"
             >
-              <span>Back to Past Notices</span>
+              <span>Back to document library</span>
             </Link>
           </div>
         </div>
@@ -339,10 +350,10 @@ export function NoticeDashboardPage() {
 
           <div className="space-y-2">
             <h1 className="text-2xl sm:text-3xl font-black text-slate-950">
-              Notice Extraction Could Not Complete
+              Document processing could not complete
             </h1>
             <p className="text-base text-slate-700 font-medium">
-              The AI service could not process this notice. This might happen if the file is corrupted, or if the AI service is currently unavailable.
+              The connected service could not process this document. This might happen if the file is corrupted or the processing service is unavailable.
             </p>
             {notice.message && (
               <div className="p-4 bg-rose-50 rounded-xl border border-rose-200 text-sm text-rose-950 font-medium">
@@ -363,7 +374,7 @@ export function NoticeDashboardPage() {
               to="/notices"
               className="inline-flex items-center gap-2 px-5 py-3 rounded-xl font-bold text-slate-700 bg-white border border-slate-300 hover:bg-slate-100 min-h-[48px]"
             >
-              <span>Back to Past Notices</span>
+              <span>Back to document library</span>
             </Link>
           </div>
         </div>
@@ -390,8 +401,13 @@ export function NoticeDashboardPage() {
   const titleQuote = result.notice_title?.evidence_quote || result.notice_title?.evidence?.quote;
 
   const issuingOrg =
-    result.issuing_organisation?.value ||
-    (typeof result.issuing_organisation === "string" ? result.issuing_organisation : null) ||
+    getNoticeField(notice, [
+      "source_organisation",
+      "source_organization",
+      "issuing_organisation",
+      "issuing_organization",
+      "issuer",
+    ]) ||
     "Not stated in notice";
   const issuerUncertain =
     result.issuing_organisation?.status === "uncertain" ||
@@ -400,6 +416,9 @@ export function NoticeDashboardPage() {
     result.issuing_organisation?.source_page || result.issuing_organisation?.evidence?.page;
   const issuerQuote =
     result.issuing_organisation?.evidence_quote || result.issuing_organisation?.evidence?.quote;
+  const documentType = getNoticeField(notice, ["notice_type", "document_type", "type"]);
+  const priority = getNoticeField(notice, ["priority", "priority_level", "urgency"]);
+  const issueDate = getNoticeField(notice, ["issue_date", "issued_at"]);
 
   const categoryLabel = getCategoryLabel(notice.category || result.category);
   const pdfFileUrl = getNoticeFileUrl(id);
@@ -419,7 +438,7 @@ export function NoticeDashboardPage() {
               Please check the highlighted items against your notice before acting
             </h2>
             <p className="text-sm sm:text-base font-medium text-amber-900 leading-relaxed">
-              Certain claims, dates, or requirements in this notice could not be verified with complete confidence. Look for the amber &ldquo;Please verify&rdquo; badges throughout this page.
+              Certain claims, dates, or requirements in this document could not be verified with complete confidence. Look for the amber &ldquo;Please verify&rdquo; badges throughout this page.
             </p>
           </div>
         </div>
@@ -476,7 +495,7 @@ export function NoticeDashboardPage() {
               <Building className="w-4 h-4" aria-hidden="true" />
             </div>
             <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
-              Issuing Organisation:
+              Source organisation:
             </span>
             <span className="text-base font-extrabold text-slate-900">{issuingOrg}</span>
             {issuerUncertain && <UncertainBadge />}
@@ -490,8 +509,30 @@ export function NoticeDashboardPage() {
               </button>
             )}
           </div>
+          <dl className="grid gap-3 border-t border-slate-100 pt-4 sm:grid-cols-3">
+            <div>
+              <dt className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Document type</dt>
+              <dd className="mt-1 text-xs font-semibold text-slate-700">{documentType || "Not classified by the service"}</dd>
+            </div>
+            <div>
+              <dt className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Priority</dt>
+              <dd className="mt-1 text-xs font-semibold capitalize text-slate-700">{priority || "Not rated by the service"}</dd>
+            </div>
+            <div>
+              <dt className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Issue date</dt>
+              <dd className="mt-1 text-xs font-semibold text-slate-700">{issueDate ? formatDate(issueDate) : "Not provided"}</dd>
+            </div>
+          </dl>
         </div>
       </section>
+
+      <aside className="flex items-start gap-3 rounded-2xl border border-cyan-100 bg-cyan-50/60 p-4 text-xs leading-5 text-slate-700">
+        <FileText className="mt-0.5 h-4 w-4 shrink-0 text-cyan-800" aria-hidden="true" />
+        <p>
+          These details are extracted from the uploaded document, not independently verified.
+          Compare important dates, instructions, and requirements with the original PDF before acting.
+        </p>
+      </aside>
 
       {/* VISUALLY MOST PROMINENT: Deadlines Section */}
       <DeadlineCard
@@ -598,7 +639,7 @@ export function NoticeDashboardPage() {
           This is a helper, not legal or financial advice. Always check the original notice.
         </p>
         <p>
-          Notice to Action extracts claims directly from official text to assist you in timely action.
+          Notice2Action presents information returned by the connected processor to help organise next steps.
         </p>
       </footer>
 

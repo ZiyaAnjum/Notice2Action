@@ -143,7 +143,7 @@ export function generateIcsContent({
   const lines = [
     "BEGIN:VCALENDAR",
     "VERSION:2.0",
-    "PRODID:-//Notice2Action//Institutional Notice Management//EN",
+    "PRODID:-//Notice2Action//Notice Intelligence and Action Management//EN",
     "CALSCALE:GREGORIAN",
     "METHOD:PUBLISH",
     "BEGIN:VEVENT",

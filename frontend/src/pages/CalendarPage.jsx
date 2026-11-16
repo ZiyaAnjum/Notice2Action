@@ -39,7 +39,8 @@ export function CalendarPage() {
   const [reminders, setReminders] = useState([]);
   const [notices, setNotices] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const [reminderError, setReminderError] = useState(null);
+  const [noticeError, setNoticeError] = useState(null);
   const [filterMode, setFilterMode] = useState("all");
   const [visibleMonth, setVisibleMonth] = useState(
     () => new Date(new Date().getFullYear(), new Date().getMonth(), 1)
@@ -49,19 +50,27 @@ export function CalendarPage() {
   useEffect(() => {
     async function loadCalendarData() {
       setLoading(true);
-      setError(null);
-      try {
-        const [reminderList, noticeList] = await Promise.all([
-          getUpcomingReminders(90),
-          listNotices(),
-        ]);
-        setReminders(reminderList || []);
-        setNotices(noticeList || []);
-      } catch (loadError) {
-        setError(loadError.message || "Failed to load calendar deadlines.");
-      } finally {
-        setLoading(false);
+      setReminderError(null);
+      setNoticeError(null);
+      const [reminderResult, noticeResult] = await Promise.allSettled([
+        getUpcomingReminders(90),
+        listNotices(),
+      ]);
+      if (reminderResult.status === "fulfilled") {
+        setReminders(Array.isArray(reminderResult.value) ? reminderResult.value : []);
+      } else {
+        setReminderError(
+          reminderResult.reason?.message || "Failed to load saved deadlines."
+        );
       }
+      if (noticeResult.status === "fulfilled") {
+        setNotices(Array.isArray(noticeResult.value) ? noticeResult.value : []);
+      } else {
+        setNoticeError(
+          noticeResult.reason?.message || "Could not load source document titles."
+        );
+      }
+      setLoading(false);
     }
     loadCalendarData();
   }, []);
@@ -160,8 +169,8 @@ export function CalendarPage() {
       <PageHeader
         icon={CalendarDays}
         eyebrow="Plan ahead"
-        title="Institutional calendar & deadlines"
-        description="Review saved notice reminders by date. This calendar uses the existing 90-day reminder feed; verify each deadline against its original notice."
+        title="Deadlines & calendar"
+        description="Review saved reminders from communications across your library. The calendar shows the current 90-day reminder feed; extracted dates appear here only after a reminder is saved."
         actions={
           <div className="flex flex-wrap items-center gap-1.5" aria-label="Filter deadlines">
             <Filter className="mr-1 h-4 w-4 text-slate-400" aria-hidden="true" />
@@ -191,20 +200,26 @@ export function CalendarPage() {
         </div>
       )}
 
-      {error && !loading && (
+      {reminderError && !loading && (
         <div
           role="alert"
           className="rounded-2xl border border-amber-300 bg-amber-50 p-5 text-amber-950"
         >
           <div className="flex items-center gap-2">
             <AlertCircle className="h-5 w-5 text-amber-700" aria-hidden="true" />
-            <h2 className="text-sm font-extrabold">Could not load deadlines</h2>
+            <h2 className="text-sm font-extrabold">Could not load saved deadlines</h2>
           </div>
-          <p className="mt-2 text-xs leading-5 text-amber-900">{error}</p>
+            <p className="mt-2 text-xs leading-5 text-amber-900">{reminderError}</p>
         </div>
       )}
 
-      {!loading && !error && (
+      {noticeError && !loading && !reminderError && (
+        <p role="status" className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs leading-5 text-amber-900">
+            Source document titles could not be loaded. Saved deadlines remain available. {noticeError}
+        </p>
+      )}
+
+      {!loading && !reminderError && (
         <div className="grid min-w-0 grid-cols-1 items-start gap-5 xl:grid-cols-[minmax(0,1.65fr)_minmax(280px,0.85fr)]">
           <section className="surface-card min-w-0 overflow-hidden p-4 sm:p-5" aria-label="Monthly calendar">
             <div className="mb-4 flex items-center justify-between gap-3">

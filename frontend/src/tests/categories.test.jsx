@@ -24,42 +24,34 @@ describe("categories utility", () => {
     });
   });
 
-  it("returns current institutional labels for canonical categories", () => {
-    expect(getCategoryLabel("scholarship_or_college")).toBe("Scholarship & Education");
-    expect(getCategoryLabel("bank")).toBe("Bank & Financial");
-    expect(getCategoryLabel("utility")).toBe("Utility Services");
-    expect(getCategoryLabel("tax_or_payment")).toBe("Tax & Payment");
-    expect(getCategoryLabel("government_scheme")).toBe("Government Scheme");
+  it("returns general-purpose labels for categories currently recognised by the processor", () => {
+    expect(getCategoryLabel("scholarship_or_college")).toBe("Education & student funding");
+    expect(getCategoryLabel("bank")).toBe("Banking & financial services");
+    expect(getCategoryLabel("utility")).toBe("Utilities & services");
+    expect(getCategoryLabel("tax_or_payment")).toBe("Tax & payments");
+    expect(getCategoryLabel("government_scheme")).toBe("Government & public services");
   });
 
   it("maps legacy aliases to the current canonical labels", () => {
-    expect(getCategoryLabel("scholarship")).toBe("Scholarship & Education");
-    expect(getCategoryLabel("tax")).toBe("Tax & Payment");
-    expect(getCategoryLabel("tax_revenue")).toBe("Tax & Payment");
-    expect(getCategoryLabel("govt_scheme")).toBe("Government Scheme");
-    expect(getCategoryLabel("government_benefits")).toBe("Government Scheme");
-    expect(getCategoryLabel("utility_services")).toBe("Utility Services");
-    expect(getCategoryLabel("banking_finance")).toBe("Bank & Financial");
+    expect(getCategoryLabel("scholarship")).toBe("Education & student funding");
+    expect(getCategoryLabel("tax")).toBe("Tax & payments");
+    expect(getCategoryLabel("tax_revenue")).toBe("Tax & payments");
+    expect(getCategoryLabel("govt_scheme")).toBe("Government & public services");
+    expect(getCategoryLabel("government_benefits")).toBe("Government & public services");
+    expect(getCategoryLabel("utility_services")).toBe("Utilities & services");
+    expect(getCategoryLabel("banking_finance")).toBe("Banking & financial services");
   });
 
   it("handles out-of-scope labels and descriptions", () => {
-    expect(CATEGORY_LABELS.other_out_of_scope).toBe(
-      "General Communications (Out of Scope)"
-    );
+    expect(CATEGORY_LABELS.other_out_of_scope).toBe("Other / unclassified");
     expect(getCategoryLabel("other_out_of_scope")).toBe(
-      "General Communications (Out of Scope)"
+      "Other / unclassified"
     );
     expect(OUT_OF_SCOPE_CATEGORY.key).toBe("other_out_of_scope");
-    expect(OUT_OF_SCOPE_CATEGORY.label).toBe(
-      "General Communications (Out of Scope)"
-    );
-    expect(OUT_OF_SCOPE_CATEGORY.description).toContain("promotional flyers");
-    expect(getCategoryLabel("out_of_scope")).toBe(
-      "General Communications (Out of Scope)"
-    );
-    expect(getCategoryLabel("unsupported")).toBe(
-      "General Communications (Out of Scope)"
-    );
+    expect(OUT_OF_SCOPE_CATEGORY.label).toBe("Other / unclassified");
+    expect(OUT_OF_SCOPE_CATEGORY.description).toContain("current processing integration");
+    expect(getCategoryLabel("out_of_scope")).toBe("Other / unclassified");
+    expect(getCategoryLabel("unsupported")).toBe("Other / unclassified");
   });
 
   it("only identifies canonical supported categories as supported", () => {

@@ -115,7 +115,7 @@ export function AuthPage({ mode }) {
               </span>
               <div>
                 <p className="text-sm font-extrabold tracking-wide">Notice2Action</p>
-                <p className="mt-0.5 text-[11px] text-slate-300">Institutional workspace</p>
+                <p className="mt-0.5 text-[11px] text-slate-300">Notice intelligence workspace</p>
               </div>
             </div>
             <div className="mt-24 max-w-md">
@@ -126,7 +126,7 @@ export function AuthPage({ mode }) {
                 Every notice, organised around what matters next.
               </h1>
               <p className="mt-5 max-w-sm text-sm leading-7 text-slate-300">
-                Keep institutional notices, key dates, reminders, and action steps together in one workspace.
+                Bring communications from different organisations into one place for clearer summaries, dates, and next steps.
               </p>
             </div>
           </div>
@@ -159,7 +159,7 @@ export function AuthPage({ mode }) {
             <div className="mb-7">
               <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-purple-100 bg-purple-50 px-3 py-1.5 text-xs font-semibold text-purple-800">
                 <ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" />
-                Institutional notice management
+                Notice intelligence workspace
               </div>
               <h2 className="text-3xl font-extrabold tracking-tight text-navy-950">
                 {copy.title}
@@ -198,7 +198,7 @@ export function AuthPage({ mode }) {
               {mode !== "reset-password" && (
                 <div>
                   <label htmlFor="email" className={labelClassName}>
-                    Institutional email
+                    Email address
                   </label>
                   <input
                     id="email"

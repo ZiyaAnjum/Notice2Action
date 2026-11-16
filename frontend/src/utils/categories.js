@@ -1,64 +1,64 @@
 /**
- * Category labels and metadata for official institutional notices.
- * Aligned with Phase 7a canonical categories from schemas/notice_output.schema.json.
+ * Category labels and metadata recognised by the current processing integration.
+ * Canonical keys remain aligned with the backend notice-output schema.
  */
 
 export const CATEGORY_LABELS = {
-  scholarship_or_college: "Scholarship & Education",
-  bank: "Bank & Financial",
-  utility: "Utility Services",
-  tax_or_payment: "Tax & Payment",
-  government_scheme: "Government Scheme",
-  other_out_of_scope: "General Communications (Out of Scope)",
-  scholarship: "Scholarship & Education",
-  tax: "Tax & Payment",
-  tax_revenue: "Tax & Payment",
-  govt_scheme: "Government Scheme",
-  government_benefits: "Government Scheme",
-  utility_services: "Utility Services",
-  banking_finance: "Bank & Financial",
-  out_of_scope: "General Communications (Out of Scope)",
-  unsupported: "General Communications (Out of Scope)",
+  scholarship_or_college: "Education & student funding",
+  bank: "Banking & financial services",
+  utility: "Utilities & services",
+  tax_or_payment: "Tax & payments",
+  government_scheme: "Government & public services",
+  other_out_of_scope: "Other / unclassified",
+  scholarship: "Education & student funding",
+  tax: "Tax & payments",
+  tax_revenue: "Tax & payments",
+  govt_scheme: "Government & public services",
+  government_benefits: "Government & public services",
+  utility_services: "Utilities & services",
+  banking_finance: "Banking & financial services",
+  out_of_scope: "Other / unclassified",
+  unsupported: "Other / unclassified",
 };
 
 export const SUPPORTED_CATEGORIES = [
   {
     key: "scholarship_or_college",
-    label: "Scholarship & Education",
+    label: "Education & student funding",
     description:
-      "Scholarship deadlines, college fee notices, admission documents, and hostel requirements.",
+      "Education, enrollment, student funding, and credential communications currently recognised by the processor.",
   },
   {
     key: "bank",
-    label: "Bank & Financial",
+    label: "Banking & financial services",
     description:
-      "Account KYC refresh notices, dormancy warnings, and re-KYC mandates.",
+      "Banking, account servicing, and payment communications currently recognised by the processor.",
   },
   {
     key: "utility",
-    label: "Utility Services",
+    label: "Utilities & services",
     description:
-      "Electricity, water, gas, and telecom disconnection warnings or bill due dates.",
+      "Utility, telecom, and service-account communications currently recognised by the processor.",
   },
   {
     key: "tax_or_payment",
-    label: "Tax & Payment",
+    label: "Tax & payments",
     description:
-      "Property tax, municipal tax, self-assessment notices, and penalty warnings.",
+      "Tax, assessment, billing, and statutory payment communications currently recognised by the processor.",
   },
   {
     key: "government_scheme",
-    label: "Government Scheme",
+    label: "Government & public services",
     description:
-      "Welfare scheme enrollment, benefit renewal deadlines, and eligibility documents.",
+      "Government, municipal, and public-benefit communications currently recognised by the processor.",
   },
 ];
 
 export const OUT_OF_SCOPE_CATEGORY = {
   key: "other_out_of_scope",
-  label: "General Communications (Out of Scope)",
+  label: "Other / unclassified",
   description:
-    "Personal letters, promotional flyers, receipts, recipes, and ungrounded documents.",
+    "Documents not classified by the current processing integration. Classification coverage depends on the connected service; review the original document.",
 };
 
 /**
@@ -77,7 +77,7 @@ export function getCategoryLabel(category) {
 }
 
 /**
- * Checks whether a given category string is one of the supported five categories.
+ * Checks whether a category is recognised by the current processing integration.
  * @param {string|null|undefined} category
  * @returns {boolean}
  */

@@ -42,7 +42,9 @@ describe("NoticeDashboardPage", () => {
       screen.getByText(/We could not read the text in this document clearly/i)
     ).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Upload a Clearer File/i })).toBeInTheDocument();
-    expect(screen.queryByText(/Action Plan/i)).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("heading", { name: /Action Plan/i })
+    ).not.toBeInTheDocument();
   });
 
   it("renders out_of_scope state and lists supported categories without action plan", async () => {
@@ -61,14 +63,16 @@ describe("NoticeDashboardPage", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText(/Notice Type Not Supported Yet/i)).toBeInTheDocument();
+      expect(screen.getByText(/Document Not Yet Classified/i)).toBeInTheDocument();
     });
 
     // Check that supported categories are listed
-    expect(screen.getByText(/Tax & Payment/i)).toBeInTheDocument();
-    expect(screen.getByText(/Scholarship & Education/i)).toBeInTheDocument();
-    expect(screen.getByText(/Government Scheme/i)).toBeInTheDocument();
-    expect(screen.queryByText(/Action Plan/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/Tax & payments/i)).toBeInTheDocument();
+    expect(screen.getByText(/Education & student funding/i)).toBeInTheDocument();
+    expect(screen.getByText(/Government & public services/i)).toBeInTheDocument();
+    expect(
+      screen.queryByRole("heading", { name: /Action Plan/i })
+    ).not.toBeInTheDocument();
   });
 
   it("renders fully processed notice with deadlines, 5 summary questions, and disclaimer", async () => {
@@ -140,7 +144,7 @@ describe("NoticeDashboardPage", () => {
 
     // Issuing organisation & category
     expect(screen.getByText(/HM Revenue & Customs/i)).toBeInTheDocument();
-    expect(screen.getByText(/Tax & Payment/i)).toBeInTheDocument();
+    expect(screen.getByText(/Tax & payments/i)).toBeInTheDocument();
 
     // Needs verification banner
     expect(

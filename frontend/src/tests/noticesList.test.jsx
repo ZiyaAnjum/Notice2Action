@@ -1,4 +1,5 @@
 import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { vi, describe, it, expect, beforeEach } from "vitest";
 import { NoticesListPage } from "../pages/NoticesListPage";
@@ -55,9 +56,9 @@ describe("NoticesListPage", () => {
     });
 
     // Notice card details
-    expect(screen.getByText(/Tax & Payment/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/Tax & payments/i).length).toBeGreaterThan(0);
     expect(screen.getByText(/Due in 14 days/i)).toBeInTheDocument();
-    expect(screen.getByText(/Needs Verification/i)).toBeInTheDocument();
+    expect(screen.getByText(/Some extracted information needs review/i)).toBeInTheDocument();
 
     // Upcoming reminders
     expect(screen.getByText(/Check banking balance/i)).toBeInTheDocument();
@@ -74,11 +75,63 @@ describe("NoticesListPage", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText(/No notices uploaded yet/i)).toBeInTheDocument();
+      expect(screen.getByText(/No documents yet/i)).toBeInTheDocument();
     });
 
     expect(
-      screen.getByRole("link", { name: /Upload Your First Notice/i })
+      screen.getByRole("link", { name: /Upload a document/i })
     ).toBeInTheDocument();
+  });
+
+  it("searches and filters by metadata actually returned by the notice service", async () => {
+    api.listNotices.mockResolvedValueOnce([
+      {
+        id: "notice-water",
+        title: "Water maintenance advisory",
+        category: "utility",
+        status: "processed",
+        priority: "urgent",
+        source_organisation: "Regional Water Board",
+        notice_type: "Service interruption",
+        issue_date: "2026-10-28",
+        deadline_summary: "Reply by 5 December",
+        created_at: "2026-10-29T10:00:00Z",
+      },
+      {
+        id: "notice-bank",
+        title: "Account information update",
+        category: "bank",
+        status: "processed",
+        priority: "low",
+        created_at: "2026-10-30T10:00:00Z",
+      },
+    ]);
+    api.getUpcomingReminders.mockResolvedValueOnce([]);
+
+    render(
+      <MemoryRouter>
+        <NoticesListPage />
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByText("Water maintenance advisory")).toBeInTheDocument();
+    expect(screen.getByText("Regional Water Board")).toBeInTheDocument();
+    expect(screen.getByText("Service interruption")).toBeInTheDocument();
+    expect(screen.getByText("urgent", { exact: true })).toBeInTheDocument();
+    expect(screen.getByText("Reply by 5 December")).toBeInTheDocument();
+
+    await userEvent.selectOptions(
+      screen.getByRole("combobox", { name: "Filter by priority" }),
+      "urgent"
+    );
+    expect(screen.getByText("Water maintenance advisory")).toBeInTheDocument();
+    expect(screen.queryByText("Account information update")).not.toBeInTheDocument();
+
+    await userEvent.clear(screen.getByRole("searchbox", { name: "Search notices and documents" }));
+    await userEvent.type(
+      screen.getByRole("searchbox", { name: "Search notices and documents" }),
+      "Regional Water Board"
+    );
+    expect(screen.getByText("Water maintenance advisory")).toBeInTheDocument();
   });
 });

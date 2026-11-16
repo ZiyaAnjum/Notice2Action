@@ -47,7 +47,7 @@ export function UploadPage() {
     const isPdf =
       file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
     if (!isPdf) {
-      return "Only PDF files are supported. Please select an official notice in PDF format.";
+      return "Only PDF files are supported. Please select a PDF communication.";
     }
     if (file.size === 0) {
       return "The selected file is empty. Please upload a valid PDF document.";
@@ -156,9 +156,9 @@ export function UploadPage() {
     <main className="page-shell max-w-5xl space-y-6">
       <PageHeader
         icon={UploadCloud}
-        eyebrow="Institutional document intake"
-        title="Upload a notice"
-        description="Upload an official PDF to review its extracted deadlines, required documents, and action steps."
+        eyebrow="Document intake"
+        title="Upload a notice or document"
+        description="Bring a communication from any organisation into one workspace. The connected service can extract its summary, key dates, and potential next steps for review."
         actions={
           <>
             <span className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-600 shadow-xs">
@@ -172,6 +172,21 @@ export function UploadPage() {
           </>
         }
       />
+
+      <section className="grid gap-3 sm:grid-cols-3" aria-label="Upload information">
+        <article className="surface-card p-4">
+          <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Source organisation</p>
+          <p className="mt-1 text-xs leading-5 text-slate-700">Shown in details when it is returned by document extraction.</p>
+        </article>
+        <article className="surface-card p-4">
+          <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Document category</p>
+          <p className="mt-1 text-xs leading-5 text-slate-700">Assigned by the current processor when it recognises a supported category.</p>
+        </article>
+        <article className="surface-card border-cyan-100 bg-cyan-50/50 p-4">
+          <p className="text-[10px] font-bold uppercase tracking-wide text-cyan-900">Current upload integration</p>
+          <p className="mt-1 text-xs leading-5 text-slate-700">Accepts PDF files only (up to 10 MB). Manual source labels or category overrides are not submitted.</p>
+        </article>
+      </section>
 
       {isProcessing && (
         <section
@@ -190,8 +205,9 @@ export function UploadPage() {
               {statusMessage}
             </h2>
             <p className="text-sm text-stone-600 max-w-md mx-auto">
-              Extracting text and identifying deadlines, checklist items, and
-              requirements...
+              The connected service is processing your document. Its extracted
+              dates, checklist items, and requirements should be checked against
+              the original.
             </p>
           </div>
           <div
@@ -215,8 +231,8 @@ export function UploadPage() {
               Processing is taking longer than expected
             </h2>
             <p className="text-sm text-amber-900 mt-1 max-w-lg mx-auto">
-              Your notice is still processing in the background. You can open
-              its dashboard now or check it on the notices page.
+              Your document is still processing in the background. You can open
+              its details now or check it in your document library.
             </p>
           </div>
           <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
@@ -226,7 +242,7 @@ export function UploadPage() {
                 onClick={() => navigate(`/notices/${currentNoticeId}`)}
                 className="px-5 py-2.5 rounded-xl font-bold text-white bg-teal-700 hover:bg-teal-800 shadow-xs min-h-[44px]"
               >
-                Open Dashboard
+                Open document
               </button>
             )}
             <button
@@ -234,7 +250,7 @@ export function UploadPage() {
               onClick={() => navigate("/notices")}
               className="px-5 py-2.5 rounded-xl font-bold text-stone-700 bg-white border border-stone-300 hover:bg-stone-50 min-h-[44px]"
             >
-              Go to Past Notices
+              Go to all documents
             </button>
           </div>
         </section>
@@ -263,17 +279,10 @@ export function UploadPage() {
             onDragLeave={handleDrag}
             onDragOver={handleDrag}
             onDrop={handleDrop}
-            onClick={() => fileInputRef.current?.click()}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" || event.key === " ") {
-                event.preventDefault();
-                fileInputRef.current?.click();
-              }
-            }}
-            role="button"
-            tabIndex={0}
+            role="region"
+            aria-label="PDF upload drop zone"
             aria-describedby="upload-instructions"
-            className={`group relative rounded-3xl border-2 border-dashed p-8 sm:p-10 text-center cursor-pointer transition-all duration-200 focus:outline-hidden focus:ring-4 focus:ring-teal-600/30 ${
+            className={`group relative rounded-3xl border-2 border-dashed p-8 sm:p-10 text-center transition-all duration-200 ${
               dragActive
                 ? "border-teal-600 bg-teal-50/70 scale-[1.01]"
                 : selectedFile
@@ -334,13 +343,17 @@ export function UploadPage() {
                 </div>
                 <div>
                   <p className="text-lg sm:text-xl font-black text-stone-900 tracking-tight">
-                    Drag and drop your PDF notice here
+                    Drag and drop your PDF document here
                   </p>
                   <p id="upload-instructions" className="text-sm text-stone-500 mt-1">
-                    or{" "}
-                    <span className="text-teal-700 font-bold underline">
+                    <span className="mx-1">or</span>
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      className="focus-ring rounded font-bold text-purple-700 underline hover:text-purple-900"
+                    >
                       browse your files
-                    </span>
+                    </button>
                   </p>
                 </div>
                 <span className="inline-block px-3 py-1 rounded-full text-xs font-semibold bg-stone-100 text-stone-600">
@@ -352,8 +365,7 @@ export function UploadPage() {
 
           <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-1">
             <span className="text-xs text-stone-500 font-medium">
-              Upload an official tax, utility, banking, education, or government
-              notice.
+              Upload a PDF communication supported by the current processing service.
             </span>
             <button
               type="button"
@@ -373,9 +385,9 @@ export function UploadPage() {
               aria-hidden="true"
             />
             <p className="leading-relaxed">
-              Review extracted dates and requirements against the original
-              notice before taking action. Source details are available on the
-              notice dashboard when provided.
+              Extraction is not independent verification. Review dates,
+              requirements, and source details against the original document
+              before acting.
             </p>
           </div>
         </section>

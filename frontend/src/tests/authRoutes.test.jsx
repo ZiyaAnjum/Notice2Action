@@ -3,12 +3,15 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter } from "react-router-dom";
 import { AppRoutes } from "../App";
 import { AuthProvider } from "../context/AuthContext";
+import { WorkspacePreferencesProvider } from "../context/WorkspacePreferencesContext";
 
 function renderApplication(path) {
   return render(
     <MemoryRouter initialEntries={[path]}>
       <AuthProvider>
-        <AppRoutes />
+        <WorkspacePreferencesProvider>
+          <AppRoutes />
+        </WorkspacePreferencesProvider>
       </AuthProvider>
     </MemoryRouter>
   );
@@ -70,7 +73,9 @@ describe("authentication routes", () => {
       );
     });
     expect(
-      await screen.findByRole("heading", { name: "Welcome to your workspace" })
+      await screen.findByRole("heading", {
+        name: "Turn complex notices into clear next steps.",
+      })
     ).toBeInTheDocument();
     expect(localStorage.getItem("notice2action-demo-session")).toBeNull();
     expect(sessionStorage.getItem("notice2action-demo-session")).toBe("active");

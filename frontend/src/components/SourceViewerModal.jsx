@@ -68,7 +68,7 @@ export function SourceViewerModal({ noticeId, page, quote, isOpen, onClose }) {
                     Notice Evidence • Page {page}
                   </h2>
                   <span className="text-xs text-stone-500 font-medium">
-                    Text extracted from the uploaded institutional document
+                    Extracted text from the uploaded source document
                   </span>
                 </div>
               </div>

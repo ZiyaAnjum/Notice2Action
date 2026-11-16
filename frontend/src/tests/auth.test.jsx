@@ -22,7 +22,7 @@ describe("AuthPage", () => {
 
     act(() => {
       fireEvent.change(screen.getByLabelText("Full name"), { target: { value: "A User" } });
-      fireEvent.change(screen.getByLabelText("Institutional email"), {
+      fireEvent.change(screen.getByLabelText("Email address"), {
         target: { value: "user@example.edu" },
       });
       fireEvent.change(screen.getByLabelText("Password"), {

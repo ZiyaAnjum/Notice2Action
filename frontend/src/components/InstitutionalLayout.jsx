@@ -60,7 +60,7 @@ export function InstitutionalLayout({ children }) {
         type="search"
         value={searchQuery}
         onChange={(event) => setSearchQuery(event.target.value)}
-        placeholder="Search notices and keywords"
+        placeholder="Search notices and documents"
         className="focus-ring h-11 w-full rounded-xl border border-slate-200 bg-slate-50 pl-10 pr-4 text-sm text-slate-900 placeholder:text-slate-400 focus:border-purple-300 focus:bg-white"
         aria-label="Search notices"
       />
@@ -113,7 +113,7 @@ export function InstitutionalLayout({ children }) {
               type="search"
               value={searchQuery}
               onChange={(event) => setSearchQuery(event.target.value)}
-              placeholder="Search notices and keywords"
+              placeholder="Search notices and documents"
               className="focus-ring h-11 w-full rounded-xl border border-slate-200 bg-slate-50 pl-10 pr-4 text-sm text-slate-900 placeholder:text-slate-400 focus:border-purple-300 focus:bg-white"
               aria-label="Search notices"
             />
@@ -167,10 +167,10 @@ export function InstitutionalLayout({ children }) {
             </div>
             <div className="hidden items-center gap-2 border-l border-slate-200 pl-3 sm:flex">
               <span className="flex h-9 w-9 items-center justify-center rounded-full bg-purple-100 text-xs font-extrabold text-purple-800">
-                D
+                P
               </span>
               <span className="hidden text-left lg:block">
-                <span className="block text-xs font-bold text-navy-950">Demo session</span>
+                <span className="block text-xs font-bold text-navy-950">Preview session</span>
                 <span className="block text-[10px] text-slate-500">Frontend preview</span>
               </span>
             </div>
@@ -204,15 +204,15 @@ export function InstitutionalLayout({ children }) {
           className={`${
             mobileMenuOpen ? "block" : "hidden"
           } relative z-30 rounded-2xl border border-navy-800/70 bg-navy-950 p-4 text-white shadow-elevated lg:sticky lg:top-[92px] lg:block`}
-          aria-label="Institutional dashboard navigation"
+          aria-label="Notice2Action workspace navigation"
         >
           <div className="flex items-center gap-3 border-b border-white/10 px-2 pb-4">
             <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/10 text-cyan-200">
               <ShieldCheck className="h-5 w-5" aria-hidden="true" />
             </span>
             <span>
-              <span className="block text-sm font-bold">Institutional workspace</span>
-              <span className="mt-0.5 block text-[11px] text-slate-300">Notice management</span>
+              <span className="block text-sm font-bold">Notice intelligence</span>
+              <span className="mt-0.5 block text-[11px] text-slate-300">Across your documents</span>
             </span>
           </div>
 

@@ -70,7 +70,7 @@ describe("calendar utilities", () => {
 
     expect(ics).toContain("BEGIN:VCALENDAR\r\n");
     expect(ics).toContain("VERSION:2.0\r\n");
-    expect(ics).toContain("PRODID:-//Notice2Action//Institutional Notice Management//EN\r\n");
+    expect(ics).toContain("PRODID:-//Notice2Action//Notice Intelligence and Action Management//EN\r\n");
     expect(ics).toContain("BEGIN:VEVENT\r\n");
     expect(ics).toContain("DTSTART;VALUE=DATE:20261231\r\n");
     expect(ics).toContain("DTEND;VALUE=DATE:20270101\r\n");
