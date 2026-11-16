@@ -27,15 +27,15 @@ export function normalizeWhitespace(str) {
  *
  * @param {string} pageText - Raw text of the notice page.
  * @param {string} quote - Evidence quote to search for.
- * @returns {{ found: boolean, before?: string, highlighted?: string, after?: string, text?: string, reason?: string }}
+ * @returns {{ hasMatch: boolean, before?: string, matched?: string, after?: string, text?: string, reason?: string }}
  */
 export function findQuoteHighlight(pageText, quote) {
   if (!pageText) {
-    return { found: false, text: "", reason: "This page contains no readable text." };
+    return { hasMatch: false, text: "", reason: "This page contains no readable text." };
   }
 
   if (!quote || !quote.trim()) {
-    return { found: false, text: pageText, reason: "No evidence quote was provided." };
+    return { hasMatch: false, text: pageText, reason: "No evidence quote was provided." };
   }
 
   const trimmedQuote = quote.trim();
@@ -44,66 +44,154 @@ export function findQuoteHighlight(pageText, quote) {
   const directIdx = pageText.toLowerCase().indexOf(trimmedQuote.toLowerCase());
   if (directIdx !== -1) {
     return {
-      found: true,
+      hasMatch: true,
       before: pageText.slice(0, directIdx),
-      highlighted: pageText.slice(directIdx, directIdx + trimmedQuote.length),
+      matched: pageText.slice(directIdx, directIdx + trimmedQuote.length),
       after: pageText.slice(directIdx + trimmedQuote.length),
     };
   }
 
-  // Tokenize quote by whitespace and build a flexible regex matching any whitespace between words
-  const tokens = trimmedQuote
-    .split(/\s+/)
-    .filter(Boolean)
-    .map((t) => escapeRegex(t));
-
-  if (tokens.length === 0) {
-    return { found: false, text: pageText, reason: "Evidence quote is empty." };
-  }
-
-  try {
-    const pattern = tokens.join("\\s+");
-    const regex = new RegExp(pattern, "i");
-    const match = regex.exec(pageText);
-
-    if (match && typeof match.index === "number") {
-      const matchIndex = match.index;
-      const matchLength = match[0].length;
-      return {
-        found: true,
-        before: pageText.slice(0, matchIndex),
-        highlighted: pageText.slice(matchIndex, matchIndex + matchLength),
-        after: pageText.slice(matchIndex + matchLength),
-      };
+    // Fallback: word-boundary whitespace normalized regex
+    const words = trimmedQuote.split(/\s+/).filter(Boolean);
+    if (words.length === 0) {
+      return { hasMatch: false, text: pageText };
     }
-  } catch {
-    // Regex construction failure fallback
-  }
 
-  return {
-    found: false,
-    text: pageText,
-    reason: "The exact quote was not found on this page. Showing full page text.",
-  };
-}
+    const patternStr = words.map(escapeRegex).join("\\s+");
+    try {
+        const rx = new RegExp(patternStr, "i");
+        const match = rx.exec(pageText);
+        if (match) {
+          const start = match.index;
+          const end = start + match[0].length;
+          return {
+            hasMatch: true,
+            before: pageText.slice(0, start),
+            matched: pageText.slice(start, end),
+            after: pageText.slice(end),
+          };
+        }
+      } catch {
+        // ignore regex execution failure
+      }
+
+      return { hasMatch: false, text: pageText };
+    }
 
 /**
- * Formats an ISO date string into a friendly, readable format.
- * @param {string|null} dateStr
+ * Formats an ISO date string or date-only string into a clean, localized format.
+ * Explicitly guards against UTC midnight timezone shifting for YYYY-MM-DD.
+ * @param {string} dateStr
  * @returns {string}
  */
 export function formatDate(dateStr) {
-  if (!dateStr) return "Not specified";
-  try {
-    const d = new Date(dateStr);
-    if (isNaN(d.getTime())) return dateStr;
-    return d.toLocaleDateString("en-US", {
-      weekday: "short",
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-    });
-  } catch {
-    return dateStr;
-  }
-}
+          if(!dateStr || typeof dateStr !== "string") return "Date not specified";
+
+        const trimmed = dateStr.trim();
+        const dateOnlyMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(trimmed);
+
+        if (dateOnlyMatch) {
+          const year = parseInt(dateOnlyMatch[1], 10);
+          const month = parseInt(dateOnlyMatch[2], 10) - 1;
+          const day = parseInt(dateOnlyMatch[3], 10);
+          const localDate = new Date(year, month, day);
+
+          return localDate.toLocaleDateString("en-GB", {
+            day: "numeric",
+            month: "short",
+            year: "numeric",
+          });
+        }
+
+        const parsed = new Date(trimmed);
+        if (isNaN(parsed.getTime())) {
+          return trimmed;
+        }
+
+        return parsed.toLocaleDateString("en-GB", {
+          day: "numeric",
+          month: "short",
+          year: "numeric",
+        });
+      }
+
+/**
+ * Computes calendar countdown metrics relative to reference date (defaults to today local midnight).
+ * @param {string} dateStr - Target ISO date or YYYY-MM-DD.
+ * @param {Date} [referenceDate] - Baseline date for countdown calculation.
+ * @returns {{ daysRemaining: number, label: string, urgency: "critical"|"urgent"|"warning"|"normal"|"overdue" } | null}
+ */
+export function getCountdownDetails(dateStr, referenceDate = new Date()) {
+        if (!dateStr || typeof dateStr !== "string") return null;
+
+        const trimmed = dateStr.trim();
+        const dateOnlyMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(trimmed);
+
+        let targetDate;
+        if (dateOnlyMatch) {
+          const year = parseInt(dateOnlyMatch[1], 10);
+          const month = parseInt(dateOnlyMatch[2], 10) - 1;
+          const day = parseInt(dateOnlyMatch[3], 10);
+          targetDate = new Date(year, month, day);
+        } else {
+          const parsed = new Date(trimmed);
+          if (isNaN(parsed.getTime())) return null;
+          targetDate = new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate());
+        }
+
+        const baseDate = new Date(
+          referenceDate.getFullYear(),
+          referenceDate.getMonth(),
+          referenceDate.getDate()
+        );
+
+        const diffMs = targetDate.getTime() - baseDate.getTime();
+        const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24));
+
+        if (diffDays < 0) {
+          const overdueCount = Math.abs(diffDays);
+          return {
+            daysRemaining: diffDays,
+            label: overdueCount === 1 ? "Overdue by 1 day" : `Overdue by ${overdueCount} days`,
+            urgency: "overdue",
+          };
+        }
+
+        if (diffDays === 0) {
+          return {
+            daysRemaining: 0,
+            label: "Due today",
+            urgency: "critical",
+          };
+        }
+
+        if (diffDays === 1) {
+          return {
+            daysRemaining: 1,
+            label: "Due tomorrow (1 day left)",
+            urgency: "urgent",
+          };
+        }
+
+        if (diffDays <= 3) {
+          return {
+            daysRemaining: diffDays,
+            label: `${diffDays} days left`,
+            urgency: "urgent",
+          };
+        }
+
+        if (diffDays <= 7) {
+          return {
+            daysRemaining: diffDays,
+            label: `${diffDays} days left`,
+            urgency: "warning",
+          };
+        }
+
+        return {
+          daysRemaining: diffDays,
+          label: `${diffDays} days left`,
+          urgency: "normal",
+        };
+      }

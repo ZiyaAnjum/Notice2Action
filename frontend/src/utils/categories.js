@@ -1,27 +1,62 @@
 /**
- * Category labels and metadata for official notices.
+ * Category labels and metadata for official institutional notices.
+ * Aligned with Phase 7a canonical categories from schemas/notice_output.schema.json.
  */
 
 export const CATEGORY_LABELS = {
-  tax_revenue: "Tax & Revenue",
-  court_legal: "Court & Legal",
-  health_medical: "Health & Medical",
-  housing_tenancy: "Housing & Tenancy",
-  government_benefits: "Government Benefits",
-  utility_services: "Utilities & Services",
-  // Common supplementary categories
   scholarship_or_college: "Scholarship & Education",
-  banking_finance: "Banking & Finance",
+  bank: "Bank & Financial",
+  utility: "Utility Services",
+  tax_or_payment: "Tax & Payment",
+  government_scheme: "Government Scheme",
+  other_out_of_scope: "General Communications (Out of Scope)",
+  // Aliases for backward compatibility
+  scholarship: "Scholarship & Education",
+  tax_revenue: "Tax & Payment",
+  utility_services: "Utility Services",
+  banking_finance: "Bank & Financial",
+  government_benefits: "Government Scheme",
 };
 
 export const SUPPORTED_CATEGORIES = [
-  { key: "tax_revenue", label: "Tax & Revenue", description: "Tax assessments, refunds, and filing demands" },
-  { key: "court_legal", label: "Court & Legal", description: "Summons, hearing dates, and legal notices" },
-  { key: "health_medical", label: "Health & Medical", description: "Medical appointments, coverage, and health bills" },
-  { key: "housing_tenancy", label: "Housing & Tenancy", description: "Rent notices, leases, and tenancy updates" },
-  { key: "government_benefits", label: "Government Benefits", description: "Pension, welfare, social security, and grants" },
-  { key: "utility_services", label: "Utilities & Services", description: "Electricity, water, gas, and telecoms bills" },
+  {
+    key: "scholarship_or_college",
+    label: "Scholarship & Education",
+    description:
+      "Scholarship deadlines, college fee notices, admission documents, and hostel requirements.",
+  },
+  {
+    key: "bank",
+    label: "Bank & Financial",
+    description:
+      "Account KYC refresh notices, dormancy warnings, and re-KYC mandates.",
+  },
+  {
+    key: "utility",
+    label: "Utility Services",
+    description:
+      "Electricity, water, gas, and telecom disconnection warnings or bill due dates.",
+  },
+  {
+    key: "tax_or_payment",
+    label: "Tax & Payment",
+    description:
+      "Property tax, municipal tax, self-assessment notices, and penalty warnings.",
+  },
+  {
+    key: "government_scheme",
+    label: "Government Scheme",
+    description:
+      "Welfare scheme enrollment, benefit renewal deadlines, and eligibility documents.",
+  },
 ];
+
+export const OUT_OF_SCOPE_CATEGORY = {
+  key: "other_out_of_scope",
+  label: "General Communications (Out of Scope)",
+  description:
+    "Personal letters, promotional flyers, receipts, recipes, and ungrounded documents.",
+};
 
 /**
  * Returns a human-friendly category label.
@@ -29,12 +64,20 @@ export const SUPPORTED_CATEGORIES = [
  * @returns {string}
  */
 export function getCategoryLabel(category) {
-  if (!category) return "General Notice";
+  if (!category) return "Official Notice";
   if (CATEGORY_LABELS[category]) return CATEGORY_LABELS[category];
 
-  // Fallback: title-case snake_case string
   return category
     .split("_")
     .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
     .join(" ");
+}
+
+/**
+ * Checks whether a given category string is one of the supported 5 categories.
+ * @param {string} category
+ * @returns {boolean}
+ */
+export function isSupportedCategory(category) {
+  return SUPPORTED_CATEGORIES.some((c) => c.key === category);
 }
