@@ -14,6 +14,12 @@ from extraction.llm_client import (
 )
 
 
+@pytest.fixture(autouse=True)
+def clean_llm_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Ensure environment variables do not leak into mock Gemini client tests."""
+    monkeypatch.delenv("LLM_FALLBACK_MODEL", raising=False)
+
+
 def _make_gemini_response(text: str) -> dict[str, Any]:
     """Helper creating standard Gemini JSON candidate payload."""
     return {

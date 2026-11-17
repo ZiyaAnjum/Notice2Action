@@ -26,7 +26,7 @@ import pytest
 
 from extraction.llm_client import FRIENDLY_BUSY_MESSAGE, FakeLLMClient, LLMError
 from extraction.llm_extractor import PROMPT_VERSION, build_system_prompt
-from extraction.pipeline import parse_date_string, process_notice
+from extraction.pipeline import parse_date_string, post_process_notice, process_notice
 
 FIXTURES_DIR = Path(__file__).resolve().parent.parent.parent / "tests" / "fixtures"
 SAMPLES_DIR = Path(__file__).resolve().parent.parent.parent / "samples"
@@ -514,6 +514,10 @@ def test_pipeline_summary_objects_normalized_to_plain_strings_and_evidence_separ
     """
     canned_data = get_base_scholarship_canned_data()
     grounded_quote = "State Higher Education Directorate, Scholarship Cell"
+    deadline_quote = (
+        "All eligible scholars are hereby instructed to submit semester renewal dossiers online\n"
+        "on or before 15-11-2026 to avoid disbursement suspension."
+    )
 
     canned_data["plain_language_summary"] = {
         "what_is_this": {
@@ -538,7 +542,7 @@ def test_pipeline_summary_objects_normalized_to_plain_strings_and_evidence_separ
         },
         "if_deadline_missed": {
             "text": "Reconnection fee of Rs. 500 will apply",
-            "evidence_quote": grounded_quote,
+            "evidence_quote": deadline_quote,
             "source_page": 1,
         },
     }
@@ -976,7 +980,7 @@ def test_prompt_version_and_system_prompt_rules() -> None:
     eligibility action step, alternatives vs sequence, combined action step quote rule,
     and user-facing warnings only.
     """
-    assert PROMPT_VERSION == "1.6.0"
+    assert PROMPT_VERSION == "1.6.1"
     assert "MULTILINGUAL AND NON-ENGLISH NOTICES" in build_system_prompt()
     prompt = build_system_prompt()
     assert "Suggested, not required" in prompt
@@ -985,6 +989,8 @@ def test_prompt_version_and_system_prompt_rules() -> None:
     assert "If this applies to you" in prompt
     assert "single sentence that states the action itself" in prompt
     assert "Cash payments above Rs. 10,000 are not accepted" in prompt
+    assert "if_deadline_missed must only state a consequence the notice explicitly ties to missing a deadline" in prompt
+    assert "The notice does not state what happens if you miss the deadline." in prompt
 
 
 def test_pipeline_user_facing_warnings_preserved_and_technical_notes_separated() -> None:
@@ -1131,3 +1137,170 @@ def test_pipeline_scanned_unreadable_refused_before_triage() -> None:
     assert res["status"] == "needs_clearer_document"
     assert res["category"] == "other_out_of_scope"
     assert fake_client.call_count == 0
+
+
+def test_scan_identifier_check_warning_added_when_ocr_used_and_identifier_present() -> None:
+    """Verify that when ocr_used is True and summary, steps, or warnings contain an identifier
+    (URL, email, reference number), SCAN_IDENTIFIER_CHECK warning is added to warnings."""
+    canned_data = get_base_scholarship_canned_data()
+    canned_data["action_steps"][0]["action"] = "Submit dossier with reference REF/2026/SCH-01 at the portal."
+    canned_data["action_steps"][0]["evidence_quote"] = "All eligible scholars are hereby instructed to submit semester renewal dossiers online"
+
+    pages = [
+        {
+            "page_number": 1,
+            "text": "All eligible scholars are hereby instructed to submit semester renewal dossiers online on or before 15-11-2026. Portal REF/2026/SCH-01.",
+            "char_count": 130,
+            "method": "ocr",
+        }
+    ]
+    report = {"is_valid": True, "errors": [], "warnings": []}
+    post_res = post_process_notice(canned_data, pages, report)
+
+    assert post_res["needs_verification"] is True
+    scan_warnings = [w for w in post_res["warnings"] if w.get("code") == "SCAN_IDENTIFIER_CHECK"]
+    assert len(scan_warnings) == 1
+    assert scan_warnings[0]["severity"] == "warning"
+    assert "Web addresses and reference numbers from a scan may be misread. Check them against your original." in scan_warnings[0]["warning_text"]
+
+
+def test_scan_identifier_check_not_added_when_ocr_false() -> None:
+    """Verify that when ocr_used is False, SCAN_IDENTIFIER_CHECK warning is NOT added even if identifiers exist."""
+    canned_data = get_base_scholarship_canned_data()
+    canned_data["action_steps"][0]["action"] = "Visit https://scholarships.state.gov.in to apply."
+
+    pages = [
+        {
+            "page_number": 1,
+            "text": "Visit https://scholarships.state.gov.in to apply.",
+            "char_count": 50,
+            "method": "text",
+        }
+    ]
+    report = {"is_valid": True, "errors": [], "warnings": []}
+    post_res = post_process_notice(canned_data, pages, report)
+
+    scan_warnings = [w for w in post_res["warnings"] if w.get("code") == "SCAN_IDENTIFIER_CHECK"]
+    assert len(scan_warnings) == 0
+
+
+def test_scan_identifier_check_coexists_with_unconfirmed_web_address() -> None:
+    """Verify SCAN_IDENTIFIER_CHECK coexists with UNCONFIRMED_WEB_ADDRESS when unconfirmed URL is detected on OCR text."""
+    canned_data = get_base_scholarship_canned_data()
+    canned_data["plain_language_summary"]["what_to_do"] = "Visit https://unconfirmed-hallucinated.org to apply."
+    canned_data["action_steps"][0]["action"] = "Quote reference number REF/2026/999 at the desk."
+
+    pages = [
+        {
+            "page_number": 1,
+            "text": "Quote reference number REF/2026/999 at the desk.",
+            "char_count": 50,
+            "method": "ocr",
+        }
+    ]
+    report = {"is_valid": True, "errors": [], "warnings": []}
+    post_res = post_process_notice(canned_data, pages, report)
+
+    warning_codes = [w.get("code") for w in post_res["warnings"]]
+    assert "UNCONFIRMED_WEB_ADDRESS" in warning_codes
+    assert "SCAN_IDENTIFIER_CHECK" in warning_codes
+    assert post_res["needs_verification"] is True
+    assert "unconfirmed-hallucinated.org" not in post_res["plain_language_summary"]["what_to_do"]
+
+
+def test_if_deadline_missed_replaced_when_supporting_quote_lacks_deadline() -> None:
+    """Verify that when LLM returns an if_deadline_missed consequence supported by a quote
+    that does NOT mention a deadline or late-related word, post-processing replaces it
+    with 'The notice does not state what happens if you miss the deadline.'"""
+    canned_data = get_base_scholarship_canned_data()
+    non_deadline_quote = "Required documents must include college admission fee receipt and bonafide certificate."
+    canned_data["plain_language_summary"]["if_deadline_missed"] = {
+        "text": "Applications with missing principal signatures or seals will be summarily rejected.",
+        "evidence_quote": non_deadline_quote,
+        "source_page": 1,
+    }
+
+    fake_client = FakeLLMClient(canned_data)
+    pdf_path = FIXTURES_DIR / "scholarship_or_college.pdf"
+
+    res = process_notice(pdf_path, client=fake_client)
+
+    assert res["status"] == "success"
+    summary = res["result"]["plain_language_summary"]
+    assert summary["if_deadline_missed"] == "The notice does not state what happens if you miss the deadline."
+
+
+def test_if_deadline_missed_kept_when_supporting_quote_has_deadline_or_late() -> None:
+    """Verify that when LLM returns an if_deadline_missed consequence supported by a quote
+    that explicitly mentions a deadline or late-related word, it is preserved."""
+    canned_data = get_base_scholarship_canned_data()
+    deadline_quote = (
+        "All eligible scholars are hereby instructed to submit semester renewal dossiers online\n"
+        "on or before 15-11-2026 to avoid disbursement suspension."
+    )
+    canned_data["plain_language_summary"]["if_deadline_missed"] = {
+        "text": "Disbursement suspension will occur if dossiers are not submitted by 15-11-2026.",
+        "evidence_quote": deadline_quote,
+        "source_page": 1,
+    }
+
+    fake_client = FakeLLMClient(canned_data)
+    pdf_path = FIXTURES_DIR / "scholarship_or_college.pdf"
+
+    res = process_notice(pdf_path, client=fake_client)
+
+    assert res["status"] == "success"
+    summary = res["result"]["plain_language_summary"]
+    assert "Disbursement suspension" in summary["if_deadline_missed"]
+
+
+def test_ocr_relaxed_grounding_ignores_leading_bullet_and_list_glyphs() -> None:
+    """Verify that on OCR pages, relaxed matching ignores leading bullet and list glyphs
+    (-, ~, *, •, digits followed by dot or bracket), but still requires exact letter/digit match."""
+    ocr_page_text = "Cumulative Marksheet and attendance certificate must be submitted."
+    pages = [
+        {
+            "page_number": 1,
+            "text": ocr_page_text,
+            "char_count": len(ocr_page_text),
+            "method": "ocr",
+        }
+    ]
+
+    glyph_quotes = [
+        "- Cumulative Marksheet and attendance certificate",
+        "• Cumulative Marksheet and attendance certificate",
+        "~ Cumulative Marksheet and attendance certificate",
+        "* Cumulative Marksheet and attendance certificate",
+        "1. Cumulative Marksheet and attendance certificate",
+        "2) Cumulative Marksheet and attendance certificate",
+        "[3] Cumulative Marksheet and attendance certificate",
+        "(4) Cumulative Marksheet and attendance certificate",
+    ]
+
+    for quote_with_glyph in glyph_quotes:
+        canned_data = get_base_scholarship_canned_data()
+        canned_data["required_documents"][0]["evidence_quote"] = quote_with_glyph
+        canned_data["required_documents"][0]["source_page"] = 1
+        canned_data["required_documents"][0]["status"] = "found"
+
+        report = {"is_valid": True, "errors": [], "warnings": []}
+        post_res = post_process_notice(canned_data, pages, report)
+
+        doc = post_res["required_documents"][0]
+        assert doc.get("grounded_loosely") is True, f"Failed for {quote_with_glyph}"
+        assert doc.get("status") == "found"
+        assert post_res["needs_verification"] is True
+
+    # But a mismatch in letters or digits must still fail grounding
+    canned_data = get_base_scholarship_canned_data()
+    canned_data["required_documents"][0]["evidence_quote"] = "- Different Marksheet and attendance certificate"
+    canned_data["required_documents"][0]["source_page"] = 1
+    canned_data["required_documents"][0]["status"] = "found"
+
+    report = {"is_valid": True, "errors": [], "warnings": []}
+    post_res = post_process_notice(canned_data, pages, report)
+
+    doc = post_res["required_documents"][0]
+    assert doc.get("grounded_loosely") is not True
+    assert doc.get("status") == "uncertain"

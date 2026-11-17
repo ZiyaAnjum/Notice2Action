@@ -930,6 +930,62 @@ def post_process_notice(
                 f"warning: {warn.get('warning_text') or warn.get('message') or 'unnamed'}",
             )
 
+    # When ocr_used is true, check if summary, steps, or warnings contain any URL, email, or reference number
+    if is_ocr:
+        has_ident = False
+        if isinstance(summary, dict):
+            for k in ("what_is_this", "why_it_matters", "what_to_do", "where_to_do_it", "if_deadline_missed"):
+                if contains_identifier(str(summary.get(k) or "")):
+                    has_ident = True
+                    break
+
+        if not has_ident:
+            for step in notice_copy.get("action_steps") or []:
+                if isinstance(step, dict):
+                    act_str = str(step.get("action") or step.get("description") or "")
+                    if contains_identifier(act_str):
+                        has_ident = True
+                        break
+
+        if not has_ident:
+            for w in user_warnings:
+                if isinstance(w, dict):
+                    w_code = w.get("code")
+                    if w_code in ("SCAN_IDENTIFIER_CHECK", "OCR_USED"):
+                        continue
+                    w_text = str(w.get("warning_text") or w.get("message") or "")
+                    if contains_identifier(w_text):
+                        has_ident = True
+                        break
+
+        if has_ident:
+            notice_copy["needs_verification"] = True
+            scan_ident_msg = (
+                "Web addresses and reference numbers from a scan may be misread. Check them against your original."
+            )
+            if not any(w.get("code") == "SCAN_IDENTIFIER_CHECK" for w in user_warnings):
+                user_warnings.insert(
+                    0,
+                    {
+                        "warning_text": scan_ident_msg,
+                        "code": "SCAN_IDENTIFIER_CHECK",
+                        "severity": "warning",
+                        "evidence_quote": None,
+                        "source_page": None,
+                    },
+                )
+            if not any(t.get("code") == "SCAN_IDENTIFIER_CHECK" for t in technical_notes):
+                technical_notes.append(
+                    {
+                        "code": "SCAN_IDENTIFIER_CHECK",
+                        "note": scan_ident_msg,
+                        "warning_text": scan_ident_msg,
+                        "severity": "warning",
+                        "evidence_quote": None,
+                        "source_page": None,
+                    }
+                )
+
     # If any technical notes or warnings exist or validation report had errors, set needs_verification
     if len(technical_notes) > 0 or len(user_warnings) > 0 or not validation_report.get("is_valid"):
         notice_copy["needs_verification"] = True

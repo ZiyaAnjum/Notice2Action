@@ -560,3 +560,46 @@ This section details the total wall-clock time budget enforcement introduced acr
   - **OCR Time**: **`13.26s`**
   - **LLM Time**: **`4.90s`**
   - **Compliance**: `18.21s` is well below the `60.0s` total pipeline budget.
+
+---
+
+## 7. Scan-Safety Warnings, if_deadline_missed Consequence Enforcement & OCR Bullet/List Glyphs Grounding
+
+This section outlines the scan-safety safeguards, strict deadline consequence extraction rules, and OCR bullet/list marker grounding relaxed matching introduced in Prompt Version `1.6.1`.
+
+### 7.1 Scan Identifier Check Warning (`SCAN_IDENTIFIER_CHECK`)
+- **Trigger**: When `ocr_used` is `true` AND any URL, email address, or reference number appears in:
+  - `plain_language_summary` (any of `what_is_this`, `why_it_matters`, `what_to_do`, `where_to_do_it`, `if_deadline_missed`)
+  - `action_steps` (`action` or `description`)
+  - `warnings` (`warning_text` or `message`)
+- **Warning Payload**:
+  ```json
+  {
+    "warning_text": "Web addresses and reference numbers from a scan may be misread. Check them against your original.",
+    "code": "SCAN_IDENTIFIER_CHECK",
+    "severity": "warning",
+    "evidence_quote": null,
+    "source_page": null
+  }
+  ```
+- **Flag**: Sets `needs_verification: true`.
+- **Coexistence**: Does not suppress `UNCONFIRMED_WEB_ADDRESS`. If an unconfirmed identifier is detected, both `SCAN_IDENTIFIER_CHECK` and `UNCONFIRMED_WEB_ADDRESS` are emitted.
+
+### 7.2 Strict `if_deadline_missed` Consequence Rule
+- **Prompt Rule (`PROMPT_VERSION = "1.6.1"`)**:
+  - `if_deadline_missed` must only state a consequence the notice explicitly ties to missing a deadline.
+  - Otherwise write: `"The notice does not state what happens if you miss the deadline."`.
+  - General rejection warnings (e.g. invalid signature, missing seals, incomplete documents) are strictly prohibited in `if_deadline_missed`.
+- **Post-Processing Validation**:
+  - The supporting quote for `if_deadline_missed` is inspected for deadline- or late-related keywords (`deadline`, `deadlines`, `late`, `lateness`, `delay`, `delayed`, `after`, `due date`, `overdue`, `expiry`, `timeline`, `time limit`, `last date`, `closing date`, `cut-off`, `prescribed date`, `stipulated date`, `submit by`, `on or before`, `due`).
+  - If the quote does not mention a deadline or late-related word, post-processing replaces `summary["if_deadline_missed"]` with the default sentence:
+    ```text
+    "The notice does not state what happens if you miss the deadline."
+    ```
+  - Stale evidence for the rejected consequence is safely cleared from `plain_language_summary_evidence`.
+
+### 7.3 Leading Bullet and List Glyphs in OCR Grounding
+- **Relaxed Matching on OCR Text**:
+  - When `is_ocr` is `true`, relaxed whitespace-insensitive quote matching strips leading bullet or list glyphs (`-`, `~`, `*`, `•`, or digits followed by a dot or bracket such as `1.`, `2)`, `[3]`, `(4)`) before testing substring presence in the OCR page text.
+  - Quotes with or without list markers match OCR text regardless of whether the scan omitted, mangled, or attached different list glyphs.
+  - **Strictness**: All substantive letters and digits must match character-for-character. Fuzzy matching and dictionary substitution remain strictly disallowed.

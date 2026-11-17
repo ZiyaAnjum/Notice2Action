@@ -14,10 +14,11 @@ import time
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from typing import Any
-from dotenv import load_dotenv
-load_dotenv()
 
 import httpx
+from dotenv import load_dotenv
+
+load_dotenv()
 
 logger = logging.getLogger(__name__)
 
