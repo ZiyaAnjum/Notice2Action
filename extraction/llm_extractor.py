@@ -23,7 +23,7 @@ from validation.validator import SCHEMA_PATH
 logger = logging.getLogger(__name__)
 
 MAX_EXTRACTION_RETRIES = 2
-PROMPT_VERSION = "1.6.0"
+PROMPT_VERSION = "1.6.1"
 
 
 def load_notice_schema() -> dict[str, Any]:
@@ -104,6 +104,9 @@ def build_system_prompt() -> str:
         "   - The five summary parts may ONLY restate what the notice explicitly says.\n"
         "   - When the notice states no deadline, the if_deadline_missed summary MUST say 'The notice does not give a deadline.' "
         "Do not reuse penalty text there.\n"
+        "   - if_deadline_missed must only state a consequence the notice explicitly ties to missing a deadline. "
+        "Otherwise write 'The notice does not state what happens if you miss the deadline.' "
+        "Never use a general rejection warning here.\n"
         "   - Do NOT infer cause and effect or add advice not in the notice (for example, do not say that paying before a "
         "date prevents disconnection unless the notice explicitly says so).\n"
         "   - Where the notice is unclear, conflicting, or does not specify details, say so in plain words.\n"

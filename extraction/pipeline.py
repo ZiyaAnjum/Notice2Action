@@ -60,6 +60,51 @@ DEFAULT_TOTAL_TIME_BUDGET_SEC = 60.0
 logger = logging.getLogger(__name__)
 
 
+def strip_leading_bullets_and_markers(text: str) -> str:
+    """Strip leading bullet or list glyphs (-, ~, *, •, digits followed by dot or bracket)."""
+    cleaned = text.strip()
+    cleaned = re.sub(r"^[\s\-~*•–—·]+", "", cleaned).strip()
+    cleaned = re.sub(r"^(?:\d+[\.\)\]]|\(\d+\)|\[\d+\])\s*", "", cleaned).strip()
+    cleaned = re.sub(r"^[\s\-~*•–—·]+", "", cleaned).strip()
+    return cleaned
+
+
+def contains_identifier(text: str) -> bool:
+    """Check if text contains any URL, email address, or reference number."""
+    if not text or not isinstance(text, str):
+        return False
+    # 1. URLs or domain names or emails
+    url_email = re.findall(
+        r"(?:https?://[^\s,;)]+|www\.[^\s,;)]+|\b[a-zA-Z0-9.-]+\.(?:[a-zA-Z]{2,4}\.[a-zA-Z]{2}|[a-zA-Z]{2,6})(?:/[^\s,;)]*)?|\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b)",
+        text,
+        re.IGNORECASE,
+    )
+    for m in url_email:
+        clean_m = re.sub(r"^[^\w]+|[^\w/]+$", "", m)
+        if len(clean_m) >= 4 and clean_m.lower() not in ("i.e.", "e.g.", "etc."):
+            return True
+
+    # 2. Labeled reference numbers (e.g. Ref No. 1234, Case #45, F.No. 12/34)
+    if re.search(
+        r"\b(?:ref(?:erence)?|f\.?\s*no\.?|order|case|notice|memo|challan|account|acc|policy|ack(?:nowledgement)?|id|bill)\s*(?:no\.?|number|#)?\s*[:#-]?\s*[A-Za-z0-9/-]{3,}\b",
+        text,
+        re.IGNORECASE,
+    ):
+        return True
+
+    # 3. Alphanumeric reference codes with slashes or hyphens (excluding dates like 15-11-2026 or years 2026-27)
+    codes = re.findall(r"\b[A-Za-z0-9]{2,}(?:[/-][A-Za-z0-9_-]+){1,}\b", text)
+    for c in codes:
+        if re.fullmatch(r"[\d/-]+", c):
+            continue
+        has_letters = bool(re.search(r"[A-Za-z]", c))
+        has_digits = bool(re.search(r"\d", c))
+        if has_letters and (has_digits or "/" in c):
+            return True
+
+    return False
+
+
 def parse_date_string(date_str: str | None) -> tuple[bool, bool, str | None]:
     """Parse date string to determine if it is standard ISO, relative/unclear, or sentinel.
 
@@ -426,7 +471,18 @@ def post_process_notice(
         if is_ocr:
             stripped_quote = re.sub(r"\s+", "", norm_quote)
             stripped_page_text = re.sub(r"\s+", "", page_text)
+
+            # Ignore leading bullet or list glyphs (-, ~, *, •, digits followed by dot or bracket)
+            norm_quote_no_bullet = strip_leading_bullets_and_markers(norm_quote)
+            stripped_quote_no_bullet = re.sub(r"\s+", "", norm_quote_no_bullet)
+
+            matched_loose = False
             if stripped_quote and stripped_quote in stripped_page_text:
+                matched_loose = True
+            elif stripped_quote_no_bullet and stripped_quote_no_bullet in stripped_page_text:
+                matched_loose = True
+
+            if matched_loose:
                 field_data["grounded_loosely"] = True
                 notice_copy["needs_verification"] = True
                 msg = (
@@ -719,6 +775,59 @@ def post_process_notice(
     )
     if not has_stated_deadline and isinstance(summary, dict):
         summary["if_deadline_missed"] = "The notice does not give a deadline."
+    elif isinstance(summary, dict):
+        default_if_missed = "The notice does not state what happens if you miss the deadline."
+        cur_missed = summary.get("if_deadline_missed")
+        if cur_missed in ("not_found", None, ""):
+            summary["if_deadline_missed"] = default_if_missed
+        elif cur_missed not in (
+            default_if_missed,
+            "The notice does not give a deadline.",
+        ):
+            # Check the quote supporting if_deadline_missed
+            quote = ""
+            if isinstance(summary_evidence.get("if_deadline_missed"), dict):
+                quote = str(summary_evidence["if_deadline_missed"].get("evidence_quote") or "")
+            elif isinstance(
+                notice_copy.get("plain_language_summary_evidence", {}).get("if_deadline_missed"),
+                dict,
+            ):
+                quote = str(
+                    notice_copy["plain_language_summary_evidence"]["if_deadline_missed"].get(
+                        "evidence_quote"
+                    )
+                    or ""
+                )
+
+            # Deadline or late-related words pattern
+            deadline_late_pattern = re.compile(
+                r"\b(deadline|deadlines|late|lateness|delay|delayed|after|due\s+date|overdue|expiry|expire|expires|expired|timeline|time\s+limit|last\s+date|closing\s+date|cut-?off|prescribed\s+date|stipulated\s+date|submit\s+by|on\s+or\s+before|due)\b",
+                re.IGNORECASE,
+            )
+
+            # If a supporting quote is present, it must mention a deadline or late-related word
+            if quote:
+                if not deadline_late_pattern.search(quote):
+                    logger.info(
+                        "Quote supporting if_deadline_missed lacks deadline/late word ('%s'). Replacing with default sentence.",
+                        quote[:100],
+                    )
+                    summary["if_deadline_missed"] = default_if_missed
+                    summary_evidence.pop("if_deadline_missed", None)
+                    if (
+                        "plain_language_summary_evidence" in notice_copy
+                        and "if_deadline_missed" in notice_copy["plain_language_summary_evidence"]
+                    ):
+                        notice_copy["plain_language_summary_evidence"].pop("if_deadline_missed", None)
+            else:
+                # If no supporting quote was directly attached to if_deadline_missed,
+                # check if cur_missed itself mentions a deadline or late-related word.
+                if not deadline_late_pattern.search(str(cur_missed)):
+                    logger.info(
+                        "if_deadline_missed lacks deadline/late wording and has no deadline quote: '%s'. Replacing with default sentence.",
+                        str(cur_missed)[:100],
+                    )
+                    summary["if_deadline_missed"] = default_if_missed
 
     # 4. Verify required documents and filter conditional / alternative items
     cleaned_required_docs: list[dict[str, Any]] = []
