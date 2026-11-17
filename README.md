@@ -30,12 +30,23 @@ Official notices—such as municipal property tax demands, scholarship renewal m
 
 To maintain strict reliability and security boundaries, **Notice to Action** enforces clear operational scopes:
 
-### Supported In-Scope Categories
+### Supported In-Scope Categories & Trust Tiers
+
+#### 1. Core Tested Tier (`trust_level: "tested"`)
 1. **`tax_or_payment`**: Municipal property tax notices, assessment demands, advance tax alerts.
 2. **`scholarship_or_college`**: Financial aid circulars, college renewal mandates, stipend applications.
 3. **`bank`**: Account KYC refresh notices, dormancy warnings, re-KYC mandates.
 4. **`utility`**: Electricity, water, or gas disconnection warnings, meter replacement notices.
 5. **`government_scheme`**: Direct benefit transfer (DBT) registrations, subsidy application windows.
+
+#### 2. General Mode (`trust_level: "general"`)
+Official notices outside the 5 core categories are handled in general mode with mandatory verification banners:
+6. **`insurance_or_health`**: Policy renewal dues, medical board directives, claim submission notices.
+7. **`legal_or_court`**: Court summons, legal notices from advocates, statutory compliance directives.
+8. **`employment`**: Civil service/employer circulars, appointment/deputation notices, wage notices.
+9. **`other_official_notice`**: Any other actionable notice from a recognized authority.
+
+*Note*: Non-actionable documents (recipes, flyers, marketing emails, personal letters) are categorized as `not_a_notice` and refused early with status `out_of_scope`.
 
 ### Explicit PRD Exclusions
 - **No Third-Party Form Submission**: The system never logs into portals, files forms, or submits applications on behalf of the user.
@@ -71,9 +82,13 @@ flowchart TD
         E --> F[PyMuPDF Text Extraction<br/>Page-by-Page Digital Text]
         F --> G{Readability Guard<br/>Empty, corrupt, or scanned?}
         G -- Scanned/Unreadable --> G1[Refuse: needs_clearer_document<br/>NO LLM CALL]
-        G -- Digital Text OK --> H{Classifier Guard<br/>Rule-based keyword scoring}
-        H -- Out of Scope --> H1[Refuse: out_of_scope<br/>NO LLM CALL]
-        H -- Supported Category --> I[LLM Structured Extractor<br/>JSON Mode, Temperature 0]
+        G -- Digital Text OK --> H{Rule-Based Classifier<br/>Fast First Guess}
+        H -- Confident Tested >= 0.85 --> I[LLM Structured Extractor<br/>trust_level: tested]
+        H -- Low Confidence / Other --> H2{LLM Triage Guard<br/>Pages 1-2 JSON Call}
+        H2 -- not_a_notice --> H1[Refuse: out_of_scope<br/>Plain Reason]
+        H2 -- Tested Category --> I
+        H2 -- General Mode Cat --> I2[LLM Structured Extractor<br/>trust_level: general<br/>needs_verification: true]
+        I2 --> J
 
         subgraph SelfRepair ["Self-Repair Retry Loop (Max 2 Retries)"]
             I --> J{Schema Valid &<br/>Valid JSON?}

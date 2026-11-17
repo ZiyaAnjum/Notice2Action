@@ -59,18 +59,18 @@ def make_annotation_stub(
         rel_pdf = str(pdf).replace("\\", "/")
 
     stub_data = {
-    "notice_id": notice_id,
-    "source_pdf": rel_pdf,
-    "expected_category": "TODO: tax_or_payment | bank | utility | scholarship_or_college | government_scheme | other_out_of_scope",
-    "expected_status": "processed",
-    "explicit_deadlines": [],
-    "required_documents": [],
-    "action_steps": [],
-    "submission_channel": None,
-    "penalties": [],
-    "ambiguous_or_missing_notes": None,
-    "critical_evidence_passages": [],
-}
+        "notice_id": notice_id,
+        "source_pdf": rel_pdf,
+        "expected_category": "TODO: tax_or_payment | bank | utility | scholarship_or_college | government_scheme | other_out_of_scope",
+        "expected_status": "processed",
+        "explicit_deadlines": [],
+        "required_documents": [],
+        "action_steps": [],
+        "submission_channel": None,
+        "penalties": [],
+        "ambiguous_or_missing_notes": None,
+        "critical_evidence_passages": [],
+    }
 
     with open(stub_file, "w", encoding="utf-8") as f:
         json.dump(stub_data, f, indent=2, ensure_ascii=False)
@@ -87,7 +87,9 @@ def make_annotation_stub(
             status = page.get("status", "ok")
             text = page.get("text", "")
 
-            f.write(f"--- [PAGE {p_num}] (chars: {char_count}, method: {method}, status: {status}) ---\n")
+            f.write(
+                f"--- [PAGE {p_num}] (chars: {char_count}, method: {method}, status: {status}) ---\n"
+            )
             f.write(text.strip())
             f.write("\n\n")
 
@@ -114,7 +116,9 @@ def main() -> None:
         stub_path, dump_path = make_annotation_stub(args.pdf_path, args.output_dir)
         print(f"Created empty annotation template: {stub_path}")
         print(f"Created page text dump:           {dump_path}")
-        print("\nNext step: read the text dump and fill in ground-truth values in the JSON template.")
+        print(
+            "\nNext step: read the text dump and fill in ground-truth values in the JSON template."
+        )
     except Exception as err:
         print(f"Error: {err}", file=sys.stderr)
         sys.exit(1)

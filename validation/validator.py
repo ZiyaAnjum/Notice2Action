@@ -10,13 +10,26 @@ import jsonschema
 SCHEMA_PATH = Path(__file__).resolve().parent.parent / "schemas" / "notice_output.schema.json"
 LEGACY_SCHEMA_PATH = Path(__file__).resolve().parent.parent / "schema" / "notice.schema.json"
 
-# PRD-aligned valid categories defined in single canonical location
-VALID_CATEGORIES = (
+# Canonical categories for tested vs general mode
+TESTED_CATEGORIES = (
     "scholarship_or_college",
     "bank",
     "utility",
     "tax_or_payment",
     "government_scheme",
+)
+
+GENERAL_MODE_CATEGORIES = (
+    "insurance_or_health",
+    "legal_or_court",
+    "employment",
+    "other_official_notice",
+)
+
+# PRD-aligned valid categories defined in single canonical location
+VALID_CATEGORIES = (
+    *TESTED_CATEGORIES,
+    *GENERAL_MODE_CATEGORIES,
     "other_out_of_scope",
 )
 

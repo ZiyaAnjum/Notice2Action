@@ -108,9 +108,7 @@ def validate_single_annotation(
         page_text = normalized_pages[page_num - 1]
         if norm_quote not in page_text:
             snippet = quote[:60] + "..." if len(quote) > 60 else quote
-            errors.append(
-                f"Evidence quote for '{field}' not found on page {page_num}: '{snippet}'"
-            )
+            errors.append(f"Evidence quote for '{field}' not found on page {page_num}: '{snippet}'")
 
     return errors
 
