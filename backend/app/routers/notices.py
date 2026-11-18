@@ -89,26 +89,30 @@ async def upload_notice(
             detail={"error": err.error_code, "message": err.message},
         ) from None
 
-    # Create pending record in DB
-    notice_service.create_pending_notice(
+    # Create pending record in DB (or retrieve from cache if duplicate PDF)
+    notice_record, is_cached = notice_service.create_pending_notice(
         db=db,
         notice_id=notice_id,
         filename=file.filename or "uploaded_notice.pdf",
         stored_path=stored_path,
     )
 
-    # Queue background processing pipeline
-    background_tasks.add_task(
-        notice_service.run_background_pipeline,
-        notice_id=notice_id,
-        stored_path=str(stored_path.resolve()),
-        llm_client=llm_client,
-    )
+    if not is_cached:
+        # Queue background processing pipeline
+        background_tasks.add_task(
+            notice_service.run_background_pipeline,
+            notice_id=notice_id,
+            stored_path=str(stored_path.resolve()),
+            llm_client=llm_client,
+        )
 
     return NoticeUploadResponse(
-        id=notice_id,
-        status="processing",
-        message="Notice uploaded and queued for processing.",
+        id=notice_record.id,
+        notice_id=notice_record.id,
+        status=notice_record.status,
+        stage=notice_record.stage or ("done" if is_cached else "uploading"),
+        progress=notice_record.progress if notice_record.progress is not None else (100 if is_cached else 10),
+        message=notice_record.message or ("Notice retrieved instantly from cache." if is_cached else "Notice uploaded and queued for processing."),
     )
 
 

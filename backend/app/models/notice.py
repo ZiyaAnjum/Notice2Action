@@ -17,7 +17,12 @@ class NoticeModel(Base):
     id = Column(String(64), primary_key=True, index=True)
     original_filename = Column(String(255), nullable=False)
     stored_path = Column(String(512), nullable=False)
+    file_hash = Column(String(64), nullable=True, index=True)
     status = Column(String(64), nullable=False, default="processing", index=True)
+    stage = Column(String(32), nullable=True, default="uploading")
+    progress = Column(Integer, nullable=True, default=10)
+    error_code = Column(String(64), nullable=True)
+    error = Column(Text, nullable=True)
     category = Column(String(64), nullable=True, index=True)
     created_at = Column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
@@ -42,11 +47,21 @@ class NoticeModel(Base):
 
     def to_dict(self) -> dict[str, Any]:
         """Convert Notice model instance to dictionary representation."""
+        is_finished = self.status in ("complete", "processed", "partial", "failed", "out_of_scope", "needs_clearer_document")
+        default_stage = "done" if is_finished else (self.stage or "uploading")
+        default_progress = 100 if is_finished else (self.progress if self.progress is not None else 10)
+
         return {
             "id": self.id,
+            "notice_id": self.id,
             "original_filename": self.original_filename,
             "stored_path": self.stored_path,
+            "file_hash": self.file_hash,
             "status": self.status,
+            "stage": default_stage,
+            "progress": default_progress,
+            "error_code": self.error_code,
+            "error": self.error,
             "category": self.category,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "result_json": self.result_json,

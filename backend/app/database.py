@@ -50,5 +50,21 @@ def get_db() -> Generator[Session, None, None]:
 
 
 def init_db() -> None:
-    """Initialize database tables."""
+    """Initialize database tables and run lightweight SQLite column migrations."""
     Base.metadata.create_all(bind=engine)
+    with engine.begin() as conn:
+        try:
+            res = conn.exec_driver_sql("PRAGMA table_info(notices);").fetchall()
+            existing_cols = {row[1] for row in res}
+            new_cols = [
+                ("file_hash", "VARCHAR(64)"),
+                ("stage", "VARCHAR(32)"),
+                ("progress", "INTEGER"),
+                ("error_code", "VARCHAR(64)"),
+                ("error", "TEXT"),
+            ]
+            for col_name, col_type in new_cols:
+                if col_name not in existing_cols:
+                    conn.exec_driver_sql(f"ALTER TABLE notices ADD COLUMN {col_name} {col_type};")
+        except Exception:
+            pass

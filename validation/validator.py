@@ -68,6 +68,271 @@ def normalize_text(text: str) -> str:
     return normalize_whitespace(text).lower()
 
 
+def validate_v2_notice(
+    notice: dict[str, Any],
+    page_texts: list[str] | None = None,
+    target_schema_path: Path | None = None,
+) -> dict[str, Any]:
+    """Validate Notice Decision Card (v2.0) with repair-and-degrade semantics (STEP 2).
+
+    Rules:
+    - Never fail the whole notice because of one bad field.
+    - Drop or null the invalid field, record a warning, and return the rest.
+    - Drop action steps with empty text and renumber remaining steps.
+    - Verify evidence quotes against extracted page texts.
+    - Return status: 'complete' | 'partial' | 'failed', with warnings[] naming dropped fields.
+    - Only 'failed' if there is no usable text or no valid summary at all.
+    - Even on 'failed', preserve raw_text_ref so the UI can still show text.
+    """
+    notice_copy: dict[str, Any] = copy.deepcopy(notice)
+    warnings: list[str] = list(notice_copy.get("warnings") or [])
+    errors: list[str] = []
+
+    normalized_pages = [normalize_text(p) for p in page_texts] if page_texts is not None else []
+    raw_text = "\n\n".join(page_texts) if page_texts is not None else str(notice_copy.get("raw_text_ref", ""))
+
+    # 1. Headline Repair & Degrade
+    if not isinstance(notice_copy.get("headline"), dict):
+        warnings.append("Repaired invalid headline: initialized default structure.")
+        notice_copy["headline"] = {
+            "one_line_summary": notice_copy.get("summary_plain") or "Official notice.",
+            "notice_type": notice_copy.get("category") or "official_notice",
+            "source_organisation": "Official Authority",
+            "amount_due": None,
+            "primary_deadline_id": None,
+            "urgency": "none",
+        }
+    else:
+        h = notice_copy["headline"]
+        if not h.get("one_line_summary"):
+            h["one_line_summary"] = notice_copy.get("summary_plain") or "Official notice."
+        if not h.get("notice_type"):
+            h["notice_type"] = notice_copy.get("category") or "official_notice"
+        if not h.get("source_organisation"):
+            h["source_organisation"] = "Official Authority"
+        if h.get("urgency") not in ("overdue", "urgent", "soon", "none"):
+            h["urgency"] = "none"
+
+        # Validate / repair amount_due: null if invalid
+        amt_due = h.get("amount_due")
+        if amt_due is not None:
+            if not isinstance(amt_due, dict) or "amount" not in amt_due or "currency" not in amt_due:
+                h["amount_due"] = None
+                warnings.append("Dropped invalid field at 'headline.amount_due': expected object with amount and currency.")
+            else:
+                try:
+                    h["amount_due"]["amount"] = float(amt_due["amount"])
+                    h["amount_due"]["currency"] = str(amt_due["currency"]).upper()
+                except (ValueError, TypeError):
+                    h["amount_due"] = None
+                    warnings.append("Dropped invalid field at 'headline.amount_due': non-numeric amount value.")
+
+    # 2. Action Steps Repair: drop steps with empty text, re-number order 1..N
+    raw_steps = notice_copy.get("action_steps")
+    if not isinstance(raw_steps, list):
+        warnings.append("Repaired action_steps: converted non-list to empty list.")
+        raw_steps = []
+
+    cleaned_steps: list[dict[str, Any]] = []
+    for s in raw_steps:
+        if not isinstance(s, dict):
+            warnings.append("Dropped invalid non-dict action step.")
+            continue
+        s_text = str(s.get("text") or s.get("action") or s.get("instruction") or "").strip()
+        if not s_text:
+            warnings.append("Dropped invalid action step with empty or whitespace-only text.")
+            continue
+        ev = s.get("evidence")
+        if not isinstance(ev, dict):
+            ev = {"page": 1, "quote": "", "verified": False}
+        cleaned_steps.append({
+            "order": len(cleaned_steps) + 1,
+            "text": s_text,
+            "evidence": ev,
+        })
+    notice_copy["action_steps"] = cleaned_steps
+
+    # 3. Deadlines Repair
+    raw_deadlines = notice_copy.get("deadlines")
+    if not isinstance(raw_deadlines, list):
+        warnings.append("Repaired deadlines: converted non-list to empty list.")
+        raw_deadlines = []
+
+    cleaned_deadlines: list[dict[str, Any]] = []
+    for dl in raw_deadlines:
+        if not isinstance(dl, dict):
+            warnings.append("Dropped invalid non-dict deadline item.")
+            continue
+        dl_id = dl.get("id") or f"dl-{len(cleaned_deadlines)+1}"
+        dl_label = str(dl.get("label") or dl.get("description") or f"Deadline {len(cleaned_deadlines)+1}").strip()
+        dl_kind = dl.get("kind")
+        if dl_kind not in ("no_penalty_by", "due", "disconnection_risk", "other", "ambiguous"):
+            dl_kind = "other"
+        dl_date = dl.get("date")
+        dl_date_type = dl.get("date_type")
+        if dl_date_type not in ("exact", "estimated"):
+            dl_date_type = "exact" if dl_date else "estimated"
+        ev = dl.get("evidence")
+        if not isinstance(ev, dict):
+            ev = {"page": 1, "quote": "", "verified": False}
+        cleaned_deadlines.append({
+            "id": dl_id,
+            "label": dl_label,
+            "kind": dl_kind,
+            "date": dl_date,
+            "date_type": dl_date_type,
+            "derived_from": dl.get("derived_from"),
+            "evidence": ev,
+        })
+    notice_copy["deadlines"] = cleaned_deadlines
+
+    # 4. Consequences Repair
+    raw_consequences = notice_copy.get("consequences")
+    if not isinstance(raw_consequences, list):
+        warnings.append("Repaired consequences: converted non-list to empty list.")
+        raw_consequences = []
+
+    cleaned_consequences: list[dict[str, Any]] = []
+    for c in raw_consequences:
+        if not isinstance(c, dict):
+            warnings.append("Dropped invalid non-dict consequence item.")
+            continue
+        c_label = str(c.get("label") or c.get("name") or "Consequence").strip()
+        c_val = str(c.get("value") or c.get("amount") or c.get("description") or "").strip()
+        ev = c.get("evidence")
+        if not isinstance(ev, dict):
+            ev = {"page": 1, "quote": "", "verified": False}
+        cleaned_consequences.append({
+            "label": c_label,
+            "value": c_val,
+            "evidence": ev,
+        })
+    notice_copy["consequences"] = cleaned_consequences
+
+    # 5. Optional Arrays: omit key if empty
+    for opt_key, item_req_key in [
+        ("required_documents", "name"),
+        ("where_to_submit", "channel"),
+        ("conditions_that_apply", "condition"),
+    ]:
+        if opt_key in notice_copy:
+            raw_items = notice_copy.get(opt_key)
+            if not isinstance(raw_items, list) or not raw_items:
+                del notice_copy[opt_key]
+                continue
+            cleaned_opt = []
+            for item in raw_items:
+                if isinstance(item, dict) and str(item.get(item_req_key) or "").strip():
+                    ev = item.get("evidence")
+                    if not isinstance(ev, dict):
+                        ev = {"page": 1, "quote": "", "verified": False}
+                    item["evidence"] = ev
+                    cleaned_opt.append(item)
+                else:
+                    warnings.append(f"Dropped invalid item in '{opt_key}' missing required key '{item_req_key}'.")
+            if cleaned_opt:
+                notice_copy[opt_key] = cleaned_opt
+            else:
+                del notice_copy[opt_key]
+
+    # 6. Evidence Quote Grounding Verification in Code
+    quotes_checked = 0
+    quotes_verified = 0
+
+    collections = [
+        notice_copy.get("deadlines") or [],
+        notice_copy.get("action_steps") or [],
+        notice_copy.get("consequences") or [],
+        notice_copy.get("required_documents") or [],
+        notice_copy.get("where_to_submit") or [],
+        notice_copy.get("conditions_that_apply") or [],
+    ]
+    for coll in collections:
+        for item in coll:
+            if not isinstance(item, dict):
+                continue
+            ev = item.get("evidence")
+            if not isinstance(ev, dict):
+                continue
+            quote = ev.get("quote")
+            page = ev.get("page")
+            if quote and str(quote).strip():
+                quotes_checked += 1
+                if normalized_pages and isinstance(page, int) and 1 <= page <= len(normalized_pages):
+                    norm_q = normalize_text(str(quote))
+                    if norm_q in normalized_pages[page - 1]:
+                        quotes_verified += 1
+                        ev["verified"] = True
+                    else:
+                        ev["verified"] = False
+                        ev["needs_verification"] = True
+                        label = item.get("label") or item.get("name") or item.get("text") or item.get("channel") or "item"
+                        warnings.append(f"Evidence quote for '{label}' could not be verified verbatim on page {page}.")
+                else:
+                    ev["verified"] = False
+                    ev["needs_verification"] = True
+                    if page is not None and not (isinstance(page, int) and 1 <= page <= len(normalized_pages)):
+                        warnings.append(f"Evidence quote references invalid page {page}.")
+
+    # 7. Usable Text and Summary Check (Only 'failed' if no usable text or no valid summary)
+    has_usable_text = bool(raw_text.strip()) or any(len(p.strip()) > 0 for p in (page_texts or []))
+    summary_text = str(
+        notice_copy.get("summary_plain")
+        or (notice_copy.get("headline") or {}).get("one_line_summary")
+        or ""
+    ).strip()
+    has_valid_summary = bool(summary_text)
+
+    # Make sure raw_text_ref is present on notice_copy so UI can always view text
+    if not notice_copy.get("raw_text_ref") and raw_text:
+        notice_copy["raw_text_ref"] = raw_text[:2000]
+
+    if not has_usable_text or not has_valid_summary:
+        status = "failed"
+        if not has_usable_text:
+            errors.append("No usable text found in the uploaded document.")
+        if not has_valid_summary:
+            errors.append("No valid plain language summary could be generated.")
+    elif warnings or not notice_copy.get("action_steps"):
+        status = "partial"
+    else:
+        status = "complete"
+
+    notice_copy["status"] = status
+    notice_copy["warnings"] = warnings
+
+    # Schema validation check against Draft202012
+    schema_path = target_schema_path or SCHEMA_PATH
+    try:
+        with open(schema_path, encoding="utf-8") as f:
+            schema_data = json.load(f)
+        v = jsonschema.Draft202012Validator(schema_data)
+        for err in v.iter_errors(notice_copy):
+            # Record schema validation issues as warnings if we degraded
+            if status != "failed":
+                warnings.append(f"Schema notice at '{err.json_path}': {err.message}")
+            else:
+                errors.append(f"Schema validation error at '{err.json_path}': {err.message}")
+    except Exception as e:
+        if status == "failed":
+            errors.append(f"Failed to check schema: {e}")
+
+    grounded_ratio = (quotes_verified / quotes_checked) if quotes_checked > 0 else 1.0
+
+    return {
+        "is_valid": status != "failed",
+        "schema_compliant": len(errors) == 0,
+        "status": status,
+        "quotes_checked": quotes_checked,
+        "quotes_verified": quotes_verified,
+        "grounded_ratio": round(grounded_ratio, 4),
+        "unsupported_critical_count": 0,
+        "errors": errors,
+        "warnings": warnings,
+        "notice": notice_copy,
+    }
+
+
 def validate_notice(
     notice: dict,
     page_texts: list[str] | None = None,
@@ -97,6 +362,14 @@ def validate_notice(
 
     # Resolve schema path: respect explicit param, monkeypatched SCHEMA_PATH, or legacy fallback
     target_schema_path = schema_path or SCHEMA_PATH
+    # If notice conforms to V2 (Decision Card) schema, use repair-and-degrade validator
+    if "headline" in notice_copy or notice_copy.get("schema_version") == "2.0":
+        return validate_v2_notice(
+            notice_copy,
+            page_texts=page_texts,
+            target_schema_path=target_schema_path,
+        )
+
     if (
         schema_path is None
         and "summary_plain" in notice_copy
@@ -284,9 +557,14 @@ def validate_notice(
 
     grounded_ratio = (quotes_verified / quotes_checked) if quotes_checked > 0 else 1.0
 
+    status = "complete" if len(errors) == 0 else "failed"
+    if status == "complete" and len(warnings) > 0:
+        status = "partial"
+
     return {
         "is_valid": len(errors) == 0,
         "schema_compliant": len(errors) == 0,
+        "status": status,
         "quotes_checked": quotes_checked,
         "quotes_verified": quotes_verified,
         "grounded_ratio": round(grounded_ratio, 4),

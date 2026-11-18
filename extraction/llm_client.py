@@ -167,12 +167,18 @@ class BaseLLMClient(ABC):
         return float(getattr(self, "timeout", DEFAULT_TOTAL_TIME_BUDGET_SEC))
 
     @abstractmethod
-    def generate_json(self, system_prompt: str, user_prompt: str) -> str:
+    def generate_json(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        response_schema: dict[str, Any] | None = None,
+    ) -> str:
         """Generate a JSON string response given a system prompt and user prompt.
 
         Args:
             system_prompt: System instruction guiding the model behavior.
             user_prompt: User instruction containing document text and payload.
+            response_schema: Optional JSON Schema dict for Gemini structured output.
 
         Returns:
             Raw JSON string produced by the model.
@@ -208,7 +214,8 @@ class GeminiLLMClient(BaseLLMClient):
     """Google Gemini API client using structured JSON output mode at temperature 0."""
 
     DEFAULT_MODEL = "gemini-1.5-flash"
-    DEFAULT_BACKOFF_DELAYS = (2.0, 5.0, 10.0)
+    DEFAULT_CALL_TIMEOUT_SEC = 25.0
+    DEFAULT_BACKOFF_DELAYS = (2.0, 4.0)
     DEFAULT_VISION_PROMPT = (
         "Transcribe the complete, verbatim text of this official notice page image exactly as written. "
         "Do not summarize, explain, or interpret. Output only the verbatim extracted text."
@@ -219,7 +226,7 @@ class GeminiLLMClient(BaseLLMClient):
         api_key: str | None = None,
         model: str | None = None,
         fallback_model: str | None = None,
-        timeout_seconds: float = 60.0,
+        timeout_seconds: float = 25.0,
         backoff_delays: tuple[float, ...] | list[float] | None = None,
         sleep_fn: Callable[[float], None] | None = None,
         transport: httpx.BaseTransport | None = None,
@@ -247,6 +254,7 @@ class GeminiLLMClient(BaseLLMClient):
         system_prompt: str,
         user_prompt: str,
         timeout: float | None = None,
+        response_schema: dict[str, Any] | None = None,
     ) -> str:
         """Execute single generateContent HTTP request against specified Gemini model."""
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{target_model}:generateContent"
@@ -256,13 +264,18 @@ class GeminiLLMClient(BaseLLMClient):
             "x-goog-api-key": self.api_key,
         }
 
+        generation_config: dict[str, Any] = {
+            "temperature": 0.0,
+            "responseMimeType": "application/json",
+            "maxOutputTokens": 4096,
+        }
+        if response_schema is not None:
+            generation_config["responseSchema"] = response_schema
+
         payload = {
             "system_instruction": {"parts": [{"text": system_prompt}]},
             "contents": [{"role": "user", "parts": [{"text": user_prompt}]}],
-            "generationConfig": {
-                "temperature": 0.0,
-                "responseMimeType": "application/json",
-            },
+            "generationConfig": generation_config,
         }
 
         call_timeout = timeout if timeout is not None else self.timeout
@@ -597,11 +610,20 @@ class GeminiLLMClient(BaseLLMClient):
             retries_exhausted=True,
         )
 
-    def generate_json(self, system_prompt: str, user_prompt: str) -> str:
+    def generate_json(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        response_schema: dict[str, Any] | None = None,
+    ) -> str:
         """Call Gemini generateContent with exponential backoff, budget enforcement, and optional fallback model."""
         return self._execute_with_retry(
             lambda model, call_timeout: self._post_generate_content(
-                model, system_prompt, user_prompt, timeout=call_timeout
+                model,
+                system_prompt,
+                user_prompt,
+                timeout=call_timeout,
+                response_schema=response_schema,
             )
         )
 
@@ -642,7 +664,12 @@ class OpenAILLMClient(BaseLLMClient):
         self.base_url = os.getenv("OPENAI_BASE_URL", base_url).rstrip("/")
         self.timeout = timeout_seconds
 
-    def generate_json(self, system_prompt: str, user_prompt: str) -> str:
+    def generate_json(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        response_schema: dict[str, Any] | None = None,
+    ) -> str:
         """Call OpenAI chat completions endpoint in JSON mode with budget enforcement."""
         if not self.api_key:
             raise LLMError(
@@ -758,7 +785,12 @@ class FakeLLMClient(BaseLLMClient):
         """Number of calls made to generate_json."""
         return len(self.calls)
 
-    def generate_json(self, system_prompt: str, user_prompt: str) -> str:
+    def generate_json(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        response_schema: dict[str, Any] | None = None,
+    ) -> str:
         """Record the call and return the next canned response or raise configured exception."""
         self.calls.append({"system_prompt": system_prompt, "user_prompt": user_prompt})
 

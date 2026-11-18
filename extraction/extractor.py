@@ -30,7 +30,50 @@ logger = logging.getLogger(__name__)
 # Constants for document ingestion constraints
 MAX_FILE_SIZE_BYTES = 25 * 1024 * 1024  # 25 MB limit
 MAX_PAGE_COUNT = 100
+OCR_CHAR_THRESHOLD_PER_PAGE = 200
 MIN_USABLE_CHAR_COUNT = 15
+
+
+def strip_repeated_headers_and_footers(page_texts: list[str]) -> list[str]:
+    """Identify and remove repeated header and footer lines occurring across pages.
+
+    Preserves document structure while eliminating repetitive boilerplate that
+    wastes model token context. Keeps page boundaries clear.
+    """
+    if len(page_texts) <= 1:
+        return page_texts
+
+    header_counts: dict[str, int] = {}
+    footer_counts: dict[str, int] = {}
+    total_pages = len(page_texts)
+
+    for text in page_texts:
+        lines = [line.strip() for line in text.splitlines() if line.strip()]
+        if len(lines) >= 3:
+            for h in lines[:2]:
+                if len(h) >= 4 and not h.isdigit():
+                    header_counts[h] = header_counts.get(h, 0) + 1
+            for f in lines[-2:]:
+                if len(f) >= 4 and not f.isdigit():
+                    footer_counts[f] = footer_counts.get(f, 0) + 1
+
+    threshold = max(2, total_pages // 2)
+    repeated_headers = {line for line, cnt in header_counts.items() if cnt >= threshold}
+    repeated_footers = {line for line, cnt in footer_counts.items() if cnt >= threshold}
+
+    if not repeated_headers and not repeated_footers:
+        return page_texts
+
+    cleaned_pages: list[str] = []
+    for text in page_texts:
+        lines = text.splitlines()
+        filtered_lines = [
+            line for line in lines
+            if line.strip() not in repeated_headers and line.strip() not in repeated_footers
+        ]
+        cleaned_pages.append("\n".join(filtered_lines))
+
+    return cleaned_pages
 
 
 class ExtractionError(Exception):
@@ -51,6 +94,19 @@ class ExtractionInvalidFormatError(ValueError, ExtractionError):
     """Raised when the file is not a supported PDF format."""
 
     pass
+
+
+class ExtractedPages(list):
+    """List of extracted page dicts with attached timing metadata."""
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.pdf_duration: float = 0.0
+        self.ocr_duration: float = 0.0
+        self.file_size: int = 0
+        self.pdf_chars: int = 0
+        self.ocr_chars: int = 0
+        self.ocr_pages: int = 0
 
 
 def try_ocr_page(page: Any) -> str | None:
@@ -150,17 +206,34 @@ def extract_pages(
         max_vision_pages = int(os.getenv("OCR_GEMINI_MAX_PAGES", str(DEFAULT_GEMINI_MAX_PAGES)))
         vision_pages_count = 0
 
+        # Phase 1: Pre-scan digital text from all pages
+        t0_prescan = time.perf_counter()
+        digital_texts: list[str] = [
+            normalize_whitespace(doc[idx].get_text("text") or "") for idx in range(page_count)
+        ]
+        pdf_extract_duration: float = time.perf_counter() - t0_prescan
+        ocr_duration: float = 0.0
+        pdf_chars: int = 0
+        ocr_chars: int = 0
+        ocr_pages: int = 0
+
+        total_digital_chars = sum(len(t) for t in digital_texts)
+        # Recognize text PDF: Never OCR a text PDF per rule
+        is_text_pdf = total_digital_chars >= OCR_CHAR_THRESHOLD_PER_PAGE or any(
+            len(t) >= OCR_CHAR_THRESHOLD_PER_PAGE for t in digital_texts
+        )
+
         pages: list[dict[str, Any]] = []
 
         for page_idx in range(page_count):
             page_num = page_idx + 1
             page = doc[page_idx]
+            cleaned_text = digital_texts[page_idx]
 
-            # Extract digital vector text
-            raw_text = page.get_text("text") or ""
-            cleaned_text = normalize_whitespace(raw_text)
-
-            if len(cleaned_text.strip()) >= MIN_USABLE_CHAR_COUNT:
+            if len(cleaned_text.strip()) >= OCR_CHAR_THRESHOLD_PER_PAGE or (
+                is_text_pdf and len(cleaned_text.strip()) >= MIN_USABLE_CHAR_COUNT
+            ):
+                pdf_chars += len(cleaned_text)
                 # Digital text present: never run OCR on pages that already have usable text
                 pages.append(
                     {
@@ -172,8 +245,22 @@ def extract_pages(
                         "status": "ok",
                     }
                 )
+            elif is_text_pdf:
+                # Text PDF with a nearly empty or blank page: do not run OCR
+                pages.append(
+                    {
+                        "page_number": page_num,
+                        "text": cleaned_text,
+                        "display_text": cleaned_text,
+                        "method": "text" if cleaned_text.strip() else "unreadable",
+                        "char_count": len(cleaned_text),
+                        "status": "ok" if cleaned_text.strip() else "needs a clearer document",
+                    }
+                )
             else:
                 # Scanned or image-only page lacking usable digital text
+                ocr_pages += 1
+                t0_ocr_page = time.perf_counter()
                 if active_ocr_mode == "off":
                     pages.append(
                         {
@@ -191,6 +278,7 @@ def extract_pages(
                         if is_usable:
                             cleaned_ocr = normalize_whitespace(ocr_text)
                             repaired_ocr = repair_ocr_spacing(cleaned_ocr)
+                            ocr_chars += len(cleaned_ocr)
                             pages.append(
                                 {
                                     "page_number": page_num,
@@ -215,7 +303,7 @@ def extract_pages(
                     else:
                         pages.append(
                             {
-                                "page_number": page_num,
+                                    "page_number": page_num,
                                 "text": "",
                                 "method": "unreadable",
                                 "char_count": 0,
@@ -254,6 +342,7 @@ def extract_pages(
                                         "ocr_error": "Document processing exceeded total time budget.",
                                     }
                                 )
+                                ocr_duration += time.perf_counter() - t0_ocr_page
                                 continue
 
                         vision_pages_count += 1
@@ -264,6 +353,7 @@ def extract_pages(
                             if is_usable:
                                 cleaned_ocr = normalize_whitespace(ocr_text)
                                 repaired_ocr = repair_ocr_spacing(cleaned_ocr)
+                                ocr_chars += len(cleaned_ocr)
                                 pages.append(
                                     {
                                         "page_number": page_num,
@@ -309,8 +399,42 @@ def extract_pages(
                             "status": "needs a clearer document",
                         }
                     )
+                ocr_duration += time.perf_counter() - t0_ocr_page
 
-        return pages
+        logger.info(
+            "[TIMING] stage=pdf_text_extraction duration=%.4fs input_size=%dB (%d pages) output_size=%d chars",
+            pdf_extract_duration,
+            file_size,
+            page_count,
+            pdf_chars,
+        )
+        if ocr_pages > 0:
+            logger.info(
+                "[TIMING] stage=ocr duration=%.4fs input_size=%d pages output_size=%d chars (mode=%s)",
+                ocr_duration,
+                ocr_pages,
+                ocr_chars,
+                active_ocr_mode,
+            )
+
+        # Strip repeated headers and footers across pages for multi-page documents
+        if len(pages) > 1 and any(p.get("method") == "text" for p in pages):
+            text_pages = [p.get("text", "") for p in pages]
+            cleaned_texts = strip_repeated_headers_and_footers(text_pages)
+            for p, cleaned in zip(pages, cleaned_texts, strict=False):
+                if p.get("method") == "text":
+                    p["text"] = cleaned
+                    p["display_text"] = cleaned
+                    p["char_count"] = len(cleaned)
+
+        extracted_pages = ExtractedPages(pages)
+        extracted_pages.pdf_duration = pdf_extract_duration
+        extracted_pages.ocr_duration = ocr_duration
+        extracted_pages.file_size = file_size
+        extracted_pages.pdf_chars = pdf_chars
+        extracted_pages.ocr_chars = ocr_chars
+        extracted_pages.ocr_pages = ocr_pages
+        return extracted_pages
 
     finally:
         doc.close()

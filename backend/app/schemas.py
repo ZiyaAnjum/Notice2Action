@@ -17,7 +17,10 @@ class NoticeUploadResponse(BaseModel):
     """Response returned upon successful PDF notice upload and background queuing."""
 
     id: str = Field(..., description="Unique notice record identifier")
+    notice_id: str | None = Field(None, description="Notice ID alias for UI consistency")
     status: str = Field(..., description="Initial processing status (e.g. 'processing')")
+    stage: str | None = Field("uploading", description="Current stage: uploading, reading_text, understanding, checking, done")
+    progress: int | None = Field(10, description="Estimated completion percentage 0-100")
     message: str = Field(..., description="Status summary message")
 
 
@@ -85,8 +88,13 @@ class NoticeDetailResponse(BaseModel):
     """Complete notice record including extracted JSON, checklist, and reminders."""
 
     id: str
+    notice_id: str | None = None
     original_filename: str
     status: str
+    stage: str | None = "done"
+    progress: int | None = 100
+    error: str | None = None
+    error_code: str | None = None
     category: str | None = None
     created_at: str
     needs_verification: bool = False

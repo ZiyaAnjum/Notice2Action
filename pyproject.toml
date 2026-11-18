@@ -22,6 +22,14 @@ indent-style = "space"
 [tool.pytest.ini_options]
 minversion = "7.0"
 addopts = "-ra -q"
+norecursedirs = [
+    ".*",
+    "*.egg",
+    "build",
+    "dist",
+    ".venv",
+    "backend/.venv",
+]
 testpaths = [
     "backend/tests",
     "extraction/tests",

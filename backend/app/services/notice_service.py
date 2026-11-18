@@ -1,5 +1,6 @@
 """Service layer for notice management, file storage, and pipeline execution."""
 
+import hashlib
 import uuid
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -119,14 +120,55 @@ class NoticeService:
         notice_id: str,
         filename: str,
         stored_path: Path,
-    ) -> NoticeModel:
-        """Create initial database notice record with 'processing' status."""
-        # NOTE(ownership): In multi-user deployment, assign request.state.user_id as owner here
+        file_hash: str | None = None,
+    ) -> tuple[NoticeModel, bool]:
+        """Create initial database notice record or return cached record for instant hit."""
+        p = Path(stored_path)
+        if not file_hash and p.exists():
+            try:
+                file_hash = hashlib.sha256(p.read_bytes()).hexdigest()
+            except Exception:
+                file_hash = None
+
+        # Check for cached result by SHA-256
+        if file_hash:
+            cached = (
+                db.query(NoticeModel)
+                .filter(
+                    NoticeModel.file_hash == file_hash,
+                    NoticeModel.status.in_(["complete", "processed", "partial"]),
+                    NoticeModel.result_json.isnot(None),
+                )
+                .first()
+            )
+            if cached and cached.result_json:
+                notice = NoticeModel(
+                    id=notice_id,
+                    original_filename=filename,
+                    stored_path=str(p.resolve()),
+                    file_hash=file_hash,
+                    status=cached.status,
+                    stage="done",
+                    progress=100,
+                    category=cached.category,
+                    result_json=cached.result_json,
+                    needs_verification=cached.needs_verification,
+                    message="Notice retrieved instantly from cache.",
+                    created_at=datetime.now(timezone.utc),
+                )
+                db.add(notice)
+                db.commit()
+                db.refresh(notice)
+                return notice, True
+
         notice = NoticeModel(
             id=notice_id,
             original_filename=filename,
-            stored_path=str(stored_path.resolve()),
+            stored_path=str(p.resolve()),
+            file_hash=file_hash,
             status="processing",
+            stage="uploading",
+            progress=10,
             created_at=datetime.now(timezone.utc),
             needs_verification=False,
             message="Notice uploaded and queued for processing.",
@@ -134,7 +176,7 @@ class NoticeService:
         db.add(notice)
         db.commit()
         db.refresh(notice)
-        return notice
+        return notice, False
 
     def run_background_pipeline(
         self,
@@ -142,30 +184,46 @@ class NoticeService:
         stored_path: str,
         llm_client: BaseLLMClient | None = None,
     ) -> None:
-        """Execute processing pipeline in background and record structured results."""
+        """Execute processing pipeline in background with stage tracking and budget enforcement."""
         session_maker = self.session_factory or SessionLocal
         db: Session = session_maker()
         try:
+            notice = db.query(NoticeModel).filter(NoticeModel.id == notice_id).first()
+            if not notice:
+                return
+
+            if notice.stage == "done" and notice.status in ("complete", "processed", "partial"):
+                return
+
+            # Stage: reading_text
+            notice.stage = "reading_text"
+            notice.progress = 30
+            db.commit()
+
+            # Execute pipeline
             pipeline_res = process_notice(stored_path, client=llm_client)
 
             notice = db.query(NoticeModel).filter(NoticeModel.id == notice_id).first()
             if not notice:
                 return
 
-            pipe_status = pipeline_res["status"]
+            pipe_status = pipeline_res.get("status")
 
-            if pipe_status == "success":
-                notice.status = "processed"
-                notice.category = pipeline_res["category"]
-                notice.result_json = pipeline_res["result"]
-                notice.needs_verification = pipeline_res["needs_verification"]
+            if pipe_status in ("success", "complete", "partial"):
+                decision_card = pipeline_res.get("result") or {}
+                doc_status = decision_card.get("status") or ("partial" if pipeline_res.get("needs_verification") else "complete")
+                notice.status = doc_status
+                notice.stage = "done"
+                notice.progress = 100
+                notice.category = pipeline_res.get("category")
+                notice.result_json = decision_card
+                notice.needs_verification = pipeline_res.get("needs_verification", False)
                 notice.message = pipeline_res.get("message", "Processed successfully.")
 
-                # Populate initial checklist items from extracted required documents
-                docs = (pipeline_res["result"] or {}).get("required_documents") or []
+                # Populate checklist
+                docs = decision_card.get("required_documents") or []
                 for idx, doc in enumerate(docs):
                     doc_name = doc.get("name") or f"Document {idx + 1}"
-                    # Default checklist status
                     checklist_item = ChecklistItemModel(
                         notice_id=notice.id,
                         item_key=doc_name,
@@ -174,27 +232,46 @@ class NoticeService:
                     db.add(checklist_item)
 
             elif pipe_status == "needs_clearer_document":
-                notice.status = "needs_clearer_document"
-                notice.category = "other_out_of_scope"
-                notice.needs_verification = True
-                notice.message = pipeline_res.get("message")
+                notice.status = "failed"
+                notice.stage = "done"
+                notice.progress = 100
+                notice.error = "We couldn't read text from this PDF. Try a clearer scan."
+                notice.error_code = "UNREADABLE_DOCUMENT"
+                notice.message = "We couldn't read text from this PDF. Try a clearer scan."
 
             elif pipe_status == "out_of_scope":
-                notice.status = "out_of_scope"
-                notice.category = "other_out_of_scope"
-                notice.needs_verification = False
+                notice.status = "failed"
+                notice.stage = "done"
+                notice.progress = 100
+                notice.error = pipeline_res.get("message", "This document is out of scope.")
+                notice.error_code = "DOCUMENT_OUT_OF_SCOPE"
                 notice.message = pipeline_res.get("message")
 
+            elif (
+                pipeline_res.get("failure_reason") == "too_slow"
+                or pipeline_res.get("error_code") == "DOCUMENT_PROCESSING_TIMEOUT"
+            ):
+                # Hard budget timeout: return status partial with whatever stages have finished
+                notice.status = "partial"
+                notice.stage = "done"
+                notice.progress = 100
+                notice.error = "Processing reached 60-second limit; partial results returned."
+                notice.error_code = "PROCESSING_TIMEOUT"
+                notice.message = "Processing reached 60-second limit; partial results returned."
+                notice.result_json = pipeline_res.get("result") or {
+                    "status": "partial",
+                    "warnings": ["Processing exceeded 60-second limit."],
+                    "raw_text_ref": "Document processing timed out.",
+                }
+
             else:
-                notice.status = "extraction_failed"
-                notice.needs_verification = True
+                notice.status = "failed"
+                notice.stage = "done"
+                notice.progress = 100
                 msg = str(pipeline_res.get("message", "Extraction failed."))
-                if "API key" in msg or "not configured" in msg:
-                    notice.message = (
-                        "AI extraction service is not configured. Please set LLM_API_KEY."
-                    )
-                else:
-                    notice.message = msg
+                notice.error = msg
+                notice.error_code = pipeline_res.get("error_code", "EXTRACTION_FAILED")
+                notice.message = msg
 
             db.commit()
 
@@ -202,15 +279,13 @@ class NoticeService:
             db.rollback()
             notice = db.query(NoticeModel).filter(NoticeModel.id == notice_id).first()
             if notice:
-                notice.status = "extraction_failed"
-                notice.needs_verification = True
+                notice.status = "failed"
+                notice.stage = "done"
+                notice.progress = 100
                 err_msg = str(exc)
-                if "API key" in err_msg or "not configured" in err_msg:
-                    notice.message = (
-                        "AI extraction service is not configured. Please set LLM_API_KEY."
-                    )
-                else:
-                    notice.message = f"Processing error: {err_msg}"
+                notice.error = f"Processing error: {err_msg}"
+                notice.error_code = "PROCESSING_ERROR"
+                notice.message = f"Processing error: {err_msg}"
                 db.commit()
         finally:
             db.close()
@@ -259,10 +334,19 @@ class NoticeService:
         checklist = [item.to_dict() for item in notice.checklist_items]
         reminders = [r.to_dict() for r in notice.reminders]
 
+        is_finished = notice.status in ("complete", "processed", "partial", "failed", "out_of_scope", "needs_clearer_document")
+        stage = "done" if is_finished else (notice.stage or "uploading")
+        progress = 100 if is_finished else (notice.progress if notice.progress is not None else 10)
+
         return {
             "id": notice.id,
+            "notice_id": notice.id,
             "original_filename": notice.original_filename,
             "status": notice.status,
+            "stage": stage,
+            "progress": progress,
+            "error": notice.error,
+            "error_code": notice.error_code,
             "category": notice.category,
             "created_at": notice.created_at.isoformat() if notice.created_at else "",
             "needs_verification": notice.needs_verification,

@@ -40,6 +40,7 @@ from extraction.llm_client import (
 )
 from extraction.llm_extractor import PROMPT_VERSION, extract_notice_with_llm
 from extraction.ocr import repair_ocr_spacing
+from extraction.post_processor import process_extracted_notice_to_decision_card
 from extraction.triage import (
     RULE_BASED_CONFIDENCE_THRESHOLD,
     triage_notice,
@@ -1174,6 +1175,7 @@ def process_notice(
     detected_language = lang_info.get("language", "en")
 
     # Step 3: Two-step Triage (Fast Rule-based guess -> LLM triage if ambiguous or new category)
+    t0_class = time.perf_counter()
     rb_classification = classify_notice(readable_pages)
     rb_category = rb_classification.get("category")
     rb_confidence = float(rb_classification.get("confidence", 0.0) or 0.0)
@@ -1291,6 +1293,17 @@ def process_notice(
                     "triage_time_ms": triage_time_ms,
                 }
 
+    classification_duration = time.perf_counter() - t0_class
+    total_readable_chars = sum(len(p.get("text", "")) for p in readable_pages)
+    logger.info(
+        "[TIMING] stage=classification duration=%.4fs input_size=%d chars output_size=category:%s,confidence:%.2f,trust_level:%s",
+        classification_duration,
+        total_readable_chars,
+        category,
+        rb_confidence,
+        trust_level,
+    )
+
     # Step 4: LLM Structured Extraction (with whole-page chunking for long documents)
     page_chunks = chunk_pages(readable_pages, char_budget=char_budget)
     is_long_document = len(page_chunks) > 1
@@ -1392,11 +1405,37 @@ def process_notice(
         extracted_data = chunk_results[0]
 
     # Step 5: Schema and Evidence Grounding Validation
+    t0_val = time.perf_counter()
     page_texts = [p.get("text", "") for p in pages]
     validation_report = validate_notice(extracted_data, page_texts=page_texts)
+    val_duration = time.perf_counter() - t0_val
+    val_in_size = len(str(extracted_data))
+    logger.info(
+        "[TIMING] stage=validation duration=%.4fs input_size=%d chars output_size=is_valid:%s,errors:%d,warnings:%d",
+        val_duration,
+        val_in_size,
+        validation_report.get("is_valid"),
+        len(validation_report.get("errors", [])),
+        len(validation_report.get("warnings", [])),
+    )
 
     # Step 6: Post-processing verification and date parsing
+    t0_post = time.perf_counter()
     grounded_notice = post_process_notice(extracted_data, pages, validation_report)
+
+    # Enrich with Decision Card (v2) fields: headline, normalized money, ISO relative dates, raw_text_ref
+    decision_card = process_extracted_notice_to_decision_card(grounded_notice, pages)
+    for k, v in decision_card.items():
+        if k in ("headline", "summary_plain", "raw_text_ref") or k not in grounded_notice:
+            grounded_notice[k] = v
+
+    post_duration = time.perf_counter() - t0_post
+    logger.info(
+        "[TIMING] stage=post_processing duration=%.4fs input_size=%d keys output_size=%d keys",
+        post_duration,
+        len(extracted_data) if isinstance(extracted_data, dict) else 0,
+        len(grounded_notice) if isinstance(grounded_notice, dict) else 0,
+    )
 
     # Update document_quality based on readability
     grounded_notice["document_quality"] = "good" if readability["status"] == "good" else "poor_scan"
@@ -1520,6 +1559,50 @@ def process_notice(
             elapsed_sec=total_elapsed,
         )
 
+    pdf_text_duration = getattr(pages, "pdf_duration", ocr_time_sec)
+    ocr_dur = getattr(pages, "ocr_duration", 0.0)
+    file_size_b = getattr(pages, "file_size", 0)
+    pdf_chars_cnt = getattr(pages, "pdf_chars", sum(len(p.get("text", "")) for p in pages))
+    ocr_chars_cnt = getattr(pages, "ocr_chars", 0)
+    ocr_pages_cnt = getattr(pages, "ocr_pages", 0)
+
+    stage_timings = {
+        "pdf_text_extraction": {
+            "duration_sec": round(pdf_text_duration, 4),
+            "input_size": file_size_b,
+            "output_size": pdf_chars_cnt,
+        },
+        "ocr": {
+            "duration_sec": round(ocr_dur, 4),
+            "input_size": ocr_pages_cnt,
+            "output_size": ocr_chars_cnt,
+            "used": ocr_used,
+        },
+        "classification": {
+            "duration_sec": round(classification_duration, 4),
+            "input_size": total_readable_chars,
+            "output_size": category,
+        },
+        "llm_call": {
+            "duration_sec": round(triage_time_sec + extraction_time_sec, 4),
+            "input_size": sum(len(c) for c in page_chunks) if page_chunks else 0,
+            "output_size": len(str(extracted_data)),
+        },
+        "validation": {
+            "duration_sec": round(val_duration, 4),
+            "input_size": val_in_size,
+            "output_size": f"valid={validation_report.get('is_valid')},errors={len(validation_report.get('errors', []))}",
+        },
+        "post_processing": {
+            "duration_sec": round(post_duration, 4),
+            "input_size": len(extracted_data) if isinstance(extracted_data, dict) else 0,
+            "output_size": len(grounded_notice) if isinstance(grounded_notice, dict) else 0,
+        },
+        "total": {
+            "duration_sec": round(total_elapsed, 4),
+        },
+    }
+
     return {
         "status": "success",
         "category": category,
@@ -1536,4 +1619,5 @@ def process_notice(
         "ocr_time_sec": round(ocr_time_sec, 2),
         "llm_time_sec": round(triage_time_sec + extraction_time_sec, 2),
         "total_time_sec": round(total_elapsed, 2),
+        "stage_timings": stage_timings,
     }

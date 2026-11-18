@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from backend.app.config import get_settings
 from backend.app.database import get_db, init_db
 from backend.app.routers import api_router, api_v1_router
+from backend.app.routers.notices import router as notices_router
 from backend.app.schemas import HealthResponse
 
 settings = get_settings()
@@ -110,6 +111,7 @@ async def health_check(
 
 
 # Include API routers
+app.include_router(notices_router, prefix="/notices", tags=["notices"])
 app.include_router(api_router)
 app.include_router(api_v1_router)
 
