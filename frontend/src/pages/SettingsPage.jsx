@@ -5,6 +5,7 @@ import {
   CheckCircle2,
   FileCheck,
   LifeBuoy,
+  Languages,
   LockKeyhole,
   LogOut,
   Palette,
@@ -18,6 +19,9 @@ import { SUPPORTED_CATEGORIES, OUT_OF_SCOPE_CATEGORY } from "../utils/categories
 import { useAuth } from "../context/useAuth";
 import { useWorkspacePreferences } from "../context/useWorkspacePreferences";
 import { PageHeader } from "../components/PageHeader";
+import { useLanguage } from "../context/useLanguage";
+import { useTranslation } from "../context/useTranslation";
+import { SUPPORTED_LANGUAGES } from "../utils/languages";
 
 export function SettingsPage() {
   const [health, setHealth] = useState(null);
@@ -25,6 +29,8 @@ export function SettingsPage() {
   const navigate = useNavigate();
   const { endDemoSession } = useAuth();
   const { focusCategories, setFocusCategories } = useWorkspacePreferences();
+  const { language, setLanguage } = useLanguage();
+  const t = useTranslation();
 
   useEffect(() => {
     async function checkBackendHealth() {
@@ -64,6 +70,46 @@ export function SettingsPage() {
         title="Settings"
         description="Review the current frontend session, appearance, support information, and connected service status."
       />
+
+      <section className="surface-card p-5 sm:p-6" aria-labelledby="language-title">
+        <div className="flex items-start gap-3">
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-purple-50 text-purple-700">
+            <Languages className="h-5 w-5" aria-hidden="true" />
+          </span>
+          <div className="min-w-0">
+            <h2 id="language-title" className="text-base font-extrabold text-navy-950">
+              {t("language.section")}
+            </h2>
+            <p className="mt-1 text-xs leading-5 text-slate-500">
+              {t("language.description")}
+            </p>
+            <div className="mt-4 max-w-md">
+              <label
+                htmlFor="interface-language"
+                className="mb-1.5 block text-xs font-bold text-slate-700"
+              >
+                {t("language.label")}
+              </label>
+              <select
+                id="interface-language"
+                value={language}
+                onChange={(event) => setLanguage(event.target.value)}
+                aria-describedby="language-help"
+                className="focus-ring h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 focus:border-purple-300"
+              >
+                {SUPPORTED_LANGUAGES.map(({ code, name, locale }) => (
+                  <option key={code} value={code} lang={locale}>
+                    {name}
+                  </option>
+                ))}
+              </select>
+              <p id="language-help" className="mt-1.5 text-[11px] leading-5 text-slate-500">
+                {t("language.help")}
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
 
       <div className="grid grid-cols-1 items-stretch gap-4 md:grid-cols-2">
         <section className="surface-card p-5 sm:p-6" aria-labelledby="profile-title">
