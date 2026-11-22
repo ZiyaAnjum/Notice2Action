@@ -21,7 +21,7 @@ indent-style = "space"
 
 [tool.pytest.ini_options]
 minversion = "7.0"
-addopts = "-ra -q"
+addopts = "-ra -q -p no:anyio"
 norecursedirs = [
     ".*",
     "*.egg",

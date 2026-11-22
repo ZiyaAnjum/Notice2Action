@@ -1,0 +1,10 @@
+{
+  "id": "notice-proc-004",
+  "notice_id": "notice-proc-004",
+  "status": "processing",
+  "stage": "understanding",
+  "progress": 60,
+  "original_filename": "incoming_commercial_tax_order.pdf",
+  "warnings": []
+}
+

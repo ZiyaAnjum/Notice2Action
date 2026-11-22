@@ -1,0 +1,120 @@
+{
+  "id": "notice-partial-002",
+  "notice_id": "notice-partial-002",
+  "status": "partial",
+  "stage": "done",
+  "progress": 100,
+  "schema_version": "2.0.0",
+  "original_filename": "property_tax_assessment_scan.pdf",
+  "warnings": [
+    "Page 2 assessment table had ink bleed and could not be fully parsed",
+    "Secondary penalty clause could not be verified verbatim against extracted text"
+  ],
+  "headline": {
+    "one_line_summary": "Pay property tax assessment of Rs. 14,200 before 30 Nov",
+    "notice_type": "Property Tax Notice",
+    "source_organisation": "City Municipal Council, Bhatkal",
+    "amount_due": {
+      "amount": 14200.0,
+      "currency": "INR"
+    },
+    "primary_deadline_id": "dl_tax_due",
+    "urgency": "soon"
+  },
+  "deadlines": [
+    {
+      "id": "dl_tax_due",
+      "label": "Assessment Due Date",
+      "kind": "due",
+      "date": "2026-11-30",
+      "date_type": "exact",
+      "derived_from": null,
+      "evidence": {
+        "page": 1,
+        "quote": "Tax demand must be settled on or before 30-11-2026",
+        "verified": true
+      }
+    },
+    {
+      "id": "dl_penalty_accrual",
+      "label": "Statutory Interest Start",
+      "kind": "other",
+      "date": "2026-12-01",
+      "date_type": "estimated",
+      "derived_from": {
+        "offset_days": 1,
+        "relative_to": "due_date"
+      },
+      "evidence": {
+        "page": 2,
+        "quote": "Interest at 1.5% starts from first day of subsequent month",
+        "verified": false
+      }
+    }
+  ],
+  "action_steps": [
+    {
+      "order": 1,
+      "text": "Submit property tax payment of Rs. 14,200 to municipal revenue counter or citizen portal.",
+      "evidence": {
+        "page": 1,
+        "quote": "Remit sum of Rs. 14,200 towards annual tax dues",
+        "verified": true
+      }
+    },
+    {
+      "order": 2,
+      "text": "File self-assessment declaration form along with property tax challan copy.",
+      "evidence": {
+        "page": 2,
+        "quote": "Submit Form SAS-4 along with payment challan",
+        "verified": false
+      }
+    }
+  ],
+  "consequences": [
+    {
+      "label": "Statutory Interest",
+      "value": "1.5% per month compounded annually on arrears",
+      "evidence": {
+        "page": 2,
+        "quote": "Defaulters are liable to pay monthly interest of 1.5%",
+        "verified": false
+      }
+    }
+  ],
+  "required_documents": [
+    {
+      "name": "Property PID / Khata Certificate",
+      "evidence": {
+        "page": 1,
+        "quote": "PID No: 182-004-921",
+        "verified": true
+      }
+    }
+  ],
+  "where_to_submit": [
+    {
+      "channel": "CMC Revenue Office",
+      "details": "Room 104, City Municipal Council Building, Main Road",
+      "evidence": {
+        "page": 1,
+        "quote": "Revenue counter, CMC Office",
+        "verified": true
+      }
+    }
+  ],
+  "conditions_that_apply": [
+    {
+      "condition": "Late submissions after 30 Nov forfeit the 5% early rebate benefit.",
+      "evidence": {
+        "page": 1,
+        "quote": "Rebate of 5% is only available if paid before 30 Nov",
+        "verified": true
+      }
+    }
+  ],
+  "summary_plain": "City Municipal Council has issued a property tax assessment for Rs. 14,200 due on 30 Nov 2026. Page 2 of the document had ink smudging, so the interest rate and declaration form details need verification against your original paper notice.",
+  "raw_text_ref": "notices/notice-partial-002/raw_text.txt"
+}
+

@@ -58,7 +58,11 @@ class NoticeService:
             self.storage.upload_dir = p
 
     def validate_and_save_upload(
-        self, filename: str, contents: bytes, content_type: str | None
+        self,
+        filename: str,
+        contents: bytes,
+        content_type: str | None,
+        user_id: str | None = None,
     ) -> tuple[str, Path]:
         """Validate uploaded PDF bytes and persist to a private, non-public directory.
 
@@ -66,6 +70,7 @@ class NoticeService:
             filename: Original user filename (for display only).
             contents: Raw file byte stream.
             content_type: Header content-type string.
+            user_id: Optional user identifier for scoped directory storage.
 
         Returns:
             Tuple of (unique notice_id, safe saved local Path).
@@ -107,8 +112,11 @@ class NoticeService:
                 status_code=413,
             )
 
-        # 5. Save with random safe UUID filename outside any public path via FileStorage
-        stored_path_str = self.storage.save(filename, contents)
+        # 5. Save with random safe UUID filename in per-user path
+        try:
+            stored_path_str = self.storage.save(filename, contents, user_id=user_id)
+        except TypeError:
+            stored_path_str = self.storage.save(filename, contents)
         stored_path = Path(stored_path_str)
 
         notice_id = f"notice-{uuid.uuid4().hex[:12]}"
@@ -121,8 +129,12 @@ class NoticeService:
         filename: str,
         stored_path: Path,
         file_hash: str | None = None,
+        user_id: str | None = None,
     ) -> tuple[NoticeModel, bool]:
-        """Create initial database notice record or return cached record for instant hit."""
+        """Create initial database notice record or return cached record for instant hit.
+
+        Cache lookup is strictly scoped per user so one user never sees another's cached data.
+        """
         p = Path(stored_path)
         if not file_hash and p.exists():
             try:
@@ -130,20 +142,21 @@ class NoticeService:
             except Exception:
                 file_hash = None
 
-        # Check for cached result by SHA-256
+        # Check for cached result by SHA-256 (scoped per user)
         if file_hash:
-            cached = (
-                db.query(NoticeModel)
-                .filter(
-                    NoticeModel.file_hash == file_hash,
-                    NoticeModel.status.in_(["complete", "processed", "partial"]),
-                    NoticeModel.result_json.isnot(None),
-                )
-                .first()
+            query = db.query(NoticeModel).filter(
+                NoticeModel.file_hash == file_hash,
+                NoticeModel.status.in_(["complete", "processed", "partial"]),
+                NoticeModel.result_json.isnot(None),
             )
+            if user_id:
+                query = query.filter(NoticeModel.user_id == user_id)
+            cached = query.first()
+
             if cached and cached.result_json:
                 notice = NoticeModel(
                     id=notice_id,
+                    user_id=user_id,
                     original_filename=filename,
                     stored_path=str(p.resolve()),
                     file_hash=file_hash,
@@ -163,6 +176,7 @@ class NoticeService:
 
         notice = NoticeModel(
             id=notice_id,
+            user_id=user_id,
             original_filename=filename,
             stored_path=str(p.resolve()),
             file_hash=file_hash,
@@ -252,17 +266,27 @@ class NoticeService:
                 or pipeline_res.get("error_code") == "DOCUMENT_PROCESSING_TIMEOUT"
             ):
                 # Hard budget timeout: return status partial with whatever stages have finished
-                notice.status = "partial"
-                notice.stage = "done"
-                notice.progress = 100
-                notice.error = "Processing reached 60-second limit; partial results returned."
-                notice.error_code = "PROCESSING_TIMEOUT"
-                notice.message = "Processing reached 60-second limit; partial results returned."
-                notice.result_json = pipeline_res.get("result") or {
-                    "status": "partial",
-                    "warnings": ["Processing exceeded 60-second limit."],
-                    "raw_text_ref": "Document processing timed out.",
-                }
+                # If no usable text or no valid summary at all, return status "failed" with friendly message
+                has_usable_result = (
+                    pipeline_res.get("result") is not None
+                    and isinstance(pipeline_res.get("result"), dict)
+                    and bool(pipeline_res.get("result").get("headline"))
+                )
+                if has_usable_result:
+                    notice.status = "partial"
+                    notice.stage = "done"
+                    notice.progress = 100
+                    notice.error = "Processing reached 60-second limit; partial results returned."
+                    notice.error_code = "PROCESSING_TIMEOUT"
+                    notice.message = "Processing reached 60-second limit; partial results returned."
+                    notice.result_json = pipeline_res.get("result")
+                else:
+                    notice.status = "failed"
+                    notice.stage = "done"
+                    notice.progress = 100
+                    notice.error = "We couldn't read text from this PDF. Try a clearer scan."
+                    notice.error_code = "UNREADABLE_DOCUMENT"
+                    notice.message = "We couldn't read text from this PDF. Try a clearer scan."
 
             else:
                 notice.status = "failed"
@@ -290,10 +314,12 @@ class NoticeService:
         finally:
             db.close()
 
-    def list_notices(self, db: Session) -> list[dict[str, Any]]:
-        """List all notices, newest first, with summary details."""
-        # NOTE(ownership): In multi-user deployment, filter by NoticeModel.owner_id == user_id here
-        notices = db.query(NoticeModel).order_by(NoticeModel.created_at.desc()).all()
+    def list_notices(self, db: Session, user_id: str | None = None) -> list[dict[str, Any]]:
+        """List notices scoped to authenticated user, newest first."""
+        query = db.query(NoticeModel)
+        if user_id:
+            query = query.filter(NoticeModel.user_id == user_id)
+        notices = query.order_by(NoticeModel.created_at.desc()).all()
         items = []
 
         for n in notices:
@@ -324,10 +350,14 @@ class NoticeService:
             )
         return items
 
-    def get_notice_detail(self, db: Session, notice_id: str) -> dict[str, Any] | None:
-        """Fetch notice details, checklist items, and reminders."""
-        # NOTE(ownership): In multi-user deployment, verify notice.owner_id == user_id here
-        notice = db.query(NoticeModel).filter(NoticeModel.id == notice_id).first()
+    def get_notice_detail(
+        self, db: Session, notice_id: str, user_id: str | None = None
+    ) -> dict[str, Any] | None:
+        """Fetch notice details, checklist items, and reminders, scoped by user_id."""
+        query = db.query(NoticeModel).filter(NoticeModel.id == notice_id)
+        if user_id:
+            query = query.filter(NoticeModel.user_id == user_id)
+        notice = query.first()
         if not notice:
             return None
 
@@ -341,6 +371,7 @@ class NoticeService:
         return {
             "id": notice.id,
             "notice_id": notice.id,
+            "user_id": notice.user_id,
             "original_filename": notice.original_filename,
             "status": notice.status,
             "stage": stage,
@@ -357,11 +388,13 @@ class NoticeService:
         }
 
     def get_notice_page_text(
-        self, db: Session, notice_id: str, page_number: int
+        self, db: Session, notice_id: str, page_number: int, user_id: str | None = None
     ) -> dict[str, Any] | None:
-        """Extract text for a specific page of a notice."""
-        # NOTE(ownership): In multi-user deployment, verify notice.owner_id == user_id here
-        notice = db.query(NoticeModel).filter(NoticeModel.id == notice_id).first()
+        """Extract text for a specific page of a notice scoped to user_id."""
+        query = db.query(NoticeModel).filter(NoticeModel.id == notice_id)
+        if user_id:
+            query = query.filter(NoticeModel.user_id == user_id)
+        notice = query.first()
         if not notice:
             return None
 
@@ -379,10 +412,14 @@ class NoticeService:
                 }
         return None
 
-    def get_notice_file_path(self, db: Session, notice_id: str) -> tuple[Path, str] | None:
-        """Return the on-disk file path and original filename for a notice."""
-        # NOTE(ownership): In multi-user deployment, verify notice.owner_id == user_id here
-        notice = db.query(NoticeModel).filter(NoticeModel.id == notice_id).first()
+    def get_notice_file_path(
+        self, db: Session, notice_id: str, user_id: str | None = None
+    ) -> tuple[Path, str] | None:
+        """Return the on-disk file path and original filename for a notice scoped to user_id."""
+        query = db.query(NoticeModel).filter(NoticeModel.id == notice_id)
+        if user_id:
+            query = query.filter(NoticeModel.user_id == user_id)
+        notice = query.first()
         if not notice:
             return None
 
@@ -392,16 +429,42 @@ class NoticeService:
 
         return path, notice.original_filename
 
+    def delete_notice(
+        self, db: Session, notice_id: str, user_id: str | None = None
+    ) -> bool:
+        """Delete notice and on-disk file scoped to user_id."""
+        query = db.query(NoticeModel).filter(NoticeModel.id == notice_id)
+        if user_id:
+            query = query.filter(NoticeModel.user_id == user_id)
+        notice = query.first()
+        if not notice:
+            return False
+
+        if notice.stored_path:
+            p = self.storage.get_local_path(notice.stored_path)
+            if p.exists() and p.is_file():
+                try:
+                    p.unlink()
+                except Exception:
+                    pass
+
+        db.delete(notice)
+        db.commit()
+        return True
+
     def update_checklist_item(
         self,
         db: Session,
         notice_id: str,
         item_key: str,
         status: str,
+        user_id: str | None = None,
     ) -> dict[str, Any] | None:
-        """Set checklist item status (not_completed / completed / needs_verification)."""
-        # NOTE(ownership): In multi-user deployment, verify notice.owner_id == user_id here
-        notice = db.query(NoticeModel).filter(NoticeModel.id == notice_id).first()
+        """Set checklist item status scoped to user_id."""
+        query = db.query(NoticeModel).filter(NoticeModel.id == notice_id)
+        if user_id:
+            query = query.filter(NoticeModel.user_id == user_id)
+        notice = query.first()
         if not notice:
             return None
 
@@ -431,10 +494,13 @@ class NoticeService:
         deadline_ref: str | None,
         remind_on: date,
         note: str | None,
+        user_id: str | None = None,
     ) -> dict[str, Any] | None:
-        """Create a new in-app deadline reminder."""
-        # NOTE(ownership): In multi-user deployment, verify notice.owner_id == user_id here
-        notice = db.query(NoticeModel).filter(NoticeModel.id == notice_id).first()
+        """Create a new in-app deadline reminder scoped to user_id."""
+        query = db.query(NoticeModel).filter(NoticeModel.id == notice_id)
+        if user_id:
+            query = query.filter(NoticeModel.user_id == user_id)
+        notice = query.first()
         if not notice:
             return None
 
@@ -451,12 +517,18 @@ class NoticeService:
         db.refresh(reminder)
         return reminder.to_dict()
 
-    def list_reminders_for_notice(self, db: Session, notice_id: str) -> list[dict[str, Any]] | None:
-        """List all reminders associated with a given notice."""
-        # NOTE(ownership): In multi-user deployment, verify notice.owner_id == user_id here
-        notice = db.query(NoticeModel).filter(NoticeModel.id == notice_id).first()
+    def list_reminders_for_notice(
+        self, db: Session, notice_id: str, user_id: str | None = None
+    ) -> list[dict[str, Any]] | None:
+        """List all reminders associated with a given notice scoped to user_id."""
+        query = db.query(NoticeModel).filter(NoticeModel.id == notice_id)
+        if user_id:
+            query = query.filter(NoticeModel.user_id == user_id)
+        notice = query.first()
         if not notice:
             return None
+
+        return [r.to_dict() for r in notice.reminders]
 
         return [r.to_dict() for r in notice.reminders]
 
@@ -467,9 +539,13 @@ class NoticeService:
         done: bool | None = None,
         note: str | None = None,
         remind_on: date | None = None,
+        user_id: str | None = None,
     ) -> dict[str, Any] | None:
-        """Update reminder completion, note, or trigger date."""
-        reminder = db.query(ReminderModel).filter(ReminderModel.id == reminder_id).first()
+        """Update reminder completion, note, or trigger date scoped to user_id."""
+        query = db.query(ReminderModel).join(NoticeModel, ReminderModel.notice_id == NoticeModel.id).filter(ReminderModel.id == reminder_id)
+        if user_id:
+            query = query.filter(NoticeModel.user_id == user_id)
+        reminder = query.first()
         if not reminder:
             return None
 
@@ -484,9 +560,14 @@ class NoticeService:
         db.refresh(reminder)
         return reminder.to_dict()
 
-    def delete_reminder(self, db: Session, reminder_id: str) -> bool:
-        """Delete an in-app reminder."""
-        reminder = db.query(ReminderModel).filter(ReminderModel.id == reminder_id).first()
+    def delete_reminder(
+        self, db: Session, reminder_id: str, user_id: str | None = None
+    ) -> bool:
+        """Delete an in-app reminder scoped to user_id."""
+        query = db.query(ReminderModel).join(NoticeModel, ReminderModel.notice_id == NoticeModel.id).filter(ReminderModel.id == reminder_id)
+        if user_id:
+            query = query.filter(NoticeModel.user_id == user_id)
+        reminder = query.first()
         if not reminder:
             return False
 
@@ -494,36 +575,25 @@ class NoticeService:
         db.commit()
         return True
 
-    def get_upcoming_reminders(self, db: Session, days: int = 7) -> list[dict[str, Any]]:
-        """Retrieve active (done=False) reminders due within the specified horizon."""
+    def get_upcoming_reminders(
+        self, db: Session, days: int = 7, user_id: str | None = None
+    ) -> list[dict[str, Any]]:
+        """Retrieve active (done=False) reminders due within the specified horizon scoped to user."""
         today = datetime.now(timezone.utc).date()
         cutoff = today + timedelta(days=days)
 
-        reminders = (
+        query = (
             db.query(ReminderModel)
+            .join(NoticeModel, ReminderModel.notice_id == NoticeModel.id)
             .filter(
                 ReminderModel.done.is_(False),
                 ReminderModel.remind_on <= datetime.combine(cutoff, datetime.max.time()),
             )
-            .order_by(ReminderModel.remind_on.asc())
-            .all()
         )
+        if user_id:
+            query = query.filter(NoticeModel.user_id == user_id)
+        reminders = query.order_by(ReminderModel.remind_on.asc()).all()
         return [r.to_dict() for r in reminders]
-
-    def delete_notice(self, db: Session, notice_id: str) -> bool:
-        """Delete a notice, its physical file from storage, and associated records."""
-        # NOTE(ownership): In multi-user deployment, verify notice.owner_id == user_id here
-        notice = db.query(NoticeModel).filter(NoticeModel.id == notice_id).first()
-        if not notice:
-            return False
-
-        # 1. Delete physical file via FileStorage
-        self.storage.delete(notice.stored_path)
-
-        # 2. Delete database record (cascades to checklist and reminders)
-        db.delete(notice)
-        db.commit()
-        return True
 
 
 # Default service singleton

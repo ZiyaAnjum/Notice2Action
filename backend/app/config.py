@@ -26,8 +26,25 @@ class Settings(BaseSettings):
     # Database (SQLite default for MVP, easily switched via DATABASE_URL env)
     DATABASE_URL: str = "sqlite:///./notice.db"
 
-    # Security
+    # Security & Authentication
     SECRET_KEY: str = "development-insecure-secret-key-placeholder"
+    JWT_SECRET: str = "development-insecure-jwt-secret-replace-in-production"
+    JWT_ALGORITHM: str = "HS256"
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
+    REFRESH_TOKEN_EXPIRE_DAYS: int = 7
+    COOKIE_SECURE: bool = False
+    COOKIE_SAMESITE: str = "lax"
+
+    # Frontend URL (for password reset & verification links)
+    FRONTEND_URL: str = "http://localhost:5173"
+
+    # Email Service (pluggable: console or smtp)
+    EMAIL_BACKEND: str = "console"  # "console" | "smtp"
+    SMTP_HOST: str | None = None
+    SMTP_PORT: int = 587
+    SMTP_USER: str | None = None
+    SMTP_PASSWORD: str | None = None
+    SMTP_FROM_EMAIL: str = "noreply@notice2action.com"
 
     # LLM & Extraction Services
     LLM_API_KEY: str = "mock-llm-key-placeholder"

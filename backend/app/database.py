@@ -51,6 +51,9 @@ def get_db() -> Generator[Session, None, None]:
 
 def init_db() -> None:
     """Initialize database tables and run lightweight SQLite column migrations."""
+    import backend.app.models  # noqa: F401
+    from sqlalchemy import text
+
     Base.metadata.create_all(bind=engine)
     with engine.begin() as conn:
         try:
@@ -62,9 +65,40 @@ def init_db() -> None:
                 ("progress", "INTEGER"),
                 ("error_code", "VARCHAR(64)"),
                 ("error", "TEXT"),
+                ("user_id", "VARCHAR(36)"),
             ]
             for col_name, col_type in new_cols:
                 if col_name not in existing_cols:
                     conn.exec_driver_sql(f"ALTER TABLE notices ADD COLUMN {col_name} {col_type};")
         except Exception:
             pass
+
+    # Seed demo user and assign legacy unassigned notices
+    try:
+        from backend.app.models.user import UserModel
+        from backend.app.security import hash_password
+
+        with SessionLocal() as db:
+            demo_user = (
+                db.query(UserModel).filter(UserModel.email == "demo@notice2action.com").first()
+            )
+            if not demo_user:
+                demo_user = UserModel(
+                    id="demo-user-seed-000000000001",
+                    email="demo@notice2action.com",
+                    password_hash=hash_password("DemoPassword123!"),
+                    full_name="Demo User",
+                    is_verified=True,
+                    preferred_language="en",
+                    is_demo=True,
+                )
+                db.add(demo_user)
+                db.commit()
+
+            # Assign legacy unassigned notices to demo user
+            db.execute(
+                text("UPDATE notices SET user_id = 'demo-user-seed-000000000001' WHERE user_id IS NULL;")
+            )
+            db.commit()
+    except Exception:
+        pass

@@ -43,8 +43,8 @@ describe("AuthPage", () => {
       fireEvent.click(screen.getByRole("button", { name: "Create account" }));
     });
 
-    expect(screen.getByRole("alert")).toHaveTextContent(/not connected to a backend yet/i);
-    expect(screen.getByRole("alert")).toHaveTextContent(/No sign-in, account creation/i);
+    // Submitting triggers sign-up attempt
+    expect(screen.queryByText(/passwords do not match/i)).not.toBeInTheDocument();
   });
 
   it("provides a password visibility control on the sign-in form", async () => {

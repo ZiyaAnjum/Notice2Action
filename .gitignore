@@ -62,3 +62,6 @@ Thumbs.db
 .vscode/
 *.swp
 *.swo
+.chrome_profile*/
+.node/
+screenshots/

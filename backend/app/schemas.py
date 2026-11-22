@@ -120,3 +120,77 @@ class HealthResponse(BaseModel):
     version: str = "1.0.0"
     app: str = "Notice to Action API"
     environment: str = "development"
+
+
+# --- Authentication & User Schemas ---
+
+
+class SignupRequest(BaseModel):
+    """Signup payload."""
+
+    full_name: str = Field(..., min_length=2, max_length=100)
+    email: str = Field(..., min_length=5, max_length=255)
+    password: str = Field(..., min_length=8, max_length=128)
+
+
+class LoginRequest(BaseModel):
+    """Login credentials payload."""
+
+    email: str = Field(..., min_length=5, max_length=255)
+    password: str = Field(..., min_length=1, max_length=128)
+
+
+class UserResponse(BaseModel):
+    """Sanitized user profile response."""
+
+    id: str
+    email: str
+    full_name: str
+    is_verified: bool = False
+    preferred_language: str = "en"
+    is_demo: bool = False
+    created_at: str | None = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class TokenResponse(BaseModel):
+    """JWT access token and user profile response."""
+
+    access_token: str
+    token_type: str = "bearer"
+    user: UserResponse
+
+
+class ForgotPasswordRequest(BaseModel):
+    """Password reset request payload."""
+
+    email: str = Field(..., min_length=5, max_length=255)
+
+
+class ResetPasswordRequest(BaseModel):
+    """Password reset completion payload."""
+
+    token: str = Field(..., min_length=1)
+    new_password: str = Field(..., min_length=8, max_length=128)
+
+
+class UpdateProfileRequest(BaseModel):
+    """Profile update payload."""
+
+    full_name: str | None = Field(None, min_length=2, max_length=100)
+    preferred_language: str | None = Field(None, max_length=10)
+
+
+class ChangePasswordRequest(BaseModel):
+    """Password update payload."""
+
+    current_password: str = Field(..., min_length=1)
+    new_password: str = Field(..., min_length=8, max_length=128)
+
+
+class SuccessMessageResponse(BaseModel):
+    """Generic action confirmation envelope."""
+
+    message: str
+    status: str = "success"

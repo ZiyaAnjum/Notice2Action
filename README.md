@@ -249,25 +249,48 @@ python scripts/show_failures.py
 
 ## 7. REST API Overview
 
-All API endpoints are prefixed with `/api` and return standardized JSON error envelopes on failure:
+All API endpoints are prefixed with `/api` and return standardized JSON error envelopes on failure (`{"error_code": "...", "message": "..."}`):
 
+### Authentication & Account (`/api/auth/*`)
+- **`POST /api/auth/signup`** — Creates a new user (`full_name`, `email`, `password`), sets 7-day httpOnly refresh token cookie, and returns `{ "user": {...}, "access_token": "..." }`.
+- **`POST /api/auth/login`** — Authenticates registered user (`email`, `password`), enforces sliding-window rate limit (5 attempts/min), sets httpOnly refresh cookie, and returns access token + user profile.
+- **`POST /api/auth/logout`** — Invalidates refresh token in database and clears the refresh cookie.
+- **`POST /api/auth/refresh`** — Exchanges valid httpOnly refresh token for a fresh 15-minute access token.
+- **`GET /api/auth/me`** — Returns the authenticated user record from JWT bearer token.
+- **`PATCH /api/auth/profile`** — Updates full name and preferred language (`en`, `hi`, `kn`).
+- **`POST /api/auth/change-password`** — Verifies current password and updates to new password ($\ge 8$ chars, blacklist checked).
+- **`POST /api/auth/verify-email`** — Validates 24-hour verification token and marks account as verified.
+- **`POST /api/auth/resend-verification`** — Dispatches a new email verification token via configured email provider.
+- **`POST /api/auth/forgot-password`** — Sends a 30-minute password reset token with generic responses to prevent email enumeration.
+- **`POST /api/auth/reset-password`** — Consumes password reset token and updates user password.
+- **`DELETE /api/auth/account`** — Permanently deletes user account, associated notices, uploaded PDF files, reminders, and tokens.
+
+### User Isolation & Multi-Tenant Data Protection
+- **Ownership Verification**: All notice and reminder endpoints require authentication (`get_current_user`). Any attempt to access another user's notice or file returns **404 Not Found** (never 403) to eliminate metadata leakage.
+- **Scoped Extraction Cache**: The extraction SHA-256 hash cache is explicitly keyed by `(user_id, file_sha256)`, ensuring no cross-user cache re-use.
+- **Isolated File Storage**: Uploaded notice PDFs are stored under `uploads/<user_id>/...` and served strictly via authenticated streaming endpoints.
+- **Seeded Demo Account**: For review and demonstration, a pre-seeded account is automatically provisioned:
+  - **Email**: `demo@notice2action.com`
+  - **Password**: `DemoPassword123!`
+
+### Notice & Pipeline Management
 - **Health Check**:
   - `GET /api/health` — Returns system status, storage configuration, and executes `SELECT 1` on the database.
 - **Notice Ingestion**:
   - `POST /api/notices/upload` — Accepts multipart PDF upload; performs file safety validation and starts async extraction pipeline.
 - **Notice Management**:
-  - `GET /api/notices` — Lists all uploaded notices with status, category, and date.
-  - `GET /api/notices/{id}` — Retrieves detailed notice record, extracted JSON result, and verification flags.
-  - `DELETE /api/notices/{id}` — Removes notice database record and deletes stored PDF from disk.
+  - `GET /api/notices` — Lists all uploaded notices for the authenticated user with status, category, and date.
+  - `GET /api/notices/{id}` — Retrieves detailed notice record, extracted JSON result, and verification flags (scoped to user).
+  - `DELETE /api/notices/{id}` — Removes notice database record and deletes stored PDF from disk (scoped to user).
 - **Checklist Interactivity**:
   - `PATCH /api/notices/{id}/checklist/{item_index}` — Updates document checklist status (`completed`, `not_completed`, `needs_verification`).
 - **Reminders**:
-  - `GET /api/notices/{id}/reminders` — Lists reminders associated with notice.
+  - `GET /api/notices/{id}/reminders` — Lists user's reminders associated with notice.
   - `POST /api/notices/{id}/reminders` — Creates a new deadline reminder (`remind_on`, `note`).
   - `PATCH /api/reminders/{id}` — Updates reminder completion state (`done: true/false`).
   - `DELETE /api/reminders/{id}` — Deletes reminder record.
 - **Passage Viewer**:
-  - `GET /api/notices/{id}/pages/{page}` — Returns raw normalized text for specified 1-indexed page for client-side quote highlighting.
+  - `GET /api/notices/{id}/pages/{page}` — Returns raw normalized text for specified 1-indexed page for client-side quote highlighting (authenticated).
 
 ---
 

@@ -1,0 +1,17 @@
+{
+  "id": "notice-failed-003",
+  "notice_id": "notice-failed-003",
+  "status": "failed",
+  "stage": "done",
+  "progress": 100,
+  "schema_version": "2.0.0",
+  "original_filename": "blurry_scan_notice.pdf",
+  "error": "We couldn't read text from this PDF. Try a clearer scan.",
+  "error_code": "UNREADABLE_DOCUMENT",
+  "warnings": [
+    "Text density below minimum threshold (14 chars/page)",
+    "OCR confidence score insufficient to extract reliable notice clauses"
+  ],
+  "raw_text": "--- Page 1 ---\n... [unintelligible ink marks / scan noise] ..."
+}
+

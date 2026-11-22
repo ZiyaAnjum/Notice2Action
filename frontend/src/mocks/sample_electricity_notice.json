@@ -1,0 +1,165 @@
+{
+  "id": "notice-elec-001",
+  "notice_id": "notice-elec-001",
+  "status": "complete",
+  "stage": "done",
+  "progress": 100,
+  "schema_version": "2.0.0",
+  "original_filename": "sample_electricity_notice.pdf",
+  "warnings": [],
+  "headline": {
+    "one_line_summary": "Pay Rs. 4,860 by 18 Nov to avoid a surcharge",
+    "notice_type": "Electricity Demand Notice",
+    "source_organisation": "Bangalore Electricity Supply Company Limited (BESCOM)",
+    "amount_due": {
+      "amount": 4860.0,
+      "currency": "INR"
+    },
+    "primary_deadline_id": "dl_due_date",
+    "urgency": "urgent"
+  },
+  "deadlines": [
+    {
+      "id": "dl_prompt_payment",
+      "label": "Prompt Payment Discount",
+      "kind": "no_penalty_by",
+      "date": "2026-11-12",
+      "date_type": "exact",
+      "derived_from": null,
+      "evidence": {
+        "page": 1,
+        "quote": "Due date for payment with prompt payment discount: 12-11-2026",
+        "verified": true
+      }
+    },
+    {
+      "id": "dl_due_date",
+      "label": "Due Date (No Surcharge)",
+      "kind": "due",
+      "date": "2026-11-18",
+      "date_type": "exact",
+      "derived_from": null,
+      "evidence": {
+        "page": 1,
+        "quote": "Due date for payment: 18-11-2026",
+        "verified": true
+      }
+    },
+    {
+      "id": "dl_disconnection",
+      "label": "Disconnection Risk",
+      "kind": "disconnection_risk",
+      "date": "2026-12-03",
+      "date_type": "estimated",
+      "derived_from": {
+        "offset_days": 15,
+        "relative_to": "due_date"
+      },
+      "evidence": {
+        "page": 1,
+        "quote": "Notice under Sec 56(1): Supply may be disconnected 15 days after due date",
+        "verified": true
+      }
+    }
+  ],
+  "action_steps": [
+    {
+      "order": 1,
+      "text": "Pay total amount of Rs. 4,860 on or before 18 Nov 2026 to avoid a 2% monthly late surcharge.",
+      "evidence": {
+        "page": 1,
+        "quote": "Pay total amount of Rs. 4,860 on or before 18-11-2026",
+        "verified": true
+      }
+    },
+    {
+      "order": 2,
+      "text": "Retain digital receipt or stamped challan for billing records and account reference.",
+      "evidence": {
+        "page": 1,
+        "quote": "Keep receipt for all future references",
+        "verified": true
+      }
+    }
+  ],
+  "consequences": [
+    {
+      "label": "Late Payment Surcharge",
+      "value": "2% per month on unpaid balance",
+      "evidence": {
+        "page": 1,
+        "quote": "Delayed payment interest at 2% per month will be levied",
+        "verified": true
+      }
+    },
+    {
+      "label": "Service Disconnection",
+      "value": "Power disconnected after 15 days of due date (03 Dec 2026)",
+      "evidence": {
+        "page": 1,
+        "quote": "Power supply will be disconnected after 15 clear days notice",
+        "verified": true
+      }
+    },
+    {
+      "label": "Reconnection Charge",
+      "value": "Rs. 250 plus applicable taxes upon settlement",
+      "evidence": {
+        "page": 1,
+        "quote": "Reconnection fee of Rs. 250 is payable for restoration",
+        "verified": true
+      }
+    }
+  ],
+  "required_documents": [
+    {
+      "name": "Consumer Account ID (Account No: 0429188001)",
+      "evidence": {
+        "page": 1,
+        "quote": "Consumer ID: 0429188001",
+        "verified": true
+      }
+    },
+    {
+      "name": "Previous Payment Receipt (if claiming uncredited adjustment)",
+      "evidence": {
+        "page": 1,
+        "quote": "Quote previous receipt number in case of payment dispute",
+        "verified": true
+      }
+    }
+  ],
+  "where_to_submit": [
+    {
+      "channel": "Online Portal",
+      "details": "https://bescom.karnataka.gov.in or Karnataka Mobile One App",
+      "evidence": {
+        "page": 1,
+        "quote": "Online payment accepted via bescom.karnataka.gov.in",
+        "verified": true
+      }
+    },
+    {
+      "channel": "Physical Counter",
+      "details": "AITM Sub-Division Counter, Bhatkal (9:30 AM - 4:00 PM)",
+      "evidence": {
+        "page": 1,
+        "quote": "Cash counters open between 9:30 AM to 4:00 PM",
+        "verified": true
+      }
+    }
+  ],
+  "conditions_that_apply": [
+    {
+      "condition": "Cheque/DD payment subject to realization within 3 bank working days.",
+      "evidence": {
+        "page": 1,
+        "quote": "Payment by cheque is subject to realization",
+        "verified": true
+      }
+    }
+  ],
+  "summary_plain": "This is a monthly electricity demand notice from BESCOM for Rs. 4,860. The due date to avoid interest is 18 Nov 2026. If unpaid, a 2% monthly surcharge applies and power supply is liable for disconnection after 15 days.",
+  "raw_text_ref": "notices/notice-elec-001/raw_text.txt"
+}
+

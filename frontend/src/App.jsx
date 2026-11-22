@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route, Navigate, Outlet } from "react-router-dom";
+import { BrowserRouter, HashRouter, Routes, Route, Navigate, Outlet } from "react-router-dom";
 import { InstitutionalLayout } from "./components/InstitutionalLayout";
 import { DashboardPage } from "./pages/DashboardPage";
 import { UploadPage } from "./pages/UploadPage";
@@ -54,13 +54,16 @@ export function AppRoutes() {
 }
 
 export default function App() {
+  const isFileProtocol = typeof window !== "undefined" && window.location.protocol === "file:";
+  const RouterComponent = isFileProtocol ? HashRouter : BrowserRouter;
+
   return (
-    <BrowserRouter>
+    <RouterComponent>
       <WorkspacePreferencesProvider>
         <AuthProvider>
           <AppRoutes />
         </AuthProvider>
       </WorkspacePreferencesProvider>
-    </BrowserRouter>
+    </RouterComponent>
   );
 }

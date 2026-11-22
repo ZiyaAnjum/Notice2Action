@@ -64,12 +64,41 @@ function MetricCard({ label, value, note, icon: Icon, tone }) {
   );
 }
 
+function getNoticeUrgencyRank(notice) {
+  const urgency = notice.headline?.urgency || notice.urgency;
+  if (urgency === "overdue") return 0;
+  if (urgency === "urgent") return 1;
+  if (urgency === "soon") return 2;
+  if (urgency === "none") return 3;
+
+  const deadlineDate =
+    notice.deadlines?.[0]?.date ||
+    notice.result?.deadlines?.[0]?.iso_date ||
+    notice.result?.deadlines?.[0]?.date;
+  if (deadlineDate) {
+    const cd = getCountdownDetails(deadlineDate);
+    if (cd) {
+      if (cd.isOverdue) return 0;
+      if (cd.urgency === "critical" || cd.urgency === "urgent") return 1;
+      if (cd.urgency === "warning") return 2;
+      return 3;
+    }
+  }
+
+  const priority = (getNoticePriority(notice) || "").toLowerCase();
+  if (["critical", "urgent"].includes(priority)) return 1;
+  if (priority === "high") return 2;
+  return 4;
+}
+
 function NoticeLink({ notice, attention = false }) {
   const title =
+    notice.headline?.one_line_summary ||
     getNoticeField(notice, ["title", "notice_title"]) ||
     notice.original_filename ||
     "Untitled document";
   const source =
+    notice.headline?.source_organisation ||
     getNoticeField(notice, [
       "source_organisation",
       "source_organization",
@@ -77,23 +106,51 @@ function NoticeLink({ notice, attention = false }) {
       "issuing_organization",
       "issuer",
     ]) || "Source organisation not listed";
-  const category = getCategoryLabel(notice.category);
-  const issueDate = getNoticeField(notice, ["issue_date", "issued_at"]);
+  const category = getCategoryLabel(notice.category || notice.headline?.notice_type);
   const status = (notice.status || "Status not reported").replaceAll("_", " ");
 
+  const amountDue = notice.headline?.amount_due || notice.amount_due;
+  const formattedAmount =
+    amountDue && typeof amountDue.amount === "number"
+      ? new Intl.NumberFormat("en-IN", {
+          style: "currency",
+          currency: amountDue.currency || "INR",
+          maximumFractionDigits: 0,
+        }).format(amountDue.amount)
+      : null;
+
+  const primaryDeadlineDate =
+    notice.deadlines?.[0]?.date ||
+    notice.result?.deadlines?.[0]?.iso_date ||
+    notice.result?.deadlines?.[0]?.date;
+  const countdown = primaryDeadlineDate ? getCountdownDetails(primaryDeadlineDate) : null;
+
   return (
-    <article className="rounded-xl border border-slate-200 bg-white p-3.5 transition hover:border-purple-200 hover:bg-purple-50/30">
+    <article className="rounded-2xl border border-slate-200 bg-white p-4 transition hover:border-purple-300 hover:shadow-xs space-y-2.5">
       <div className="flex flex-wrap items-start justify-between gap-2">
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           <Link
             to={`/notices/${notice.id}`}
-            className="focus-ring rounded-sm text-sm font-bold leading-5 text-navy-950 hover:text-purple-800"
+            className="focus-ring rounded-sm text-sm font-extrabold leading-5 text-navy-950 hover:text-purple-800 line-clamp-2"
           >
             {title}
           </Link>
-          <p className="mt-1 truncate text-xs text-slate-500">{source}</p>
+          <p className="mt-1 truncate text-xs text-slate-500 font-medium">{source}</p>
         </div>
-        {attention ? (
+        {countdown ? (
+          <span
+            className={`inline-flex shrink-0 items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-extrabold ${
+              countdown.urgency === "overdue"
+                ? "bg-rose-100 text-rose-800 border border-rose-300"
+                : countdown.daysRemaining <= 3
+                ? "bg-amber-100 text-amber-900 border border-amber-300"
+                : "bg-emerald-100 text-emerald-900 border border-emerald-300"
+            }`}
+          >
+            <Clock3 className="h-3 w-3" aria-hidden="true" />
+            {countdown.label}
+          </span>
+        ) : attention ? (
           <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-amber-50 px-2 py-1 text-[10px] font-bold text-amber-800">
             <AlertTriangle className="h-3 w-3" aria-hidden="true" />
             Review
@@ -104,16 +161,20 @@ function NoticeLink({ notice, attention = false }) {
           </span>
         )}
       </div>
-      <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-500">
-        <span className="capitalize">{status}</span>
-        <span>
-          {issueDate ? `Issued ${formatDate(issueDate)}` : `Added ${formatDate(notice.created_at)}`}
-        </span>
-        {getNoticePriority(notice) && (
-          <span className="font-semibold text-rose-700">
-            {getNoticePriority(notice)} priority
-          </span>
+
+      <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-100 text-xs">
+        {formattedAmount ? (
+          <span className="font-black text-navy-950 text-sm">{formattedAmount}</span>
+        ) : (
+          <span className="text-slate-400 font-medium">{category}</span>
         )}
+        <Link
+          to={`/notices/${notice.id}`}
+          className="text-[11px] font-bold text-purple-700 hover:underline inline-flex items-center gap-1"
+        >
+          <span>View plan</span>
+          <ArrowRight className="w-3 h-3" />
+        </Link>
       </div>
     </article>
   );
@@ -199,14 +260,29 @@ export function DashboardPage() {
     return [...counts.entries()].sort((first, second) => second[1] - first[1]);
   }, [notices]);
 
+  const needActionThisWeek = useMemo(() => {
+    return notices.filter((n) => {
+      const d =
+        n.deadlines?.[0]?.date ||
+        n.result?.deadlines?.[0]?.iso_date ||
+        n.result?.deadlines?.[0]?.date;
+      if (!d) return false;
+      const cd = getCountdownDetails(d);
+      return cd && (cd.isOverdue || cd.daysRemaining <= 7);
+    }).length;
+  }, [notices]);
+
   const recentNotices = useMemo(
     () =>
       [...notices]
-        .sort(
-          (first, second) =>
+        .sort((first, second) => {
+          const rankDiff = getNoticeUrgencyRank(first) - getNoticeUrgencyRank(second);
+          if (rankDiff !== 0) return rankDiff;
+          return (
             new Date(second.created_at || 0).getTime() -
             new Date(first.created_at || 0).getTime()
-        )
+          );
+        })
         .slice(0, 4),
     [notices]
   );
@@ -356,9 +432,11 @@ export function DashboardPage() {
               <section className="surface-card p-5 sm:p-6" aria-labelledby="recent-notices-title">
                 <div className="mb-4 flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-3">
                   <div>
-                    <p className="page-heading-eyebrow">Recently added</p>
+                    <p className="page-heading-eyebrow">Priority actions</p>
                     <h2 id="recent-notices-title" className="text-lg font-extrabold text-navy-950">
-                      Recent notices and documents
+                      {needActionThisWeek > 0
+                        ? `${needActionThisWeek} ${needActionThisWeek === 1 ? "notice needs" : "notices need"} action this week`
+                        : "Recent notices and documents"}
                     </h2>
                   </div>
                   <Link to="/notices" className="focus-ring inline-flex items-center gap-1 rounded text-xs font-bold text-purple-700 hover:text-purple-900">

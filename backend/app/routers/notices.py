@@ -18,7 +18,8 @@ from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from backend.app.database import get_db
-from backend.app.dependencies import get_llm
+from backend.app.dependencies import get_current_user, get_llm
+from backend.app.models.user import UserModel
 from backend.app.schemas import (
     ChecklistItemResponse,
     ChecklistUpdateRequest,
@@ -29,6 +30,7 @@ from backend.app.schemas import (
     ReminderCreateRequest,
     ReminderResponse,
 )
+from backend.app.security import rate_limiter
 from backend.app.services.notice_service import NoticeServiceError, notice_service
 from extraction.llm_client import BaseLLMClient
 
@@ -73,15 +75,30 @@ async def upload_notice(
     file: Annotated[UploadFile, File(description="Official notice PDF file")],
     background_tasks: BackgroundTasks,
     db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[UserModel, Depends(get_current_user)],
     llm_client: Annotated[BaseLLMClient, Depends(get_llm)],
 ) -> NoticeUploadResponse:
-    """Upload and queue notice processing."""
+    """Upload and queue notice processing scoped to authenticated user."""
+    # Rate limit demo account uploads
+    if current_user.is_demo:
+        demo_rate_key = f"demo:upload:{current_user.id}"
+        if not rate_limiter.is_allowed(demo_rate_key, max_attempts=5, window_seconds=3600):
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail={
+                    "error": "DEMO_UPLOAD_LIMIT",
+                    "error_code": "DEMO_UPLOAD_LIMIT",
+                    "message": "Demo account upload limit reached (max 5 uploads/hour). Please sign up for your own account for full access.",
+                },
+            )
+
     try:
         contents = await file.read()
         notice_id, stored_path = notice_service.validate_and_save_upload(
             filename=file.filename or "uploaded_notice.pdf",
             contents=contents,
             content_type=file.content_type,
+            user_id=current_user.id,
         )
     except NoticeServiceError as err:
         raise HTTPException(
@@ -89,12 +106,13 @@ async def upload_notice(
             detail={"error": err.error_code, "message": err.message},
         ) from None
 
-    # Create pending record in DB (or retrieve from cache if duplicate PDF)
+    # Create pending record in DB (or retrieve from cache if duplicate PDF belonging to this user)
     notice_record, is_cached = notice_service.create_pending_notice(
         db=db,
         notice_id=notice_id,
         filename=file.filename or "uploaded_notice.pdf",
         stored_path=stored_path,
+        user_id=current_user.id,
     )
 
     if not is_cached:
@@ -126,9 +144,10 @@ async def legacy_upload_notice(
     file: Annotated[UploadFile, File(description="Official notice in PDF format")],
     background_tasks: BackgroundTasks,
     db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[UserModel, Depends(get_current_user)],
     llm_client: Annotated[BaseLLMClient, Depends(get_llm)],
 ) -> dict:
-    res = await upload_notice(file, background_tasks, db, llm_client)
+    res = await upload_notice(file, background_tasks, db, current_user, llm_client)
     return {"notice_id": res.id, "status": res.status, "message": res.message}
 
 
@@ -136,11 +155,14 @@ async def legacy_upload_notice(
     "",
     response_model=list[NoticeListItem],
     summary="List all uploaded notices",
-    description="Returns a list of all processed or pending notices, sorted newest first.",
+    description="Returns a list of all processed or pending notices for the authenticated user, sorted newest first.",
 )
-async def list_notices(db: Annotated[Session, Depends(get_db)]) -> list[NoticeListItem]:
-    """List all notices with status and deadline summary."""
-    items = notice_service.list_notices(db)
+async def list_notices(
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[UserModel, Depends(get_current_user)],
+) -> list[NoticeListItem]:
+    """List all notices scoped to the authenticated user."""
+    items = notice_service.list_notices(db, user_id=current_user.id)
     return [NoticeListItem(**item) for item in items]
 
 
@@ -148,14 +170,15 @@ async def list_notices(db: Annotated[Session, Depends(get_db)]) -> list[NoticeLi
     "/{notice_id}",
     response_model=NoticeDetailResponse,
     summary="Get full notice details",
-    description="Returns the full extracted JSON contract along with checklist items and reminders.",
+    description="Returns the full extracted JSON contract along with checklist items and reminders. Returns 404 for unowned notices.",
 )
 async def get_notice(
     notice_id: Annotated[str, FastPath(description="Unique notice ID")],
     db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[UserModel, Depends(get_current_user)],
 ) -> NoticeDetailResponse:
-    """Retrieve complete notice record by ID."""
-    detail = notice_service.get_notice_detail(db, notice_id)
+    """Retrieve complete notice record scoped to authenticated user."""
+    detail = notice_service.get_notice_detail(db, notice_id, user_id=current_user.id)
     if not detail:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -168,22 +191,23 @@ async def get_notice(
     "/{notice_id}/pages/{page}",
     response_model=PageTextResponse,
     summary="Get extracted page text",
-    description="Returns the raw normalized text of a specific page for passage viewing (FR-10).",
+    description="Returns the raw normalized text of a specific page for passage viewing. Returns 404 for unowned notices.",
 )
 async def get_notice_page(
     notice_id: Annotated[str, FastPath(description="Unique notice ID")],
     page: Annotated[int, FastPath(ge=1, description="1-indexed page number")],
     db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[UserModel, Depends(get_current_user)],
 ) -> PageTextResponse:
-    """Return text of a specific notice page."""
-    detail = notice_service.get_notice_detail(db, notice_id)
+    """Return text of a specific notice page scoped to user."""
+    detail = notice_service.get_notice_detail(db, notice_id, user_id=current_user.id)
     if not detail:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail={"error": "NOTICE_NOT_FOUND", "message": f"Notice '{notice_id}' was not found."},
         )
 
-    page_data = notice_service.get_notice_page_text(db, notice_id, page)
+    page_data = notice_service.get_notice_page_text(db, notice_id, page, user_id=current_user.id)
     if not page_data:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -198,14 +222,15 @@ async def get_notice_page(
 @router.get(
     "/{notice_id}/file",
     summary="Download original notice PDF",
-    description="Controlled access endpoint serving the original uploaded PDF file.",
+    description="Controlled access endpoint serving the original uploaded PDF file for the authenticated owner.",
 )
 async def get_notice_file(
     notice_id: Annotated[str, FastPath(description="Unique notice ID")],
     db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[UserModel, Depends(get_current_user)],
 ) -> FileResponse:
-    """Stream the original notice PDF file."""
-    file_info = notice_service.get_notice_file_path(db, notice_id)
+    """Stream the original notice PDF file scoped to authenticated owner."""
+    file_info = notice_service.get_notice_file_path(db, notice_id, user_id=current_user.id)
     if not file_info:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -234,9 +259,10 @@ async def update_checklist(
     item_key: str,
     payload: ChecklistUpdateRequest,
     db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[UserModel, Depends(get_current_user)],
 ) -> ChecklistItemResponse:
-    """Update or create a checklist status item."""
-    detail = notice_service.get_notice_detail(db, notice_id)
+    """Update or create a checklist status item scoped to authenticated owner."""
+    detail = notice_service.get_notice_detail(db, notice_id, user_id=current_user.id)
     if not detail:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -253,7 +279,9 @@ async def update_checklist(
             },
         )
 
-    updated = notice_service.update_checklist_item(db, notice_id, item_key, payload.status)
+    updated = notice_service.update_checklist_item(
+        db, notice_id, item_key, payload.status, user_id=current_user.id
+    )
     return ChecklistItemResponse(**updated)
 
 
@@ -268,9 +296,10 @@ async def create_notice_reminder(
     notice_id: str,
     payload: ReminderCreateRequest,
     db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[UserModel, Depends(get_current_user)],
 ) -> ReminderResponse:
-    """Create a new deadline reminder for a notice."""
-    detail = notice_service.get_notice_detail(db, notice_id)
+    """Create a new deadline reminder for a notice scoped to authenticated owner."""
+    detail = notice_service.get_notice_detail(db, notice_id, user_id=current_user.id)
     if not detail:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -283,6 +312,7 @@ async def create_notice_reminder(
         deadline_ref=payload.deadline_ref,
         remind_on=payload.remind_on,
         note=payload.note,
+        user_id=current_user.id,
     )
     return ReminderResponse(**reminder)
 
@@ -296,30 +326,32 @@ async def create_notice_reminder(
 async def list_notice_reminders(
     notice_id: str,
     db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[UserModel, Depends(get_current_user)],
 ) -> list[ReminderResponse]:
-    """Retrieve all reminders for a notice."""
-    detail = notice_service.get_notice_detail(db, notice_id)
+    """Retrieve all reminders for a notice scoped to authenticated owner."""
+    detail = notice_service.get_notice_detail(db, notice_id, user_id=current_user.id)
     if not detail:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail={"error": "NOTICE_NOT_FOUND", "message": f"Notice '{notice_id}' was not found."},
         )
 
-    reminders = notice_service.list_reminders_for_notice(db, notice_id) or []
+    reminders = notice_service.list_reminders_for_notice(db, notice_id, user_id=current_user.id) or []
     return [ReminderResponse(**r) for r in reminders]
 
 
 @router.delete(
     "/{notice_id}",
     summary="Delete notice and stored files",
-    description="Permanently deletes the notice record, stored PDF, checklist, and reminders (Delete My Data).",
+    description="Permanently deletes the notice record, stored PDF, checklist, and reminders.",
 )
 async def delete_notice(
     notice_id: str,
     db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[UserModel, Depends(get_current_user)],
 ) -> dict:
-    """Permanently delete notice and associated data."""
-    success = notice_service.delete_notice(db, notice_id)
+    """Permanently delete notice and associated data scoped to authenticated owner."""
+    success = notice_service.delete_notice(db, notice_id, user_id=current_user.id)
     if not success:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

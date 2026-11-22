@@ -1,14 +1,17 @@
 import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import {
   ArrowRight,
+  CheckCircle2,
   Eye,
   EyeOff,
   FileCheck2,
   GraduationCap,
+  Loader2,
   ShieldCheck,
 } from "lucide-react";
 import { useAuth } from "../context/useAuth";
+import { forgotPassword as apiForgotPassword, resetPassword as apiResetPassword } from "../api/client";
 
 const AUTH_COPY = {
   login: {
@@ -34,10 +37,10 @@ const AUTH_COPY = {
 };
 
 const inputClassName =
-  "focus-ring h-12 w-full rounded-xl border border-slate-200 bg-white px-3.5 text-sm text-navy-950 placeholder:text-slate-400 transition focus:border-purple-400";
+  "focus-ring h-12 w-full rounded-xl border border-slate-200 bg-white px-3.5 text-sm text-navy-950 placeholder:text-slate-400 transition focus:border-purple-400 disabled:bg-slate-50 disabled:text-slate-500";
 const labelClassName = "mb-1.5 block text-sm font-semibold text-slate-700";
 
-function PasswordField({ id, label, value, onChange, autoComplete }) {
+function PasswordField({ id, label, value, onChange, autoComplete, disabled }) {
   const [visible, setVisible] = useState(false);
 
   return (
@@ -55,6 +58,7 @@ function PasswordField({ id, label, value, onChange, autoComplete }) {
           autoComplete={autoComplete}
           required
           minLength={8}
+          disabled={disabled}
           className={`${inputClassName} pr-12`}
         />
         <button
@@ -78,28 +82,78 @@ export function AuthPage({ mode }) {
   const [password, setPassword] = useState("");
   const [confirmation, setConfirmation] = useState("");
   const [rememberMe, setRememberMe] = useState(false);
+  const [tokenInput, setTokenInput] = useState("");
   const [message, setMessage] = useState("");
-  const { startDemoSession } = useAuth();
+  const [isSuccess, setIsSuccess] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const { login, signup, demoLogin } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  const [searchParams] = useSearchParams();
+
+  const redirectTarget = searchParams.get("redirect") || "/dashboard";
+  const urlToken = searchParams.get("token") || "";
+  const effectiveResetToken = urlToken || tokenInput;
+
   const hasPassword = mode === "login" || mode === "signup" || mode === "reset-password";
 
-  const handleSubmit = (event) => {
+  const handleSubmit = async (event) => {
     event.preventDefault();
     setMessage("");
+    setIsSuccess(false);
 
     if ((mode === "signup" || mode === "reset-password") && password !== confirmation) {
       setMessage("The passwords do not match. Please check both fields.");
       return;
     }
 
-    setMessage(
-      "Authentication is not connected to a backend yet. No sign-in, account creation, email, or password reset was performed."
-    );
+    if (mode === "reset-password" && !effectiveResetToken) {
+      setMessage("Missing password reset token. Please check the link from your email.");
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      if (mode === "signup") {
+        await signup({ full_name: name, email, password });
+        navigate(redirectTarget, { replace: true });
+      } else if (mode === "login") {
+        await login({ email, password, rememberMe });
+        navigate(redirectTarget, { replace: true });
+      } else if (mode === "forgot-password") {
+        await apiForgotPassword({ email });
+        setIsSuccess(true);
+        setMessage("If an account exists with that email address, a password reset link has been sent.");
+      } else if (mode === "reset-password") {
+        await apiResetPassword({ token: effectiveResetToken, new_password: password });
+        setIsSuccess(true);
+        setMessage("Your password has been successfully reset! Redirecting to sign in...");
+        setTimeout(() => {
+          navigate("/login", { replace: true });
+        }, 1800);
+      }
+    } catch (err) {
+      const errorMsg =
+        err?.details?.message ||
+        err?.message ||
+        "An unexpected error occurred. Please verify your details and try again.";
+      setMessage(errorMsg);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
-  const handleDemoEntry = () => {
-    startDemoSession(rememberMe);
-    navigate("/dashboard", { replace: true });
+  const handleDemoEntry = async () => {
+    setIsSubmitting(true);
+    try {
+      await demoLogin(rememberMe);
+      navigate(redirectTarget, { replace: true });
+    } catch (err) {
+      setMessage(err?.message || "Could not start demo session.");
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -170,9 +224,14 @@ export function AuthPage({ mode }) {
             {message && (
               <div
                 role="alert"
-                className="mb-5 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-5 text-amber-900"
+                className={`mb-5 flex items-start gap-2.5 rounded-xl border px-4 py-3 text-sm leading-5 ${
+                  isSuccess
+                    ? "border-emerald-200 bg-emerald-50 text-emerald-900"
+                    : "border-amber-200 bg-amber-50 text-amber-900"
+                }`}
               >
-                {message}
+                {isSuccess && <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />}
+                <span>{message}</span>
               </div>
             )}
 
@@ -190,6 +249,7 @@ export function AuthPage({ mode }) {
                     value={name}
                     onChange={(event) => setName(event.target.value)}
                     required
+                    disabled={isSubmitting}
                     className={inputClassName}
                   />
                 </div>
@@ -208,6 +268,26 @@ export function AuthPage({ mode }) {
                     value={email}
                     onChange={(event) => setEmail(event.target.value)}
                     required
+                    disabled={isSubmitting}
+                    className={inputClassName}
+                  />
+                </div>
+              )}
+
+              {mode === "reset-password" && !urlToken && (
+                <div>
+                  <label htmlFor="reset-token" className={labelClassName}>
+                    Reset Token (from email link)
+                  </label>
+                  <input
+                    id="reset-token"
+                    name="token"
+                    type="text"
+                    value={tokenInput}
+                    onChange={(event) => setTokenInput(event.target.value)}
+                    required
+                    placeholder="Enter reset token"
+                    disabled={isSubmitting}
                     className={inputClassName}
                   />
                 </div>
@@ -220,6 +300,7 @@ export function AuthPage({ mode }) {
                   value={password}
                   onChange={(event) => setPassword(event.target.value)}
                   autoComplete={mode === "login" ? "current-password" : "new-password"}
+                  disabled={isSubmitting}
                 />
               )}
 
@@ -230,6 +311,7 @@ export function AuthPage({ mode }) {
                   value={confirmation}
                   onChange={(event) => setConfirmation(event.target.value)}
                   autoComplete="new-password"
+                  disabled={isSubmitting}
                 />
               )}
 
@@ -240,9 +322,10 @@ export function AuthPage({ mode }) {
                       type="checkbox"
                       checked={rememberMe}
                       onChange={(event) => setRememberMe(event.target.checked)}
+                      disabled={isSubmitting}
                       className="h-4 w-4 rounded border-slate-300 text-purple-700 focus:ring-purple-500"
                     />
-                    Remember demo session
+                    Remember session
                   </label>
                   <Link
                     to="/forgot-password"
@@ -255,10 +338,20 @@ export function AuthPage({ mode }) {
 
               <button
                 type="submit"
-                className="focus-ring mt-2 inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-purple-700 px-4 py-3 text-sm font-bold text-white shadow-glow transition hover:bg-purple-800"
+                disabled={isSubmitting}
+                className="focus-ring mt-2 inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-purple-700 px-4 py-3 text-sm font-bold text-white shadow-glow transition hover:bg-purple-800 disabled:opacity-70"
               >
-                {copy.action}
-                <ArrowRight className="h-4 w-4" aria-hidden="true" />
+                {isSubmitting ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    <span>Please wait...</span>
+                  </>
+                ) : (
+                  <>
+                    {copy.action}
+                    <ArrowRight className="h-4 w-4" aria-hidden="true" />
+                  </>
+                )}
               </button>
             </form>
 
@@ -272,7 +365,8 @@ export function AuthPage({ mode }) {
                 <button
                   type="button"
                   onClick={handleDemoEntry}
-                  className="focus-ring inline-flex min-h-12 w-full items-center justify-center rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-navy-900 transition hover:border-purple-200 hover:bg-purple-50"
+                  disabled={isSubmitting}
+                  className="focus-ring inline-flex min-h-12 w-full items-center justify-center rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-navy-900 transition hover:border-purple-200 hover:bg-purple-50 disabled:opacity-70"
                 >
                   Continue in clearly labeled demo mode
                 </button>
@@ -281,8 +375,8 @@ export function AuthPage({ mode }) {
 
             <p className="mt-5 rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-3 text-xs leading-5 text-slate-600">
               {mode === "login"
-                ? "Real sign-in is not connected. Demo mode only creates a local frontend preview session and does not verify your credentials."
-                : "This request is not connected to backend authentication. No account, email, or password will be changed."}
+                ? "Sign in with your registered account or use demo mode. Demo mode uses a pre-configured sandbox account and does not verify your credentials."
+                : "Enter your registered credentials. Secure encryption ensures passwords are never stored in plain text."}
             </p>
 
             <div className="mt-5 text-center text-sm text-slate-600">

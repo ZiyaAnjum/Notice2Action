@@ -1,5 +1,6 @@
 import { Link, NavLink } from "react-router-dom";
 import { FileUp, Files, ShieldCheck } from "lucide-react";
+import { LanguageToggle } from "./LanguageToggle";
 
 export function Header() {
   return (
@@ -38,6 +39,7 @@ export function Header() {
           className="flex items-center gap-2 sm:gap-3"
           aria-label="Main Navigation"
         >
+          <LanguageToggle />
           <NavLink
             to="/"
             end

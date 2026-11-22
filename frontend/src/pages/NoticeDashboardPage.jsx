@@ -1,49 +1,76 @@
-import { useEffect, useState, useCallback, useRef } from "react";
-import { useParams, Link } from "react-router-dom";
+import { useEffect, useState, useCallback, useRef, useMemo } from "react";
+import { useParams, Link, useSearchParams } from "react-router-dom";
 import {
   AlertTriangle,
   Upload,
   Loader2,
   FileText,
-  Building,
   RefreshCw,
   ExternalLink,
-  CheckCircle,
+  ChevronDown,
+  ChevronRight,
+  Info,
+  AlertCircle,
+  FileCheck,
+  CheckCircle2,
 } from "lucide-react";
-import { getNotice, updateChecklistItem, getNoticeFileUrl } from "../api/client";
-import { getCategoryLabel, SUPPORTED_CATEGORIES } from "../utils/categories";
-import { DeadlineCard } from "../components/DeadlineCard";
-import { SummaryQuestions } from "../components/SummaryQuestions";
-import { ActionStepList } from "../components/ActionStepList";
-import { DocumentChecklist } from "../components/DocumentChecklist";
-import { PenaltiesAndWarnings } from "../components/PenaltiesAndWarnings";
-import { NoticeRemindersList } from "../components/NoticeRemindersList";
-import { SourceViewerModal } from "../components/SourceViewerModal";
+import { getNotice, getNoticeFileUrl } from "../api/client";
+import { DecisionCard } from "../components/DecisionCard";
+import { ActionChecklist } from "../components/ActionChecklist";
+import { DeadlineTimeline } from "../components/DeadlineTimeline";
+import { EvidencePanel } from "../components/EvidencePanel";
+import { ProcessingStepper } from "../components/ProcessingStepper";
 import { ReminderModal } from "../components/ReminderModal";
-import { UncertainBadge } from "../components/UncertainBadge";
-import { getNoticeField } from "../utils/notices";
-import { formatDate } from "../utils/text";
+
+// Import mock fixtures for testing and fallback
+import sampleElectricityNotice from "../mocks/sample_electricity_notice.json";
+import partialNotice from "../mocks/partial_notice.json";
+import failedNotice from "../mocks/failed_notice.json";
+import processingNotice from "../mocks/processing_notice.json";
+
+const MOCK_FIXTURES = {
+  complete: sampleElectricityNotice,
+  "sample_electricity_notice": sampleElectricityNotice,
+  "notice-elec-001": sampleElectricityNotice,
+  partial: partialNotice,
+  "notice-partial-002": partialNotice,
+  failed: failedNotice,
+  "notice-failed-003": failedNotice,
+  processing: processingNotice,
+  "notice-proc-004": processingNotice,
+};
+
+function resolveInitialFixture() {
+  if (typeof window === "undefined") return null;
+  const hash = window.location.hash || "";
+  const search = window.location.search || "";
+  const query = `${hash}&${search}`;
+  for (const [key, fixture] of Object.entries(MOCK_FIXTURES)) {
+    if (query.includes(`fixture=${key}`) || query.includes(`/notices/${key}`)) {
+      return fixture;
+    }
+  }
+  return null;
+}
 
 export function NoticeDashboardPage() {
   const { id } = useParams();
+  const [searchParams] = useSearchParams();
+  const fixtureParam = searchParams.get("fixture");
 
-  const [notice, setNotice] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const initialFixture = resolveInitialFixture();
+  const [notice, setNotice] = useState(initialFixture);
+  const [loading, setLoading] = useState(!initialFixture);
   const [fetchError, setFetchError] = useState(null);
 
-  // Checklist state for optimistic update and rollback
-  const [checklistMap, setChecklistMap] = useState({});
-  const [checklistError, setChecklistError] = useState(null);
-
-  // Reminders state
-  const [reminders, setReminders] = useState([]);
-
-  // Modals state
-  const [sourceModal, setSourceModal] = useState({
+  // Evidence slide-over side panel state
+  const [evidencePanel, setEvidencePanel] = useState({
     isOpen: false,
     page: null,
     quote: null,
   });
+
+  // Reminder modal state
   const [reminderModal, setReminderModal] = useState({
     isOpen: false,
     deadline: null,
@@ -52,26 +79,24 @@ export function NoticeDashboardPage() {
   const pollIntervalRef = useRef(null);
 
   const fetchNoticeData = useCallback(async () => {
+    // If fixture query param or mock id is requested, load local fixture immediately
+    const targetKey = fixtureParam || id;
+    if (targetKey && MOCK_FIXTURES[targetKey]) {
+      setNotice(MOCK_FIXTURES[targetKey]);
+      setLoading(false);
+      setFetchError(null);
+      return;
+    }
+
     if (!id) return;
     setLoading(true);
     setFetchError(null);
+
     try {
       const data = await getNotice(id);
       setNotice(data);
 
-      // Build checklist map from backend data
-      const initialMap = {};
-      if (Array.isArray(data.checklist)) {
-        data.checklist.forEach((item) => {
-          initialMap[item.item_key] = item.status;
-        });
-      }
-      setChecklistMap(initialMap);
-
-      // Set reminders
-      setReminders(data.reminders || []);
-
-      // If processing, keep polling until final status
+      // If notice is processing, poll every 1.5s
       if (data.status === "processing") {
         if (!pollIntervalRef.current) {
           pollIntervalRef.current = setInterval(async () => {
@@ -81,118 +106,92 @@ export function NoticeDashboardPage() {
                 clearInterval(pollIntervalRef.current);
                 pollIntervalRef.current = null;
                 setNotice(refreshed);
-                setReminders(refreshed.reminders || []);
-                setChecklistMap(
-                  Object.fromEntries(
-                    (Array.isArray(refreshed.checklist) ? refreshed.checklist : []).map(
-                      (item) => [item.item_key, item.status]
-                    )
-                  )
-                );
               }
             } catch {
-              // ignore transient error
+              // ignore transient network errors during poll
             }
-          }, 2000);
+          }, 1500);
         }
-      } else {
-        if (pollIntervalRef.current) {
-          clearInterval(pollIntervalRef.current);
-          pollIntervalRef.current = null;
-        }
+      } else if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+        pollIntervalRef.current = null;
       }
     } catch (err) {
-      setFetchError(err.message || "Failed to load notice details.");
+      // If server returned 404 and id matches a sample notice, fallback to mock
+      if (MOCK_FIXTURES[id]) {
+        setNotice(MOCK_FIXTURES[id]);
+      } else {
+        setFetchError(err.message || "Failed to load notice details.");
+      }
     } finally {
       setLoading(false);
     }
-  }, [id]);
+  }, [id, fixtureParam]);
 
   useEffect(() => {
+    if (initialFixture) return;
     fetchNoticeData();
     return () => {
       if (pollIntervalRef.current) {
         clearInterval(pollIntervalRef.current);
+        pollIntervalRef.current = null;
       }
     };
-  }, [fetchNoticeData]);
-
-  // Handle checklist update with optimistic update and rollback
-  const handleChecklistStatusChange = async (itemKey, newStatus) => {
-    setChecklistError(null);
-    const previousMap = { ...checklistMap };
-
-    // 1. Optimistic update
-    setChecklistMap((prev) => ({
-      ...prev,
-      [itemKey]: newStatus,
-    }));
-
-    // 2. Call backend
-    try {
-      await updateChecklistItem(id, itemKey, newStatus);
-    } catch (err) {
-      // 3. Rollback on failure
-      setChecklistMap(previousMap);
-      setChecklistError(
-        `Failed to update checklist item: ${err.message || "Network error"}. Previous status restored.`
-      );
-    }
-  };
+  }, [fetchNoticeData, initialFixture]);
 
   const handleOpenSource = (page, quote) => {
-    setSourceModal({
+    setEvidencePanel({
       isOpen: true,
-      page,
-      quote,
+      page: page || 1,
+      quote: quote || "",
     });
   };
 
-  const handleOpenReminder = (deadline) => {
-    setReminderModal({
-      isOpen: true,
-      deadline,
+  const handleCloseSource = () => {
+    setEvidencePanel({
+      isOpen: false,
+      page: null,
+      quote: null,
     });
-  };
-
-  const handleReminderCreated = (newReminder) => {
-    setReminders((prev) => [...prev, newReminder]);
-  };
-
-  const handleReminderUpdated = (updated) => {
-    setReminders((prev) =>
-      prev.map((r) => (r.id === updated.id ? updated : r))
-    );
-  };
-
-  const handleReminderDeleted = (deletedId) => {
-    setReminders((prev) => prev.filter((r) => r.id !== deletedId));
   };
 
   // -------------------------------------------------------------
-  // Render Loading & Initial Fetch Error
+  // Loading & Initial Error States
   // -------------------------------------------------------------
   if (loading) {
     return (
-      <main className="page-shell max-w-4xl space-y-4 py-10 text-center sm:py-14">
-        <Loader2 className="w-12 h-12 text-indigo-600 animate-spin mx-auto" />
-        <h1 className="text-xl font-bold text-slate-800">Loading document details...</h1>
+      <main className="page-shell max-w-4xl space-y-4 py-12 text-center">
+        <Loader2 className="w-12 h-12 text-purple-600 animate-spin mx-auto" />
+        <h1 className="text-xl font-black text-navy-950">Loading notice action plan...</h1>
       </main>
     );
   }
 
   if (fetchError || !notice) {
     return (
-      <main className="page-shell max-w-3xl space-y-6">
-        <div className="p-6 rounded-2xl bg-rose-50 border-2 border-rose-300 text-rose-950 space-y-3">
-          <h1 className="text-xl font-extrabold">Document not available</h1>
-          <p className="text-sm font-medium">{fetchError || "The requested document could not be found."}</p>
-          <div className="pt-2">
-            <Link
-              to="/notices"
+      <main className="page-shell max-w-3xl space-y-6 py-8">
+        <div className="p-8 rounded-3xl bg-rose-50 border-2 border-rose-300 text-rose-950 space-y-4 shadow-sm">
+          <div className="w-12 h-12 rounded-2xl bg-rose-100 flex items-center justify-center text-rose-700">
+            <AlertCircle className="w-6 h-6" aria-hidden="true" />
+          </div>
+          <h1 className="text-2xl font-black">Notice not found</h1>
+          <p className="text-sm font-medium leading-relaxed">
+            {fetchError || "The requested notice could not be retrieved from the server."}
+          </p>
+          <div className="pt-2 flex flex-wrap gap-3">
+            <button
+              type="button"
+              onClick={fetchNoticeData}
               className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold bg-rose-600 text-white hover:bg-rose-700 min-h-[44px]"
             >
-              Back to document library
+              <RefreshCw className="w-4 h-4" />
+              <span>Retry Loading</span>
+            </button>
+            <Link
+              to="/notices"
+              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold bg-white border border-slate-300 text-slate-700 hover:bg-slate-100 min-h-[44px]"
+            >
+              Back to all notices
             </Link>
           </div>
         </div>
@@ -201,66 +200,52 @@ export function NoticeDashboardPage() {
   }
 
   // -------------------------------------------------------------
-  // Pre-result Status Handling
+  // Processing State with 4-Step Stepper & Skeletons
   // -------------------------------------------------------------
-
-  // 1. Processing
   if (notice.status === "processing") {
     return (
-      <main className="page-shell max-w-3xl space-y-6 py-10 text-center sm:py-14">
-        <div className="p-8 sm:p-12 bg-white border-2 border-indigo-200 rounded-3xl shadow-sm space-y-4">
-          <Loader2 className="w-14 h-14 text-indigo-600 animate-spin mx-auto" />
-          <h1 className="text-2xl sm:text-3xl font-black text-slate-950">
-            Processing your document
-          </h1>
-          <p className="text-base text-slate-600 max-w-md mx-auto">
-            The connected processing service is extracting available information. This view will refresh when it reports a result; extracted details still need review against the original.
-          </p>
-          <div className="pt-2">
-            <button
-              type="button"
-              onClick={fetchNoticeData}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100"
-            >
-              <RefreshCw className="w-3.5 h-3.5" />
-              <span>Refresh Status</span>
-            </button>
-          </div>
-        </div>
+      <main className="page-shell max-w-5xl space-y-6">
+        <ProcessingStepper
+          stage={notice.stage || "reading_text"}
+          progress={notice.progress || 30}
+          onRefresh={fetchNoticeData}
+        />
       </main>
     );
   }
 
-  // 2. needs_clearer_document
+  // -------------------------------------------------------------
+  // Failed / Needs Clearer / Out of Scope States
+  // -------------------------------------------------------------
   if (notice.status === "needs_clearer_document") {
     return (
-      <main className="page-shell max-w-3xl space-y-6">
+      <main className="page-shell max-w-3xl space-y-6 py-8">
         <div
           role="alert"
-          className="bg-white border-2 border-amber-400 rounded-3xl p-6 sm:p-10 shadow-sm space-y-5"
+          className="bg-white border-2 border-amber-300 rounded-3xl p-6 sm:p-10 shadow-sm space-y-6"
         >
           <div className="w-14 h-14 rounded-2xl bg-amber-100 flex items-center justify-center text-amber-800">
-            <AlertTriangle className="w-8 h-8" />
+            <AlertTriangle className="w-7 h-7" aria-hidden="true" />
           </div>
 
           <div className="space-y-2">
-            <h1 className="text-2xl sm:text-3xl font-black text-slate-950">
+            <h1 className="text-2xl sm:text-3xl font-black text-navy-950">
               Clearer Document Needed
             </h1>
-            <p className="text-base text-slate-700 leading-relaxed font-medium">
+            <p className="text-base text-slate-700 font-medium leading-relaxed">
               We could not read the text in this document clearly. The uploaded PDF appears to be a scanned image, blurry, or missing digital text.
             </p>
             {notice.message && (
-              <div className="p-3 bg-amber-50 rounded-xl border border-amber-200 text-sm text-amber-900 font-mono">
+              <p className="p-3 bg-amber-50 rounded-xl border border-amber-200 text-xs text-amber-900 font-mono">
                 {notice.message}
-              </div>
+              </p>
             )}
           </div>
 
           <div className="pt-2 flex flex-wrap gap-3">
             <Link
               to="/upload"
-              className="inline-flex items-center gap-2 px-6 py-3 rounded-xl font-black text-white bg-indigo-600 hover:bg-indigo-700 shadow-md min-h-[48px]"
+              className="inline-flex items-center gap-2 px-6 py-3 rounded-xl font-black text-white bg-purple-600 hover:bg-purple-700 shadow-md min-h-[48px] focus:outline-hidden focus:ring-2 focus:ring-purple-600"
             >
               <Upload className="w-5 h-5" />
               <span>Upload a Clearer File</span>
@@ -269,7 +254,7 @@ export function NoticeDashboardPage() {
               to="/notices"
               className="inline-flex items-center gap-2 px-5 py-3 rounded-xl font-bold text-slate-700 bg-white border border-slate-300 hover:bg-slate-100 min-h-[48px]"
             >
-              <span>Back to document library</span>
+              Back to all notices
             </Link>
           </div>
         </div>
@@ -277,40 +262,40 @@ export function NoticeDashboardPage() {
     );
   }
 
-  // 3. out_of_scope
   if (notice.status === "out_of_scope") {
     return (
-      <main className="page-shell max-w-3xl space-y-6">
+      <main className="page-shell max-w-3xl space-y-6 py-8">
         <div
           role="alert"
           className="bg-white border-2 border-slate-300 rounded-3xl p-6 sm:p-10 shadow-sm space-y-6"
         >
           <div className="w-14 h-14 rounded-2xl bg-slate-100 flex items-center justify-center text-slate-700">
-            <FileText className="w-8 h-8" />
+            <FileText className="w-7 h-7" aria-hidden="true" />
           </div>
 
           <div className="space-y-2">
-            <h1 className="text-2xl sm:text-3xl font-black text-slate-950">
+            <h1 className="text-2xl sm:text-3xl font-black text-navy-950">
               Document Not Yet Classified
             </h1>
-            <p className="text-base text-slate-700 leading-relaxed font-medium">
-              The current processing service did not classify this document, so no extracted action plan is available. Notice2Action is intended for communications from different organisations, but category coverage depends on the connected processing integration.
+            <p className="text-base text-slate-700 font-medium leading-relaxed">
+              The processing service did not recognize this document as an actionable notice. Notice2Action supports communications from public and institutional services.
             </p>
           </div>
 
-          {/* Supported Categories List */}
           <div className="space-y-3 pt-2 border-t border-slate-200">
-            <h2 className="text-sm font-bold uppercase tracking-wider text-slate-500">
-              Categories currently recognised by the processing service:
+            <h2 className="text-xs font-bold uppercase tracking-wider text-slate-500">
+              Supported Categories:
             </h2>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {SUPPORTED_CATEGORIES.map((cat) => (
-                <div
-                  key={cat.key}
-                  className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-0.5"
-                >
-                  <p className="font-extrabold text-sm text-slate-900">{cat.label}</p>
-                  <p className="text-xs text-slate-600 font-medium">{cat.description}</p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+              {[
+                { label: "Tax & payments", desc: "Council tax, municipal assessments, property tax" },
+                { label: "Education & student funding", desc: "Admissions, fees, bursaries, hall notices" },
+                { label: "Government & public services", desc: "Licensing, compliance, civil advisories" },
+                { label: "Utilities & bills", desc: "Electricity, water, gas, broadband demand notes" },
+              ].map((cat) => (
+                <div key={cat.label} className="p-3 rounded-xl bg-slate-50 border border-slate-200">
+                  <p className="font-extrabold text-sm text-navy-950">{cat.label}</p>
+                  <p className="text-xs text-slate-500 font-medium">{cat.desc}</p>
                 </div>
               ))}
             </div>
@@ -319,7 +304,7 @@ export function NoticeDashboardPage() {
           <div className="pt-2 flex flex-wrap gap-3">
             <Link
               to="/upload"
-              className="inline-flex items-center gap-2 px-6 py-3 rounded-xl font-black text-white bg-indigo-600 hover:bg-indigo-700 min-h-[48px]"
+              className="inline-flex items-center gap-2 px-6 py-3 rounded-xl font-black text-white bg-purple-600 hover:bg-purple-700 shadow-md min-h-[48px]"
             >
               <Upload className="w-5 h-5" />
               <span>Upload Another Notice</span>
@@ -328,7 +313,7 @@ export function NoticeDashboardPage() {
               to="/notices"
               className="inline-flex items-center gap-2 px-5 py-3 rounded-xl font-bold text-slate-700 bg-white border border-slate-300 hover:bg-slate-100 min-h-[48px]"
             >
-              <span>Back to document library</span>
+              Back to all notices
             </Link>
           </div>
         </div>
@@ -336,36 +321,59 @@ export function NoticeDashboardPage() {
     );
   }
 
-  // 4. extraction_failed or unconfigured AI service
-  if (notice.status === "extraction_failed") {
+  // Failed State: Friendly Message + Try Again Button
+  if (
+    notice.status === "failed" ||
+    notice.status === "extraction_failed"
+  ) {
+    const friendlyError =
+      notice.error ||
+      notice.message ||
+      "We couldn't read text from this PDF. Try a clearer scan.";
+
     return (
-      <main className="page-shell max-w-3xl space-y-6">
+      <main className="page-shell max-w-3xl space-y-6 py-8">
         <div
           role="alert"
-          className="bg-white border-2 border-rose-300 rounded-3xl p-6 sm:p-10 shadow-sm space-y-5"
+          className="bg-white border-2 border-rose-300 rounded-3xl p-6 sm:p-10 shadow-sm space-y-6"
         >
           <div className="w-14 h-14 rounded-2xl bg-rose-100 flex items-center justify-center text-rose-700">
-            <AlertTriangle className="w-8 h-8" />
+            <AlertTriangle className="w-7 h-7" aria-hidden="true" />
           </div>
 
           <div className="space-y-2">
-            <h1 className="text-2xl sm:text-3xl font-black text-slate-950">
+            <h1 className="text-2xl sm:text-3xl font-black text-navy-950">
               Document processing could not complete
             </h1>
-            <p className="text-base text-slate-700 font-medium">
-              The connected service could not process this document. This might happen if the file is corrupted or the processing service is unavailable.
+            <p className="text-base text-slate-700 font-medium leading-relaxed">
+              {friendlyError}
             </p>
-            {notice.message && (
-              <div className="p-4 bg-rose-50 rounded-xl border border-rose-200 text-sm text-rose-950 font-medium">
-                {notice.message}
-              </div>
+
+            {notice.warnings && notice.warnings.length > 0 && (
+              <ul className="mt-3 p-3.5 bg-rose-50 rounded-2xl border border-rose-200 text-xs text-rose-900 space-y-1 list-disc list-inside font-mono">
+                {notice.warnings.map((w, idx) => (
+                  <li key={idx}>{typeof w === "string" ? w : JSON.stringify(w)}</li>
+                ))}
+              </ul>
             )}
           </div>
+
+          {/* Raw extracted text excerpt if any exists */}
+          {notice.raw_text && (
+            <details className="rounded-2xl bg-slate-50 border border-slate-200 p-4 text-xs text-slate-700">
+              <summary className="font-bold cursor-pointer text-slate-800 hover:text-navy-950">
+                View raw document text ({notice.raw_text.length} chars)
+              </summary>
+              <pre className="mt-2 p-3 bg-white rounded-xl border border-slate-200 font-mono text-[11px] overflow-x-auto whitespace-pre-wrap max-h-48 text-slate-800">
+                {notice.raw_text}
+              </pre>
+            </details>
+          )}
 
           <div className="pt-2 flex flex-wrap gap-3">
             <Link
               to="/upload"
-              className="inline-flex items-center gap-2 px-6 py-3 rounded-xl font-black text-white bg-indigo-600 hover:bg-indigo-700 min-h-[48px]"
+              className="inline-flex items-center gap-2 px-6 py-3 rounded-xl font-black text-white bg-purple-600 hover:bg-purple-700 shadow-md min-h-[48px] focus:outline-hidden focus:ring-2 focus:ring-purple-600"
             >
               <Upload className="w-5 h-5" />
               <span>Try Uploading Again</span>
@@ -374,7 +382,7 @@ export function NoticeDashboardPage() {
               to="/notices"
               className="inline-flex items-center gap-2 px-5 py-3 rounded-xl font-bold text-slate-700 bg-white border border-slate-300 hover:bg-slate-100 min-h-[48px]"
             >
-              <span>Back to document library</span>
+              Back to all notices
             </Link>
           </div>
         </div>
@@ -383,246 +391,200 @@ export function NoticeDashboardPage() {
   }
 
   // -------------------------------------------------------------
-  // Processed Status (Core Dashboard View, FR-08)
+  // Data Normalization (Supports Schema v2 and backward v1)
   // -------------------------------------------------------------
   const result = notice.result || {};
+
+  const headline = notice.headline || {
+    one_line_summary:
+      notice.one_line_summary ||
+      result.notice_title?.value ||
+      notice.title ||
+      notice.original_filename ||
+      "Official Notice Action Plan",
+    notice_type: notice.notice_type || result.category || notice.category || "Official Notice",
+    source_organisation:
+      notice.source_organisation ||
+      result.issuing_organisation?.value ||
+      notice.source_organization ||
+      "",
+    amount_due: notice.amount_due || null,
+    primary_deadline_id: notice.primary_deadline_id || null,
+    urgency: notice.urgency || "soon",
+  };
+
+  const deadlines = Array.isArray(notice.deadlines)
+    ? notice.deadlines
+    : Array.isArray(result.deadlines)
+    ? result.deadlines.map((d, i) => ({
+        id: d.id || `dl_${i}`,
+        label: d.label || d.description || "Deadline",
+        kind: d.kind || "due",
+        date: d.iso_date || d.date,
+        date_type: d.date_type || "exact",
+        derived_from: d.derived_from || null,
+        evidence: d.evidence || null,
+      }))
+    : [];
+
+  // Determine primary deadline for the decision card countdown
+  const primaryDeadline =
+    deadlines.find((d) => d.id === headline.primary_deadline_id) ||
+    deadlines[0] ||
+    null;
+
+  const actionSteps = Array.isArray(notice.action_steps)
+    ? notice.action_steps
+    : Array.isArray(result.action_steps)
+    ? result.action_steps.map((s, i) => ({
+        order: s.order || i + 1,
+        text: typeof s === "string" ? s : s.text || s.action || "",
+        evidence: s.evidence || null,
+      }))
+    : [];
+
+  const consequences = Array.isArray(notice.consequences)
+    ? notice.consequences
+    : Array.isArray(result.penalties)
+    ? result.penalties.map((p) => ({
+        label: p.label || p.type || "Consequence",
+        value: p.consequence || p.text || p.value || "",
+        evidence: p.evidence || null,
+      }))
+    : [];
+
+  const requiredDocuments = (
+    Array.isArray(notice.required_documents)
+      ? notice.required_documents
+      : Array.isArray(result.required_documents)
+      ? result.required_documents
+      : []
+  ).filter((doc) => doc && (doc.name || typeof doc === "string"));
+
+  const whereToSubmit = notice.where_to_submit || result.submission_channel || [];
+
+  const conditionsThatApply = (
+    Array.isArray(notice.conditions_that_apply) ? notice.conditions_that_apply : []
+  ).filter((c) => c && (c.condition || typeof c === "string"));
+
+  const summaryPlain =
+    notice.summary_plain ||
+    result.plain_language_summary?.what_is_this ||
+    (typeof result.plain_language_summary === "string" ? result.plain_language_summary : null);
+
+  const warnings = notice.warnings || result.warnings || [];
   const technicalNotes = result.technical_notes || notice.technical_notes || [];
-
-  // Title & Issuer
-  const noticeTitle =
-    result.notice_title?.value ||
-    (typeof result.notice_title === "string" ? result.notice_title : null) ||
-    notice.title ||
-    notice.original_filename ||
-    "Official Notice";
-  const titleUncertain =
-    result.notice_title?.status === "uncertain" || result.notice_title?.needs_verification;
-  const titlePage = result.notice_title?.source_page || result.notice_title?.evidence?.page;
-  const titleQuote = result.notice_title?.evidence_quote || result.notice_title?.evidence?.quote;
-
-  const issuingOrg =
-    getNoticeField(notice, [
-      "source_organisation",
-      "source_organization",
-      "issuing_organisation",
-      "issuing_organization",
-      "issuer",
-    ]) ||
-    "Not stated in notice";
-  const issuerUncertain =
-    result.issuing_organisation?.status === "uncertain" ||
-    result.issuing_organisation?.needs_verification;
-  const issuerPage =
-    result.issuing_organisation?.source_page || result.issuing_organisation?.evidence?.page;
-  const issuerQuote =
-    result.issuing_organisation?.evidence_quote || result.issuing_organisation?.evidence?.quote;
-  const documentType = getNoticeField(notice, ["notice_type", "document_type", "type"]);
-  const priority = getNoticeField(notice, ["priority", "priority_level", "urgency"]);
-  const issueDate = getNoticeField(notice, ["issue_date", "issued_at"]);
-
-  const categoryLabel = getCategoryLabel(notice.category || result.category);
-  const pdfFileUrl = getNoticeFileUrl(id);
+  const pdfUrl = id ? getNoticeFileUrl(id) : "#";
 
   return (
-    <main className="page-shell max-w-6xl space-y-6 sm:space-y-8">
-      {/* Prominent Verification Alert Banner (if needs_verification is true) */}
-      {notice.needs_verification && (
-        <div
-          role="alert"
+    <main className="page-shell max-w-5xl space-y-6 sm:space-y-8">
+      {/* Slim Inline Notice for Partial Extraction (No huge page-wide banner) */}
+      {notice.status === "partial" && (
+        <aside
+          role="status"
           aria-live="polite"
-          className="p-5 sm:p-6 bg-amber-50 border-3 border-amber-400 rounded-2xl shadow-sm flex items-start gap-3.5 text-amber-950"
+          className="flex items-start gap-3 rounded-2xl border border-amber-300 bg-amber-50/90 p-4 text-xs sm:text-sm text-amber-950 shadow-xs"
         >
-          <AlertTriangle className="w-7 h-7 text-amber-700 flex-shrink-0 mt-0.5" aria-hidden="true" />
+          <AlertTriangle className="h-5 w-5 shrink-0 text-amber-800 mt-0.5" aria-hidden="true" />
           <div className="space-y-1">
-            <h2 className="text-lg sm:text-xl font-black">
-              Please check the highlighted items against your notice before acting
-            </h2>
-            <p className="text-sm sm:text-base font-medium text-amber-900 leading-relaxed">
-              Certain claims, dates, or requirements in this document could not be verified with complete confidence. Look for the amber &ldquo;Please verify&rdquo; badges throughout this page.
+            <p className="font-extrabold text-amber-950">
+              Partial extraction: Some sections could not be completely read
             </p>
+            {warnings.length > 0 && (
+              <ul className="list-disc list-inside space-y-0.5 text-amber-900 font-medium">
+                {warnings.map((w, idx) => (
+                  <li key={idx}>{typeof w === "string" ? w : w.message || JSON.stringify(w)}</li>
+                ))}
+              </ul>
+            )}
           </div>
-        </div>
+        </aside>
       )}
 
-      {/* Notice Header Card */}
-      <section
-        className="bg-white border-2 border-slate-300 rounded-3xl p-6 sm:p-8 shadow-xs space-y-6"
-        aria-labelledby="notice-header-title"
-      >
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-4">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="px-3.5 py-1 rounded-full text-xs font-black uppercase tracking-wider bg-indigo-100 text-indigo-900">
-              {categoryLabel}
-            </span>
-            <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-900">
-              <CheckCircle className="w-3.5 h-3.5 text-emerald-700" />
-              Processed
-            </span>
-          </div>
-
-          <a
-            href={pdfFileUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs sm:text-sm font-bold bg-slate-100 hover:bg-slate-200 text-slate-800 transition-colors focus:outline-hidden focus:ring-2 focus:ring-indigo-600 min-h-[36px]"
-          >
-            <span>Original PDF</span>
-            <ExternalLink className="w-4 h-4 text-slate-600" aria-hidden="true" />
-          </a>
-        </div>
-
-        {/* Notice Title */}
-        <div className="space-y-2">
-          <div className="flex flex-wrap items-center gap-2.5">
-            <h1 id="notice-header-title" className="text-2xl sm:text-4xl font-black text-slate-950 tracking-tight leading-tight">
-              {noticeTitle}
-            </h1>
-            {titleUncertain && <UncertainBadge />}
-            {titlePage && (
-              <button
-                type="button"
-                onClick={() => handleOpenSource(titlePage, titleQuote)}
-                className="text-xs font-bold text-indigo-600 underline hover:text-indigo-800 self-center"
-              >
-                Source
-              </button>
-            )}
-          </div>
-
-          {/* Issuing Organisation */}
-          <div className="flex flex-wrap items-center gap-2 pt-2 text-slate-700">
-            <div className="p-1.5 bg-slate-100 rounded-lg text-slate-600">
-              <Building className="w-4 h-4" aria-hidden="true" />
-            </div>
-            <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
-              Source organisation:
-            </span>
-            <span className="text-base font-extrabold text-slate-900">{issuingOrg}</span>
-            {issuerUncertain && <UncertainBadge />}
-            {issuerPage && (
-              <button
-                type="button"
-                onClick={() => handleOpenSource(issuerPage, issuerQuote)}
-                className="text-xs font-bold text-indigo-600 underline hover:text-indigo-800"
-              >
-                Source
-              </button>
-            )}
-          </div>
-          <dl className="grid gap-3 border-t border-slate-100 pt-4 sm:grid-cols-3">
-            <div>
-              <dt className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Document type</dt>
-              <dd className="mt-1 text-xs font-semibold text-slate-700">{documentType || "Not classified by the service"}</dd>
-            </div>
-            <div>
-              <dt className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Priority</dt>
-              <dd className="mt-1 text-xs font-semibold capitalize text-slate-700">{priority || "Not rated by the service"}</dd>
-            </div>
-            <div>
-              <dt className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Issue date</dt>
-              <dd className="mt-1 text-xs font-semibold text-slate-700">{issueDate ? formatDate(issueDate) : "Not provided"}</dd>
-            </div>
-          </dl>
-        </div>
-      </section>
-
-      <aside className="flex items-start gap-3 rounded-2xl border border-cyan-100 bg-cyan-50/60 p-4 text-xs leading-5 text-slate-700">
-        <FileText className="mt-0.5 h-4 w-4 shrink-0 text-cyan-800" aria-hidden="true" />
-        <p>
-          These details are extracted from the uploaded document, not independently verified.
-          Compare important dates, instructions, and requirements with the original PDF before acting.
-        </p>
-      </aside>
-
-      {/* VISUALLY MOST PROMINENT: Deadlines Section */}
-      <DeadlineCard
-        deadlines={result.deadlines || []}
-        onRemind={handleOpenReminder}
-        onShowSource={handleOpenSource}
-        noticeTitle={noticeTitle}
+      {/* 1. Decision Card (Hero) */}
+      <DecisionCard
+        headline={headline}
+        primaryDeadline={primaryDeadline}
+        pdfUrl={pdfUrl}
         noticeId={id}
+        onRemind={() =>
+          setReminderModal({
+            isOpen: true,
+            deadline: primaryDeadline,
+          })
+        }
       />
 
-      {/* Summary: 5 Plain Language Question Headings */}
-      <SummaryQuestions summary={result.plain_language_summary || {}} />
-
-      {/* Two-Column Grid: Action Plan & Documents Checklist */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 sm:gap-8 items-start">
-        <ActionStepList
-          steps={result.action_steps || []}
-          submissionChannel={result.submission_channel}
-          onShowSource={handleOpenSource}
-        />
-
-        <DocumentChecklist
-          documents={result.required_documents || []}
-          checklistMap={checklistMap}
-          onStatusChange={handleChecklistStatusChange}
-          onShowSource={handleOpenSource}
-          errorMessage={checklistError}
-        />
-      </div>
-
-      {/* Reminders List for this notice */}
-      <NoticeRemindersList
-        reminders={reminders}
-        onReminderUpdated={handleReminderUpdated}
-        onReminderDeleted={handleReminderDeleted}
-      />
-
-      {/* Penalties and Warnings Section */}
-      <PenaltiesAndWarnings
-        penalties={result.penalties || []}
-        warnings={result.warnings || []}
-        documentQuality={result.document_quality}
+      {/* 2. "What to do" Checklist */}
+      <ActionChecklist
+        steps={actionSteps}
+        whereToSubmit={whereToSubmit}
+        noticeId={id}
         onShowSource={handleOpenSource}
       />
 
-      {/* Collapsed Technical Details Section */}
-      {technicalNotes && technicalNotes.length > 0 && (
-        <section aria-labelledby="technical-details-heading" className="mt-2">
-          <details className="group rounded-2xl bg-slate-50 border border-slate-300 p-4 sm:p-5 text-slate-700">
-            <summary className="cursor-pointer font-extrabold text-sm sm:text-base text-slate-800 hover:text-slate-950 flex items-center justify-between focus:outline-hidden focus:ring-2 focus:ring-indigo-600 rounded p-1">
-              <span id="technical-details-heading">Technical details ({technicalNotes.length})</span>
-              <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider group-open:hidden">
-                Show details
-              </span>
-              <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider hidden group-open:inline">
-                Hide details
-              </span>
+      {/* 3. Timeline of Deadlines with Embedded Consequences */}
+      <DeadlineTimeline
+        deadlines={deadlines}
+        consequences={consequences}
+        onShowSource={handleOpenSource}
+      />
+
+      {/* 4. Plain-Language Summary (2-3 sentences replacing 5 Questions) */}
+      {summaryPlain && (
+        <section
+          aria-labelledby="summary-heading"
+          className="bg-white border-2 border-slate-300 rounded-3xl p-6 sm:p-8 shadow-xs space-y-2.5"
+        >
+          <div className="flex items-center gap-2">
+            <Info className="w-5 h-5 text-purple-600" aria-hidden="true" />
+            <h2 id="summary-heading" className="text-xl sm:text-2xl font-black text-navy-950">
+              Plain-Language Summary
+            </h2>
+          </div>
+          <p className="text-sm sm:text-base text-slate-700 leading-relaxed font-medium">
+            {summaryPlain}
+          </p>
+        </section>
+      )}
+
+      {/* 5. Collapsed Sections (Closed by default, only rendered if non-empty) */}
+      <div className="space-y-3">
+        {/* Required Documents (Render ONLY if non-empty) */}
+        {requiredDocuments.length > 0 && (
+          <details className="group rounded-2xl bg-white border border-slate-300 p-4 sm:p-5 shadow-xs text-slate-800 transition-all">
+            <summary className="cursor-pointer font-extrabold text-sm sm:text-base text-navy-950 flex items-center justify-between focus:outline-hidden focus:ring-2 focus:ring-purple-600 rounded p-1">
+              <div className="flex items-center gap-2">
+                <FileCheck className="w-5 h-5 text-purple-600" aria-hidden="true" />
+                <span>Required Documents ({requiredDocuments.length})</span>
+              </div>
+              <ChevronDown className="w-5 h-5 text-slate-400 group-open:rotate-180 transition-transform" />
             </summary>
-            <div className="mt-4 space-y-3 pt-3 border-t border-slate-200">
-              <p className="text-xs sm:text-sm text-slate-600">
-                These are technical validation checks and grounding diagnostics recorded during notice processing:
+            <div className="mt-3 pt-3 border-t border-slate-100 space-y-2">
+              <p className="text-xs text-slate-500 font-medium">
+                Keep these documents accessible when paying or submitting response:
               </p>
-              <ul className="space-y-2 list-none m-0 p-0">
-                {technicalNotes.map((note, idx) => {
-                  const message =
-                    typeof note === "string"
-                      ? note
-                      : note.note || note.warning_text || note.message || "";
-                  const code = typeof note === "object" ? note.code : null;
-                  const page = typeof note === "object" ? note.source_page : null;
+              <ul className="space-y-2 list-none m-0 p-0" role="list">
+                {requiredDocuments.map((doc, idx) => {
+                  const name = typeof doc === "string" ? doc : doc.name;
+                  const hasSource = doc.evidence && (doc.evidence.page || doc.evidence.quote);
 
                   return (
                     <li
                       key={idx}
-                      className="p-3 rounded-xl bg-white border border-slate-200 text-xs sm:text-sm text-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-2"
+                      className="p-3 rounded-xl bg-slate-50 border border-slate-200 text-xs sm:text-sm font-semibold flex items-center justify-between gap-2"
                     >
-                      <div className="flex flex-wrap items-center gap-2 flex-1">
-                        {code && (
-                          <span className="font-mono text-xs font-bold text-slate-900 bg-slate-100 px-2 py-0.5 rounded border border-slate-300 flex-shrink-0">
-                            [{code}]
-                          </span>
-                        )}
-                        <span className="text-slate-800 leading-relaxed font-medium">
-                          {message}
-                        </span>
-                      </div>
-                      {page && (
-                        <span className="text-xs text-slate-500 flex-shrink-0">
-                          Page {page}
-                        </span>
+                      <span className="text-navy-950">{name}</span>
+                      {hasSource && (
+                        <button
+                          type="button"
+                          onClick={() => handleOpenSource(doc.evidence.page, doc.evidence.quote)}
+                          aria-label={`View source citation for ${name}`}
+                          className="inline-flex items-center gap-1 text-xs font-bold text-purple-700 hover:text-purple-900 hover:underline min-h-[32px] px-1"
+                        >
+                          <FileText className="w-3.5 h-3.5" aria-hidden="true" />
+                          <span>Source {doc.evidence.page ? `p.${doc.evidence.page}` : ""}</span>
+                        </button>
                       )}
                     </li>
                   );
@@ -630,26 +592,105 @@ export function NoticeDashboardPage() {
               </ul>
             </div>
           </details>
-        </section>
-      )}
+        )}
 
-      {/* Disclaimer */}
-      <footer className="p-5 rounded-2xl bg-slate-100 border border-slate-300 text-center space-y-1 text-xs sm:text-sm text-slate-600">
-        <p className="font-extrabold text-slate-800">
-          This is a helper, not legal or financial advice. Always check the original notice.
-        </p>
-        <p>
-          Notice2Action presents information returned by the connected processor to help organise next steps.
+        {/* Other Conditions (Render ONLY if non-empty) */}
+        {conditionsThatApply.length > 0 && (
+          <details className="group rounded-2xl bg-white border border-slate-300 p-4 sm:p-5 shadow-xs text-slate-800 transition-all">
+            <summary className="cursor-pointer font-extrabold text-sm sm:text-base text-navy-950 flex items-center justify-between focus:outline-hidden focus:ring-2 focus:ring-purple-600 rounded p-1">
+              <div className="flex items-center gap-2">
+                <AlertCircle className="w-5 h-5 text-purple-600" aria-hidden="true" />
+                <span>Conditions That Apply ({conditionsThatApply.length})</span>
+              </div>
+              <ChevronDown className="w-5 h-5 text-slate-400 group-open:rotate-180 transition-transform" />
+            </summary>
+            <div className="mt-3 pt-3 border-t border-slate-100 space-y-2">
+              <ul className="space-y-2 list-none m-0 p-0" role="list">
+                {conditionsThatApply.map((item, idx) => {
+                  const condText = typeof item === "string" ? item : item.condition;
+                  const hasSource = item.evidence && (item.evidence.page || item.evidence.quote);
+
+                  return (
+                    <li
+                      key={idx}
+                      className="p-3 rounded-xl bg-slate-50 border border-slate-200 text-xs sm:text-sm font-medium flex items-center justify-between gap-2"
+                    >
+                      <span className="text-slate-800">{condText}</span>
+                      {hasSource && (
+                        <button
+                          type="button"
+                          onClick={() => handleOpenSource(item.evidence.page, item.evidence.quote)}
+                          aria-label={`View source citation`}
+                          className="inline-flex items-center gap-1 text-xs font-bold text-purple-700 hover:text-purple-900 hover:underline min-h-[32px] px-1"
+                        >
+                          <FileText className="w-3.5 h-3.5" aria-hidden="true" />
+                          <span>Source</span>
+                        </button>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          </details>
+        )}
+
+        {/* Technical Details (Validation notes, schema version, raw_text_ref) */}
+        <details className="group rounded-2xl bg-white border border-slate-300 p-4 sm:p-5 shadow-xs text-slate-800 transition-all">
+          <summary className="cursor-pointer font-extrabold text-sm sm:text-base text-navy-950 flex items-center justify-between focus:outline-hidden focus:ring-2 focus:ring-purple-600 rounded p-1">
+            <div className="flex items-center gap-2">
+              <Info className="w-5 h-5 text-slate-500" aria-hidden="true" />
+              <span>Technical details {technicalNotes.length > 0 ? `(${technicalNotes.length})` : ""}</span>
+            </div>
+            <ChevronDown className="w-5 h-5 text-slate-400 group-open:rotate-180 transition-transform" />
+          </summary>
+          <div className="mt-3 pt-3 border-t border-slate-100 space-y-3 text-xs text-slate-600">
+            <dl className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200">
+                <dt className="font-bold uppercase tracking-wider text-slate-400 text-[10px]">Schema Version</dt>
+                <dd className="mt-1 font-mono font-bold text-slate-800">{notice.schema_version || "2.0.0"}</dd>
+              </div>
+              <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200">
+                <dt className="font-bold uppercase tracking-wider text-slate-400 text-[10px]">Processing Status</dt>
+                <dd className="mt-1 font-bold capitalize text-slate-800">{notice.status || "Complete"}</dd>
+              </div>
+              <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200">
+                <dt className="font-bold uppercase tracking-wider text-slate-400 text-[10px]">Document Reference</dt>
+                <dd className="mt-1 font-mono truncate text-slate-800">{notice.raw_text_ref || notice.original_filename || id}</dd>
+              </div>
+            </dl>
+
+            {technicalNotes.length > 0 && (
+              <div className="pt-2 border-t border-slate-100 space-y-2">
+                <p className="font-bold text-slate-700">Diagnostics and grounding checks:</p>
+                <ul className="space-y-1.5 list-none m-0 p-0 font-mono text-[11px]">
+                  {technicalNotes.map((note, idx) => (
+                    <li key={idx} className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 flex items-start gap-2">
+                      {note.code && <span className="font-bold text-purple-700">[{note.code}]</span>}
+                      <span className="text-slate-800">{note.note || note.warning_text || (typeof note === "string" ? note : JSON.stringify(note))}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        </details>
+      </div>
+
+      {/* 6. Footer Disclaimer (Single, concise line) */}
+      <footer className="py-4 text-center text-xs text-slate-500">
+        <p className="font-semibold">
+          Helper, not legal or financial advice. Check the original notice.
         </p>
       </footer>
 
-      {/* Source Viewer Modal */}
-      <SourceViewerModal
+      {/* Slide-over Evidence Panel */}
+      <EvidencePanel
         noticeId={id}
-        page={sourceModal.page}
-        quote={sourceModal.quote}
-        isOpen={sourceModal.isOpen}
-        onClose={() => setSourceModal({ isOpen: false, page: null, quote: null })}
+        page={evidencePanel.page}
+        quote={evidencePanel.quote}
+        isOpen={evidencePanel.isOpen}
+        onClose={handleCloseSource}
       />
 
       {/* Reminder Modal */}
@@ -658,7 +699,6 @@ export function NoticeDashboardPage() {
         deadline={reminderModal.deadline}
         isOpen={reminderModal.isOpen}
         onClose={() => setReminderModal({ isOpen: false, deadline: null })}
-        onReminderCreated={handleReminderCreated}
       />
     </main>
   );

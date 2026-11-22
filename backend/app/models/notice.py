@@ -15,6 +15,9 @@ class NoticeModel(Base):
     __tablename__ = "notices"
 
     id = Column(String(64), primary_key=True, index=True)
+    user_id = Column(
+        String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True
+    )
     original_filename = Column(String(255), nullable=False)
     stored_path = Column(String(512), nullable=False)
     file_hash = Column(String(64), nullable=True, index=True)
@@ -32,6 +35,7 @@ class NoticeModel(Base):
     message = Column(Text, nullable=True)
 
     # Relationships with automatic cascade deletion
+    user = relationship("UserModel", back_populates="notices")
     checklist_items = relationship(
         "ChecklistItemModel",
         back_populates="notice",
@@ -54,6 +58,7 @@ class NoticeModel(Base):
         return {
             "id": self.id,
             "notice_id": self.id,
+            "user_id": self.user_id,
             "original_filename": self.original_filename,
             "stored_path": self.stored_path,
             "file_hash": self.file_hash,

@@ -43,7 +43,7 @@ describe("NoticeDashboardPage", () => {
     ).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Upload a Clearer File/i })).toBeInTheDocument();
     expect(
-      screen.queryByRole("heading", { name: /Action Plan/i })
+      screen.queryByRole("heading", { name: /What to do/i })
     ).not.toBeInTheDocument();
   });
 
@@ -71,63 +71,64 @@ describe("NoticeDashboardPage", () => {
     expect(screen.getByText(/Education & student funding/i)).toBeInTheDocument();
     expect(screen.getByText(/Government & public services/i)).toBeInTheDocument();
     expect(
-      screen.queryByRole("heading", { name: /Action Plan/i })
+      screen.queryByRole("heading", { name: /What to do/i })
     ).not.toBeInTheDocument();
   });
 
-  it("renders fully processed notice with deadlines, 5 summary questions, and disclaimer", async () => {
+  it("renders fully processed notice with DecisionCard, ActionChecklist, DeadlineTimeline, and plain summary", async () => {
     api.getNotice.mockResolvedValueOnce({
       id: "notice-100",
-      status: "processed",
-      category: "tax_or_payment",
-      needs_verification: true,
-      result: {
-        notice_title: { value: "Final Demand for Payment", status: "found" },
-        issuing_organisation: { value: "HM Revenue & Customs", status: "found" },
-        deadlines: [
-          {
-            description: "Pay outstanding tax balance",
-            iso_date: "2026-11-20",
-            original_wording: "Payment must be received by 20 November 2026",
-            is_ambiguous: false,
-            status: "found",
-          },
-        ],
-        plain_language_summary: {
-          what_is_this: "An overdue tax demand notice.",
-          why_it_matters: "Penalties may accrue if left unpaid.",
-          what_to_do: "Submit payment online or arrange a plan.",
-          where_to_do_it: "Online portal at gov.uk/pay-tax",
-          if_deadline_missed: "Interest and statutory late fees will apply.",
-        },
-        action_steps: [
-          {
-            step_number: 1,
-            instruction: "Log in to your tax account online.",
-            status: "found",
-          },
-        ],
-        required_documents: [
-          {
-            name: "Proof of Income",
-            is_required: true,
-            status: "found",
-          },
-          {
-            name: "Bank Statement",
-            is_required: false,
-            status: "found",
-          },
-        ],
-        penalties: [
-          {
-            consequence: "£100 late penalty",
-            description: "Issued immediately after deadline expiration.",
-          },
-        ],
+      status: "complete",
+      schema_version: "2.0.0",
+      headline: {
+        one_line_summary: "Pay Rs. 4,860 by 18 Nov to avoid a surcharge",
+        notice_type: "Electricity Demand Notice",
+        source_organisation: "Bangalore Electricity Supply Company Limited (BESCOM)",
+        amount_due: { amount: 4860, currency: "INR" },
+        primary_deadline_id: "dl_due",
+        urgency: "urgent",
       },
-      checklist: [],
-      reminders: [],
+      deadlines: [
+        {
+          id: "dl_due",
+          label: "Due Date (No Surcharge)",
+          kind: "due",
+          date: "2026-11-18",
+          date_type: "exact",
+          derived_from: null,
+          evidence: { page: 1, quote: "Due date: 18-11-2026", verified: true },
+        },
+        {
+          id: "dl_disc",
+          label: "Disconnection Risk",
+          kind: "disconnection_risk",
+          date: "2026-12-03",
+          date_type: "estimated",
+          derived_from: { offset_days: 15, relative_to: "due_date" },
+          evidence: { page: 1, quote: "Disconnected after 15 days", verified: true },
+        },
+      ],
+      action_steps: [
+        {
+          order: 1,
+          text: "Pay total amount of Rs. 4,860 before due date.",
+          evidence: { page: 1, quote: "Pay Rs. 4,860", verified: true },
+        },
+      ],
+      consequences: [
+        {
+          label: "Late Surcharge",
+          value: "2% per month",
+          evidence: { page: 1, quote: "2% per month", verified: true },
+        },
+      ],
+      required_documents: [
+        { name: "Consumer Account ID", evidence: { page: 1, quote: "Account No", verified: true } },
+      ],
+      where_to_submit: [
+        { channel: "Online Portal", details: "bescom.karnataka.gov.in" },
+      ],
+      summary_plain: "This is a monthly electricity demand notice from BESCOM for Rs. 4,860.",
     });
 
     render(
@@ -139,83 +140,80 @@ describe("NoticeDashboardPage", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText(/Final Demand for Payment/i)).toBeInTheDocument();
+      expect(
+        screen.getByText(/Pay Rs\. 4,860 by 18 Nov to avoid a surcharge/i)
+      ).toBeInTheDocument();
     });
 
-    // Issuing organisation & category
-    expect(screen.getByText(/HM Revenue & Customs/i)).toBeInTheDocument();
-    expect(screen.getByText(/Tax & payments/i)).toBeInTheDocument();
+    // Issuing organisation & notice type
+    expect(screen.getAllByText(/BESCOM/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Electricity Demand Notice/i).length).toBeGreaterThan(0);
 
-    // Needs verification banner
+    // Prominent Amount due formatted in INR
+    expect(screen.getByText(/₹\s*4,860/i)).toBeInTheDocument();
+
+    // Primary buttons
+    expect(screen.getByRole("button", { name: /Remind me/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Add to Calendar/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Share/i })).toBeInTheDocument();
+
+    // Action checklist
+    expect(screen.getByRole("heading", { name: /What to do/i })).toBeInTheDocument();
+    expect(screen.getByText(/Pay total amount of Rs\. 4,860 before due date\./i)).toBeInTheDocument();
+    expect(screen.getByText(/bescom\.karnataka\.gov\.in/i)).toBeInTheDocument();
+
+    // Timeline and consequences
+    expect(screen.getByRole("heading", { name: /Timeline of Deadlines/i })).toBeInTheDocument();
+    expect(screen.getByText(/Due Date \(No Surcharge\)/i)).toBeInTheDocument();
+    expect(screen.getByText(/Disconnection Risk/i)).toBeInTheDocument();
+    expect(screen.getByText(/Estimated/i)).toBeInTheDocument();
+    expect(screen.getByText(/Late Surcharge/i)).toBeInTheDocument();
+
+    // Plain-language summary replacing 5 questions
+    expect(screen.getByRole("heading", { name: /Plain-Language Summary/i })).toBeInTheDocument();
     expect(
-      screen.getByText(/Please check the highlighted items against your notice before acting/i)
+      screen.getByText(/This is a monthly electricity demand notice from BESCOM for Rs\. 4,860\./i)
     ).toBeInTheDocument();
 
-    // Deadlines
-    expect(screen.getByText(/Pay outstanding tax balance/i)).toBeInTheDocument();
+    // Footer disclaimer
     expect(
-      screen.getByText(/Payment must be received by 20 November 2026/i)
-    ).toBeInTheDocument();
-
-    // 5 Summary questions
-    expect(screen.getByText("What is this notice about?")).toBeInTheDocument();
-    expect(screen.getByText("An overdue tax demand notice.")).toBeInTheDocument();
-    expect(screen.getByText("Why might it matter to me?")).toBeInTheDocument();
-    expect(screen.getByText("What do I need to do?")).toBeInTheDocument();
-    expect(screen.getByText("Where should I do it?")).toBeInTheDocument();
-    expect(screen.getByText("What happens if I miss the deadline?")).toBeInTheDocument();
-
-    // Action plan
-    expect(screen.getByText(/Log in to your tax account online\./i)).toBeInTheDocument();
-
-    // Documents
-    expect(screen.getByText(/Proof of Income/i)).toBeInTheDocument();
-    expect(screen.getByText(/Mandatory/i)).toBeInTheDocument();
-    expect(screen.getByText(/Bank Statement/i)).toBeInTheDocument();
-    expect(screen.getByText(/Suggested, not required/i)).toBeInTheDocument();
-
-    // Penalties
-    expect(screen.getByText(/£100 late penalty/i)).toBeInTheDocument();
-
-    // Disclaimer
-    expect(
-      screen.getByText(
-        /This is a helper, not legal or financial advice\. Always check the original notice\./i
-      )
+      screen.getByText(/Helper, not legal or financial advice\. Check the original notice\./i)
     ).toBeInTheDocument();
   });
 
-  it("highlights uncertain items with amber style, icon and 'Please verify' text", async () => {
+  it("renders slim inline warning banner and field-level verification badges on partial status", async () => {
     api.getNotice.mockResolvedValueOnce({
-      id: "notice-uncertain",
-      status: "processed",
-      needs_verification: true,
-      result: {
-        notice_title: { value: "Review Request", status: "found" },
-        deadlines: [
-          {
-            description: "Submit dispute",
-            iso_date: null,
-            original_wording: "within 30 days of notice date",
-            is_ambiguous: true,
-            ambiguity_reason: "Notice date is missing or not stated.",
-            status: "uncertain",
-          },
-        ],
-        required_documents: [
-          {
-            name: "Utility bill",
-            is_required: true,
-            status: "uncertain",
-          },
-        ],
+      id: "notice-partial",
+      status: "partial",
+      schema_version: "2.0.0",
+      warnings: ["Page 2 table damaged and could not be parsed"],
+      headline: {
+        one_line_summary: "Property tax assessment notice",
+        notice_type: "Property Tax",
+        amount_due: { amount: 14200, currency: "INR" },
+        urgency: "soon",
       },
-      checklist: [],
-      reminders: [],
+      deadlines: [
+        {
+          id: "dl_tax",
+          label: "Assessment Due",
+          date: "2026-11-30",
+          date_type: "exact",
+          evidence: { page: 1, quote: "Due 30 Nov", verified: false },
+        },
+      ],
+      action_steps: [
+        {
+          order: 1,
+          text: "Remit property tax dues",
+          evidence: { page: 1, quote: "Remit dues", verified: false },
+        },
+      ],
+      summary_plain: "Property tax assessment requires verification.",
     });
 
     render(
-      <MemoryRouter initialEntries={["/notices/notice-uncertain"]}>
+      <MemoryRouter initialEntries={["/notices/notice-partial"]}>
         <Routes>
           <Route path="/notices/:id" element={<NoticeDashboardPage />} />
         </Routes>
@@ -223,37 +221,33 @@ describe("NoticeDashboardPage", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText(/Review Request/i)).toBeInTheDocument();
+      expect(screen.getByText(/Property tax assessment notice/i)).toBeInTheDocument();
     });
 
-    // Amber highlight badges with "Please verify"
-    const verifyBadges = screen.getAllByText(/Please verify/i);
+    // Slim inline banner listing the unread sections
+    expect(
+      screen.getByText(/Partial extraction: Some sections could not be completely read/i)
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/Page 2 table damaged and could not be parsed/i)
+    ).toBeInTheDocument();
+
+    // Field-level verification badges
+    const verifyBadges = screen.getAllByText(/Verify/i);
     expect(verifyBadges.length).toBeGreaterThanOrEqual(1);
-
-    // Plain tooltip/text: "We could not match this exactly to your notice. Please check the original."
-    const ungroundedNotes = screen.getAllByText(
-      /We could not match this exactly to your notice\. Please check the original\./i
-    );
-    expect(ungroundedNotes.length).toBeGreaterThanOrEqual(1);
-
-    // Ambiguity reason
-    expect(screen.getByText(/Notice date is missing or not stated\./i)).toBeInTheDocument();
   });
 
-  it("renders technical_notes inside collapsed 'Technical details' and user warnings in warnings section", async () => {
+  it("renders technical_notes inside collapsed 'Technical details'", async () => {
     api.getNotice.mockResolvedValueOnce({
       id: "notice-tech-notes",
-      status: "processed",
-      needs_verification: true,
+      status: "complete",
+      headline: {
+        one_line_summary: "Electricity Disconnection Warning",
+        notice_type: "Utility Notice",
+      },
+      deadlines: [],
+      action_steps: [],
       result: {
-        notice_title: { value: "Electricity Disconnection Warning", status: "found" },
-        warnings: [
-          {
-            warning_text: "Cash payments above Rs. 10,000 are not accepted",
-            evidence_quote: "Cash payments above Rs. 10,000 are not accepted",
-            source_page: 1,
-          },
-        ],
         technical_notes: [
           {
             code: "GROUNDING_UNVERIFIED_QUOTE",
@@ -261,16 +255,8 @@ describe("NoticeDashboardPage", () => {
             severity: "warning",
             source_page: 1,
           },
-          {
-            code: "DOCUMENT_CONDITIONAL_OR_ALTERNATIVE",
-            note: "Document 'Payment Receipt' appears conditional or an alternative route and was moved to technical notes.",
-            severity: "warning",
-            source_page: 1,
-          },
         ],
       },
-      checklist: [],
-      reminders: [],
     });
 
     render(
@@ -285,51 +271,24 @@ describe("NoticeDashboardPage", () => {
       expect(screen.getByText(/Electricity Disconnection Warning/i)).toBeInTheDocument();
     });
 
-    // User-facing warning must be visible in warnings section
-    expect(
-      screen.getByText(/Cash payments above Rs\. 10,000 are not accepted/i)
-    ).toBeInTheDocument();
-
     // Technical notes section must be collapsed under "Technical details"
-    expect(screen.getByText(/Technical details \(2\)/i)).toBeInTheDocument();
+    expect(screen.getByText(/Technical details/i)).toBeInTheDocument();
     expect(
       screen.getByText(/Verbatim quote for 'action_step: 1' not found on page 1\./i)
     ).toBeInTheDocument();
     expect(screen.getByText(/\[GROUNDING_UNVERIFIED_QUOTE\]/i)).toBeInTheDocument();
-    expect(screen.getByText(/\[DOCUMENT_CONDITIONAL_OR_ALTERNATIVE\]/i)).toBeInTheDocument();
   });
 
-  it("handles checklist status change with optimistic update and rollback on error", async () => {
+  it("renders ProcessingStepper when notice status is processing", async () => {
     api.getNotice.mockResolvedValueOnce({
-      id: "notice-check",
-      status: "processed",
-      result: {
-        notice_title: { value: "Checklist Notice" },
-        required_documents: [
-          {
-            name: "Identity Document",
-            is_required: true,
-          },
-        ],
-      },
-      checklist: [
-        {
-          id: 1,
-          notice_id: "notice-check",
-          item_key: "Identity Document",
-          status: "not_completed",
-        },
-      ],
-      reminders: [],
+      id: "notice-proc",
+      status: "processing",
+      stage: "understanding",
+      progress: 60,
     });
 
-    // Mock failure for the PATCH call
-    api.updateChecklistItem.mockRejectedValueOnce(
-      new Error("Server connection lost")
-    );
-
     render(
-      <MemoryRouter initialEntries={["/notices/notice-check"]}>
+      <MemoryRouter initialEntries={["/notices/notice-proc"]}>
         <Routes>
           <Route path="/notices/:id" element={<NoticeDashboardPage />} />
         </Routes>
@@ -337,20 +296,12 @@ describe("NoticeDashboardPage", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText(/Identity Document/i)).toBeInTheDocument();
+      expect(screen.getByText(/Extracting Action Plan & Deadlines/i)).toBeInTheDocument();
     });
 
-    // Initial status button: "Completed" should have aria-pressed false
-    const completedButton = screen.getByRole("button", { name: /^Completed$/i });
-    expect(completedButton).toHaveAttribute("aria-pressed", "false");
-
-    // Click "Completed"
-    await userEvent.click(completedButton);
-
-    // Rollback error should display and status should revert to not_completed
-    await waitFor(() => {
-      expect(screen.getByRole("alert")).toHaveTextContent(/Server connection lost/i);
-      expect(completedButton).toHaveAttribute("aria-pressed", "false");
-    });
+    expect(screen.getByText("Uploading")).toBeInTheDocument();
+    expect(screen.getByText("Reading text")).toBeInTheDocument();
+    expect(screen.getByText("Understanding")).toBeInTheDocument();
+    expect(screen.getByText("Checking")).toBeInTheDocument();
   });
 });

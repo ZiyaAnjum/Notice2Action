@@ -74,6 +74,33 @@ function getNoticeSortDate(notice, sortMode) {
     .find((date) => typeof date === "string" && !Number.isNaN(Date.parse(date))) || "";
 }
 
+function getNoticeUrgencyRank(notice) {
+  const urgency = notice.headline?.urgency || notice.urgency;
+  if (urgency === "overdue") return 0;
+  if (urgency === "urgent") return 1;
+  if (urgency === "soon") return 2;
+  if (urgency === "none") return 3;
+
+  const deadlineDate =
+    notice.deadlines?.[0]?.date ||
+    notice.result?.deadlines?.[0]?.iso_date ||
+    notice.result?.deadlines?.[0]?.date;
+  if (deadlineDate) {
+    const cd = getCountdownDetails(deadlineDate);
+    if (cd) {
+      if (cd.isOverdue) return 0;
+      if (cd.urgency === "critical" || cd.urgency === "urgent") return 1;
+      if (cd.urgency === "warning") return 2;
+      return 3;
+    }
+  }
+
+  const priority = (getNoticePriority(notice) || "").toLowerCase();
+  if (["critical", "urgent"].includes(priority)) return 1;
+  if (priority === "high") return 2;
+  return 4;
+}
+
 function getPriorityRank(notice) {
   const ranks = { critical: 0, urgent: 1, high: 2, medium: 3, low: 4 };
   return ranks[getNoticePriority(notice).toLowerCase()] ?? 5;
@@ -191,6 +218,13 @@ export function NoticesListPage() {
         return true;
       })
       .sort((first, second) => {
+        if (filters.sort === "newest" || filters.sort === "urgency") {
+          const rankDiff = getNoticeUrgencyRank(first) - getNoticeUrgencyRank(second);
+          if (rankDiff !== 0) return rankDiff;
+          const firstDate = new Date(first.created_at || 0).getTime();
+          const secondDate = new Date(second.created_at || 0).getTime();
+          return secondDate - firstDate;
+        }
         if (filters.sort === "title") {
           return getNoticeTitle(first).localeCompare(getNoticeTitle(second));
         }
@@ -210,6 +244,18 @@ export function NoticesListPage() {
         return filters.sort === "oldest" ? firstDate - secondDate : secondDate - firstDate;
       });
   }, [notices, searchTerm, filters]);
+
+  const needActionThisWeek = useMemo(() => {
+    return notices.filter((n) => {
+      const d =
+        n.deadlines?.[0]?.date ||
+        n.result?.deadlines?.[0]?.iso_date ||
+        n.result?.deadlines?.[0]?.date;
+      if (!d) return false;
+      const cd = getCountdownDetails(d);
+      return cd && (cd.isOverdue || cd.daysRemaining <= 7);
+    }).length;
+  }, [notices]);
 
   const setFilter = (key, value) => {
     setFilters((current) => ({ ...current, [key]: value }));
@@ -453,12 +499,33 @@ export function NoticesListPage() {
         <div className="flex flex-wrap items-end justify-between gap-2">
           <div>
             <p className="page-heading-eyebrow">Search results</p>
-            <h2 id="notice-results-title" className="text-xl font-extrabold text-navy-950">Your library</h2>
+            <h2 id="notice-results-title" className="text-xl font-extrabold text-navy-950">
+              {needActionThisWeek > 0
+                ? `${needActionThisWeek} ${needActionThisWeek === 1 ? "notice needs" : "notices need"} action this week`
+                : "Your library"}
+            </h2>
           </div>
           {!loading && !noticeError && (
             <p className="text-xs text-slate-500">Source, priority, issue date, and type appear when supplied by the service.</p>
           )}
         </div>
+
+        {needActionThisWeek > 0 && !loading && (
+          <aside
+            role="status"
+            className="mb-4 flex items-center justify-between gap-3 p-3.5 rounded-2xl bg-purple-50 border border-purple-200 text-purple-950 font-bold text-xs sm:text-sm shadow-xs"
+          >
+            <div className="flex items-center gap-2">
+              <Clock3 className="w-4 h-4 text-purple-700 shrink-0" aria-hidden="true" />
+              <span>
+                {needActionThisWeek} {needActionThisWeek === 1 ? "notice needs" : "notices need"} action this week
+              </span>
+            </div>
+            <span className="text-[10px] font-black uppercase tracking-wider text-purple-700 bg-purple-100 px-2 py-0.5 rounded-full shrink-0">
+              Action required
+            </span>
+          </aside>
+        )}
 
         {loading ? (
           <div className="surface-card flex min-h-52 flex-col items-center justify-center gap-3 text-slate-600">
@@ -496,6 +563,7 @@ export function NoticesListPage() {
           <div className="grid items-stretch gap-4 md:grid-cols-2">
             {filteredNotices.map((notice) => {
               const title = getNoticeTitle(notice);
+              const oneLineSummary = notice.headline?.one_line_summary || title;
               const issuer = getNoticeField(notice, [
                 "source_organisation",
                 "source_organization",
@@ -509,12 +577,44 @@ export function NoticesListPage() {
               const deadline = getNoticeDeadlines(notice);
               const status = notice.status;
 
+              const amountDue = notice.headline?.amount_due || notice.amount_due;
+              const formattedAmount =
+                amountDue && typeof amountDue.amount === "number"
+                  ? new Intl.NumberFormat("en-IN", {
+                      style: "currency",
+                      currency: amountDue.currency || "INR",
+                      maximumFractionDigits: 0,
+                    }).format(amountDue.amount)
+                  : null;
+
+              const primaryDeadlineDate =
+                notice.deadlines?.[0]?.date ||
+                notice.result?.deadlines?.[0]?.iso_date ||
+                notice.result?.deadlines?.[0]?.date;
+              const countdown = primaryDeadlineDate ? getCountdownDetails(primaryDeadlineDate) : null;
+
               return (
                 <article key={notice.id} className="surface-card surface-card-hover flex min-w-0 flex-col p-4 sm:p-5">
                   <div className="flex flex-wrap items-start justify-between gap-2">
-                    <span className="max-w-[70%] truncate rounded-full bg-purple-50 px-2.5 py-1 text-[10px] font-bold text-purple-800">
-                      {getCategoryLabel(notice.category)}
-                    </span>
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span className="max-w-[70%] truncate rounded-full bg-purple-50 px-2.5 py-1 text-[10px] font-bold text-purple-800">
+                        {getCategoryLabel(notice.category)}
+                      </span>
+                      {countdown && (
+                        <span
+                          className={`inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-extrabold ${
+                            countdown.urgency === "overdue"
+                              ? "bg-rose-100 text-rose-800 border border-rose-300"
+                              : countdown.daysRemaining <= 3
+                              ? "bg-amber-100 text-amber-900 border border-amber-300"
+                              : "bg-emerald-100 text-emerald-900 border border-emerald-300"
+                          }`}
+                        >
+                          <Clock3 className="h-3 w-3" aria-hidden="true" />
+                          {countdown.label}
+                        </span>
+                      )}
+                    </div>
                     <span className={`max-w-[45%] truncate rounded-full px-2.5 py-1 text-[10px] font-bold capitalize ${getStatusTone(status)}`}>
                       {getNoticeStatusLabel(status)}
                     </span>
@@ -522,9 +622,16 @@ export function NoticesListPage() {
 
                   <h3 className="mt-3 line-clamp-2 text-base font-extrabold leading-6 text-navy-950">
                     <Link to={`/notices/${notice.id}`} className="focus-ring rounded hover:text-purple-800">
-                      {title}
+                      {oneLineSummary}
                     </Link>
                   </h3>
+
+                  {formattedAmount && (
+                    <div className="mt-1 flex items-baseline gap-1.5 text-navy-950">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Amount:</span>
+                      <span className="text-base font-black tracking-tight">{formattedAmount}</span>
+                    </div>
+                  )}
 
                   <dl className="mt-4 grid grid-cols-2 gap-x-3 gap-y-3 border-t border-slate-100 pt-3 text-xs">
                     <div className="min-w-0">

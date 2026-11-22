@@ -8,6 +8,26 @@ export const API_BASE_URL =
   "http://localhost:8000";
 
 /**
+ * In-memory access token storage (never saved to localStorage per security spec).
+ */
+let currentAccessToken = null;
+let isRefreshing = false;
+let refreshSubscribers = [];
+
+export function setAccessToken(token) {
+  currentAccessToken = token || null;
+}
+
+export function getAccessToken() {
+  return currentAccessToken;
+}
+
+function onRefreshed(token) {
+  refreshSubscribers.forEach((callback) => callback(token));
+  refreshSubscribers = [];
+}
+
+/**
  * Custom error class for API errors providing error code and friendly message.
  */
 export class ApiError extends Error {
@@ -60,12 +80,21 @@ async function handleResponse(response) {
       code = errorData.error_code;
     }
   } else {
-    if (status === 404) {
+    if (status === 401) {
+      message = "Session expired or unauthorized. Please sign in.";
+      code = "UNAUTHORIZED";
+    } else if (status === 403) {
+      message = "You do not have permission to access this resource.";
+      code = "FORBIDDEN";
+    } else if (status === 404) {
       message = "The requested item or notice was not found.";
+      code = "NOT_FOUND";
     } else if (status === 413) {
       message = "The uploaded file is too large. Please upload a smaller PDF.";
+      code = "PAYLOAD_TOO_LARGE";
     } else if (status >= 500) {
       message = "The service encountered an error. Please try again in a few moments.";
+      code = "SERVER_ERROR";
     }
   }
 
@@ -73,11 +102,69 @@ async function handleResponse(response) {
 }
 
 /**
- * Internal safe fetch wrapper converting raw network drops into friendly ApiError.
+ * Internal safe fetch wrapper with credentials: "include", Authorization header injection,
+ * and transparent 401 token refresh retry.
  */
-async function safeFetch(url, options) {
+async function safeFetch(url, options = {}, isRetry = false) {
+  const fetchOptions = {
+    ...options,
+    credentials: "include",
+    headers: {
+      ...(options.headers || {}),
+    },
+  };
+
+  // Inject Authorization Bearer token if available and not explicitly provided
+  if (currentAccessToken && !fetchOptions.headers.Authorization && !fetchOptions.headers.authorization) {
+    fetchOptions.headers.Authorization = `Bearer ${currentAccessToken}`;
+  }
+
   try {
-    return await fetch(url, options);
+    const response = await fetch(url, fetchOptions);
+
+    // Transparent 401 retry via /auth/refresh
+    const isAuthRoute =
+      url.includes("/auth/login") ||
+      url.includes("/auth/signup") ||
+      url.includes("/auth/refresh");
+
+    if (response.status === 401 && !isRetry && !isAuthRoute) {
+      if (!isRefreshing) {
+        isRefreshing = true;
+        try {
+          const refreshRes = await fetch(`${API_BASE_URL}/api/auth/refresh`, {
+            method: "POST",
+            credentials: "include",
+          });
+          if (refreshRes.ok) {
+            const data = await refreshRes.json();
+            if (data?.access_token) {
+              setAccessToken(data.access_token);
+              onRefreshed(data.access_token);
+            }
+          } else {
+            setAccessToken(null);
+            onRefreshed(null);
+          }
+        } catch {
+          setAccessToken(null);
+          onRefreshed(null);
+        } finally {
+          isRefreshing = false;
+        }
+      }
+
+      // If a new access token is available, retry the request once
+      if (currentAccessToken) {
+        const retryHeaders = {
+          ...(fetchOptions.headers || {}),
+          Authorization: `Bearer ${currentAccessToken}`,
+        };
+        return await fetch(url, { ...fetchOptions, headers: retryHeaders });
+      }
+    }
+
+    return response;
   } catch (err) {
     if (
       err instanceof TypeError &&
@@ -94,6 +181,179 @@ async function safeFetch(url, options) {
     }
     throw err;
   }
+}
+
+// ==============================================================================
+// AUTHENTICATION API METHODS
+// ==============================================================================
+
+/**
+ * Register a new user account.
+ * @param {{ full_name: string, email: string, password: string }} payload
+ * @returns {Promise<{ access_token: string, token_type: string, user: object }>}
+ */
+export async function signup(payload) {
+  const response = await safeFetch(`${API_BASE_URL}/api/auth/signup`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const data = await handleResponse(response);
+  if (data?.access_token) {
+    setAccessToken(data.access_token);
+  }
+  return data;
+}
+
+/**
+ * Authenticate user with email and password.
+ * @param {{ email: string, password: string }} payload
+ * @returns {Promise<{ access_token: string, token_type: string, user: object }>}
+ */
+export async function login(payload) {
+  const response = await safeFetch(`${API_BASE_URL}/api/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const data = await handleResponse(response);
+  if (data?.access_token) {
+    setAccessToken(data.access_token);
+  }
+  return data;
+}
+
+/**
+ * Sign out and invalidate active session cookie.
+ * @returns {Promise<{ status: string, message: string }>}
+ */
+export async function logout() {
+  try {
+    const response = await safeFetch(`${API_BASE_URL}/api/auth/logout`, {
+      method: "POST",
+    });
+    return await handleResponse(response);
+  } finally {
+    setAccessToken(null);
+  }
+}
+
+/**
+ * Refresh access token using httpOnly cookie.
+ * @returns {Promise<{ access_token: string, token_type: string, user: object }>}
+ */
+export async function refreshAuthToken() {
+  const response = await safeFetch(`${API_BASE_URL}/api/auth/refresh`, {
+    method: "POST",
+  });
+  const data = await handleResponse(response);
+  if (data?.access_token) {
+    setAccessToken(data.access_token);
+  }
+  return data;
+}
+
+/**
+ * Retrieve authenticated user profile.
+ * @returns {Promise<object>}
+ */
+export async function getMe() {
+  const response = await safeFetch(`${API_BASE_URL}/api/auth/me`);
+  return await handleResponse(response);
+}
+
+/**
+ * Update authenticated user's profile details.
+ * @param {{ full_name?: string, preferred_language?: string }} payload
+ * @returns {Promise<object>}
+ */
+export async function updateProfile(payload) {
+  const response = await safeFetch(`${API_BASE_URL}/api/auth/profile`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  return await handleResponse(response);
+}
+
+/**
+ * Change account password.
+ * @param {{ current_password: string, new_password: string }} payload
+ * @returns {Promise<{ status: string, message: string }>}
+ */
+export async function changePassword(payload) {
+  const response = await safeFetch(`${API_BASE_URL}/api/auth/change-password`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  return await handleResponse(response);
+}
+
+/**
+ * Delete account and all associated notices and uploaded files permanently.
+ * @returns {Promise<{ status: string, message: string }>}
+ */
+export async function deleteAccount() {
+  try {
+    const response = await safeFetch(`${API_BASE_URL}/api/auth/account`, {
+      method: "DELETE",
+    });
+    return await handleResponse(response);
+  } finally {
+    setAccessToken(null);
+  }
+}
+
+/**
+ * Verify account email with token.
+ * @param {string} token
+ * @returns {Promise<{ status: string, message: string }>}
+ */
+export async function verifyEmail(token) {
+  const response = await safeFetch(
+    `${API_BASE_URL}/api/auth/verify?token=${encodeURIComponent(token)}`
+  );
+  return await handleResponse(response);
+}
+
+/**
+ * Resend account verification email.
+ * @returns {Promise<{ status: string, message: string }>}
+ */
+export async function resendVerification() {
+  const response = await safeFetch(`${API_BASE_URL}/api/auth/resend-verification`, {
+    method: "POST",
+  });
+  return await handleResponse(response);
+}
+
+/**
+ * Request password reset email.
+ * @param {{ email: string }} payload
+ * @returns {Promise<{ status: string, message: string }>}
+ */
+export async function forgotPassword(payload) {
+  const response = await safeFetch(`${API_BASE_URL}/api/auth/forgot-password`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  return await handleResponse(response);
+}
+
+/**
+ * Reset password using one-time token.
+ * @param {{ token: string, new_password: string }} payload
+ * @returns {Promise<{ status: string, message: string }>}
+ */
+export async function resetPassword(payload) {
+  const response = await safeFetch(`${API_BASE_URL}/api/auth/reset-password`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  return await handleResponse(response);
 }
 
 /**
