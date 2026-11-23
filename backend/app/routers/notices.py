@@ -68,15 +68,16 @@ async def get_sample_notice() -> dict:
     "",
     status_code=status.HTTP_202_ACCEPTED,
     response_model=NoticeUploadResponse,
-    summary="Upload PDF notice for extraction",
-    description="Accepts a multipart/form-data PDF file, validates format and magic bytes, and queues pipeline processing.",
+    summary="Upload PDF or photo notice for extraction",
+    description="Accepts a PDF document or one or more camera photos, validates quality and magic bytes, and queues pipeline processing.",
 )
 async def upload_notice(
-    file: Annotated[UploadFile, File(description="Official notice PDF file")],
     background_tasks: BackgroundTasks,
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[UserModel, Depends(get_current_user)],
     llm_client: Annotated[BaseLLMClient, Depends(get_llm)],
+    file: Annotated[UploadFile | None, File(description="Official notice PDF or single photo")] = None,
+    files: Annotated[list[UploadFile] | None, File(description="List of notice photos")] = None,
 ) -> NoticeUploadResponse:
     """Upload and queue notice processing scoped to authenticated user."""
     # Rate limit demo account uploads
@@ -93,24 +94,49 @@ async def upload_notice(
             )
 
     try:
-        contents = await file.read()
-        notice_id, stored_path = notice_service.validate_and_save_upload(
-            filename=file.filename or "uploaded_notice.pdf",
-            contents=contents,
-            content_type=file.content_type,
-            user_id=current_user.id,
-        )
+        if files and len(files) > 0:
+            photo_payloads = []
+            for f in files:
+                b = await f.read()
+                photo_payloads.append((f.filename or "photo.jpg", b, f.content_type))
+            if len(photo_payloads) == 1:
+                notice_id, stored_path = notice_service.validate_and_save_upload(
+                    filename=photo_payloads[0][0],
+                    contents=photo_payloads[0][1],
+                    content_type=photo_payloads[0][2],
+                    user_id=current_user.id,
+                )
+            else:
+                notice_id, stored_path = notice_service.validate_and_save_photo_upload(
+                    photos=photo_payloads,
+                    user_id=current_user.id,
+                )
+            upload_filename = files[0].filename or "camera_notice.jpg"
+        elif file is not None:
+            contents = await file.read()
+            notice_id, stored_path = notice_service.validate_and_save_upload(
+                filename=file.filename or "uploaded_notice.pdf",
+                contents=contents,
+                content_type=file.content_type,
+                user_id=current_user.id,
+            )
+            upload_filename = file.filename or "uploaded_notice.pdf"
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={"error": "NO_FILE", "message": "No file or photos provided for upload."},
+            )
     except NoticeServiceError as err:
         raise HTTPException(
             status_code=err.status_code,
             detail={"error": err.error_code, "message": err.message},
         ) from None
 
-    # Create pending record in DB (or retrieve from cache if duplicate PDF belonging to this user)
+    # Create pending record in DB (or retrieve from cache if duplicate belonging to this user)
     notice_record, is_cached = notice_service.create_pending_notice(
         db=db,
         notice_id=notice_id,
-        filename=file.filename or "uploaded_notice.pdf",
+        filename=upload_filename,
         stored_path=stored_path,
         user_id=current_user.id,
     )
@@ -220,16 +246,45 @@ async def get_notice_page(
 
 
 @router.get(
+    "/{notice_id}/pages/{page}/image",
+    summary="Get original page image",
+    description="Returns the original color photo or rendered page image for source evidence verification.",
+)
+async def get_notice_page_image(
+    notice_id: Annotated[str, FastPath(description="Unique notice ID")],
+    page: Annotated[int, FastPath(ge=1, description="1-indexed page number")],
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[UserModel, Depends(get_current_user)],
+) -> FileResponse:
+    """Return original color photo or rendered page image scoped to authenticated owner."""
+    image_info = notice_service.get_notice_page_image_path(db, notice_id, page, user_id=current_user.id)
+    if not image_info:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "error": "PAGE_IMAGE_NOT_FOUND",
+                "message": f"Image for page {page} not found for notice '{notice_id}'.",
+            },
+        )
+    img_path, media_type = image_info
+    return FileResponse(
+        path=img_path,
+        media_type=media_type,
+        filename=img_path.name,
+    )
+
+
+@router.get(
     "/{notice_id}/file",
-    summary="Download original notice PDF",
-    description="Controlled access endpoint serving the original uploaded PDF file for the authenticated owner.",
+    summary="Download original notice PDF or color document",
+    description="Controlled access endpoint serving the original uploaded PDF file or color compilation for the authenticated owner.",
 )
 async def get_notice_file(
     notice_id: Annotated[str, FastPath(description="Unique notice ID")],
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[UserModel, Depends(get_current_user)],
 ) -> FileResponse:
-    """Stream the original notice PDF file scoped to authenticated owner."""
+    """Stream the original notice PDF or photo file scoped to authenticated owner."""
     file_info = notice_service.get_notice_file_path(db, notice_id, user_id=current_user.id)
     if not file_info:
         raise HTTPException(
@@ -241,9 +296,10 @@ async def get_notice_file(
         )
 
     file_path, original_filename = file_info
+    media_type = "image/jpeg" if original_filename.lower().endswith((".jpg", ".jpeg")) else "application/pdf"
     return FileResponse(
         path=file_path,
-        media_type="application/pdf",
+        media_type=media_type,
         filename=original_filename,
     )
 

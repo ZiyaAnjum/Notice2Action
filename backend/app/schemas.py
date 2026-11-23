@@ -113,13 +113,16 @@ class PageTextResponse(BaseModel):
 
 
 class HealthResponse(BaseModel):
-    """API health check response."""
+    """API health check response detailing backend status, DB, OCR, and AI readiness."""
 
     status: str = "healthy"
     database: str = "connected"
     version: str = "1.0.0"
     app: str = "Notice to Action API"
     environment: str = "development"
+    tesseract: dict[str, Any] = Field(default_factory=dict)
+    gemini: dict[str, Any] = Field(default_factory=dict)
+    warnings: list[str] = Field(default_factory=list)
 
 
 # --- Authentication & User Schemas ---

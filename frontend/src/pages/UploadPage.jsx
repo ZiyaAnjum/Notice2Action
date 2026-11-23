@@ -11,9 +11,11 @@ import {
   Clock,
   ArrowRight,
   X,
+  Camera,
 } from "lucide-react";
 import { uploadNotice, getNotice } from "../api/client";
 import { PageHeader } from "../components/PageHeader";
+import { CameraCaptureModal } from "../components/CameraCaptureModal";
 
 const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024;
 const POLL_INTERVAL_MS = 1500;
@@ -31,6 +33,7 @@ export function UploadPage() {
   const [statusMessage, setStatusMessage] = useState("");
   const [pollTimedOut, setPollTimedOut] = useState(false);
   const [currentNoticeId, setCurrentNoticeId] = useState(null);
+  const [isCameraOpen, setIsCameraOpen] = useState(false);
 
   useEffect(
     () => () => {
@@ -152,6 +155,28 @@ export function UploadPage() {
     }
   };
 
+  const handlePhotosCaptured = async (photoFiles) => {
+    setIsCameraOpen(false);
+    if (!photoFiles || photoFiles.length === 0) return;
+
+    setErrorMessage(null);
+    setPollTimedOut(false);
+    setIsProcessing(true);
+    setStatusMessage("Reading your captured notice photos...");
+
+    try {
+      const uploadResponse = await uploadNotice(photoFiles);
+      if (uploadResponse.status && uploadResponse.status !== "processing") {
+        navigate(`/notices/${uploadResponse.id}`);
+        return;
+      }
+      pollNoticeStatus(uploadResponse.id);
+    } catch (error) {
+      setIsProcessing(false);
+      setErrorMessage(error.message || "Failed to upload notice photos. Please try again.");
+    }
+  };
+
   return (
     <main className="page-shell max-w-5xl space-y-6">
       <PageHeader
@@ -161,6 +186,14 @@ export function UploadPage() {
         description="Bring a communication from any organisation into one workspace. The connected service can extract its summary, key dates, and potential next steps for review."
         actions={
           <>
+            <button
+              type="button"
+              onClick={() => setIsCameraOpen(true)}
+              className="inline-flex min-h-[44px] items-center gap-1.5 rounded-lg border border-purple-200 bg-purple-50 px-3.5 text-xs font-semibold text-purple-900 hover:bg-purple-100 shadow-xs transition"
+            >
+              <Camera className="h-4 w-4 text-purple-700" aria-hidden="true" />
+              <span>Take Photo</span>
+            </button>
             <span className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-600 shadow-xs">
               <FileCheck className="h-3.5 w-3.5 text-purple-700" aria-hidden="true" />
               PDF analysis
@@ -184,7 +217,7 @@ export function UploadPage() {
         </article>
         <article className="surface-card border-cyan-100 bg-cyan-50/50 p-4">
           <p className="text-[10px] font-bold uppercase tracking-wide text-cyan-900">Current upload integration</p>
-          <p className="mt-1 text-xs leading-5 text-slate-700">Accepts PDF files only (up to 10 MB). Manual source labels or category overrides are not submitted.</p>
+          <p className="mt-1 text-xs leading-5 text-slate-700">Accepts PDF files (up to 10 MB) or captured photos (up to 10 pages).</p>
         </article>
       </section>
 
@@ -356,8 +389,21 @@ export function UploadPage() {
                     </button>
                   </p>
                 </div>
+                <div className="pt-1 flex flex-wrap items-center justify-center gap-3">
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      setIsCameraOpen(true);
+                    }}
+                    className="inline-flex min-h-[44px] items-center gap-2 rounded-xl bg-purple-50 hover:bg-purple-100 border border-purple-200 px-4 py-2 text-xs sm:text-sm font-bold text-purple-900 shadow-2xs transition"
+                  >
+                    <Camera className="w-4 h-4 text-purple-700" aria-hidden="true" />
+                    <span>Take Photo</span>
+                  </button>
+                </div>
                 <span className="inline-block px-3 py-1 rounded-full text-xs font-semibold bg-stone-100 text-stone-600">
-                  PDF format only · Maximum file size 10MB
+                  PDF format (up to 10MB) or Photo Capture (up to 10 pages)
                 </span>
               </div>
             )}
@@ -365,7 +411,7 @@ export function UploadPage() {
 
           <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-1">
             <span className="text-xs text-stone-500 font-medium">
-              Upload a PDF communication supported by the current processing service.
+              Upload a PDF notice or take photos of a paper notice to process.
             </span>
             <button
               type="button"
@@ -392,6 +438,12 @@ export function UploadPage() {
           </div>
         </section>
       )}
+
+      <CameraCaptureModal
+        isOpen={isCameraOpen}
+        onClose={() => setIsCameraOpen(false)}
+        onComplete={handlePhotosCaptured}
+      />
     </main>
   );
 }

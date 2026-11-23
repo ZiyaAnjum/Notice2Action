@@ -11,6 +11,15 @@ from sqlalchemy.orm import Session
 from backend.app.config import get_settings
 from backend.app.database import SessionLocal
 from backend.app.models.notice import ChecklistItemModel, NoticeModel, ReminderModel
+from backend.app.services.image_preprocessor import (
+    ImageProcessingError,
+    MAX_PHOTOS_PER_NOTICE,
+    create_pdf_from_images,
+    detect_image_format,
+    enhance_image_for_ocr,
+    normalize_and_strip_metadata,
+    save_image_as_jpeg_bytes,
+)
 from backend.app.storage import FileStorage, get_storage
 from extraction.extractor import MAX_FILE_SIZE_BYTES, extract_pages
 from extraction.llm_client import BaseLLMClient
@@ -64,7 +73,7 @@ class NoticeService:
         content_type: str | None,
         user_id: str | None = None,
     ) -> tuple[str, Path]:
-        """Validate uploaded PDF bytes and persist to a private, non-public directory.
+        """Validate uploaded PDF or single photo bytes and persist to scoped storage.
 
         Args:
             filename: Original user filename (for display only).
@@ -78,11 +87,20 @@ class NoticeService:
         Raises:
             NoticeServiceError: On format, magic byte, size, or emptiness violations.
         """
-        # 1. Content-type check
+        # If image format detected, delegate to photo upload handler
+        is_image = (
+            (content_type and content_type.lower() in ("image/jpeg", "image/jpg", "image/png", "image/webp"))
+            or filename.lower().endswith((".jpg", ".jpeg", ".png", ".webp"))
+            or detect_image_format(contents) is not None
+        )
+        if is_image:
+            return self.validate_and_save_photo_upload([(filename, contents, content_type)], user_id=user_id)
+
+        # 1. Content-type check for PDF
         if content_type != "application/pdf":
             raise NoticeServiceError(
                 error_code="INVALID_FILE_TYPE",
-                message=f"Only PDF documents are supported. Received content-type: '{content_type}'.",
+                message=f"Only PDF documents and JPEG/PNG/WEBP photos are supported. Received content-type: '{content_type}'.",
                 status_code=400,
             )
 
@@ -120,6 +138,103 @@ class NoticeService:
         stored_path = Path(stored_path_str)
 
         notice_id = f"notice-{uuid.uuid4().hex[:12]}"
+        return notice_id, stored_path
+
+    def validate_and_save_photo_upload(
+        self,
+        photos: list[tuple[str, bytes, str | None]],
+        user_id: str | None = None,
+    ) -> tuple[str, Path]:
+        """Validate and compile camera photos into clean multi-page document containers.
+
+        Rules:
+        - Maximum 10 photos per notice.
+        - Total upload size <= 25 MB.
+        - Strip EXIF/GPS metadata after correcting orientation.
+        - Lightweight numpy Laplacian sharpness check: reject severely blurred photos with friendly error.
+        - Keep original color photo (compressed) for source viewer.
+        - Generate enhanced grayscale/contrast copy for OCR extraction container.
+        """
+        if not photos:
+            raise NoticeServiceError(
+                error_code="EMPTY_FILE",
+                message="No photo files were uploaded.",
+                status_code=400,
+            )
+
+        if len(photos) > MAX_PHOTOS_PER_NOTICE:
+            raise NoticeServiceError(
+                error_code="TOO_MANY_PHOTOS",
+                message=f"Maximum {MAX_PHOTOS_PER_NOTICE} photos allowed per notice. Received {len(photos)} photos.",
+                status_code=400,
+            )
+
+        total_bytes = sum(len(b) for _, b, _ in photos)
+        max_bytes = 25 * 1024 * 1024  # 25 MB
+        if total_bytes > max_bytes:
+            limit_mb = round(max_bytes / (1024 * 1024))
+            raise NoticeServiceError(
+                error_code="FILE_TOO_LARGE",
+                message=f"Total photo upload size ({round(total_bytes / (1024 * 1024), 1)} MB) exceeds {limit_mb} MB limit.",
+                status_code=413,
+            )
+
+        notice_id = f"notice-{uuid.uuid4().hex[:12]}"
+        clean_color_images = []
+        enhanced_images = []
+
+        for idx, (p_name, p_bytes, p_mime) in enumerate(photos):
+            if len(p_bytes) == 0:
+                raise NoticeServiceError(
+                    error_code="EMPTY_FILE",
+                    message=f"Photo {idx + 1} is completely empty (0 bytes).",
+                    status_code=400,
+                )
+
+            try:
+                clean_color, sharpness = normalize_and_strip_metadata(p_bytes)
+            except ImageProcessingError as img_err:
+                raise NoticeServiceError(
+                    error_code=img_err.error_code,
+                    message=f"Photo {idx + 1}: {img_err.message}",
+                    status_code=img_err.status_code,
+                ) from None
+
+            # Sharpness / blurriness check (variance of Laplacian)
+            if sharpness < 20.0:
+                raise NoticeServiceError(
+                    error_code="BLURRY_PHOTO",
+                    message=f"Photo {idx + 1} is too blurry or out of focus. Please retake a clearer, well-lit photo of the notice.",
+                    status_code=400,
+                )
+
+            enhanced = enhance_image_for_ocr(clean_color)
+            clean_color_images.append(clean_color)
+            enhanced_images.append(enhanced)
+
+            # Persist original color photo as a clean JPEG for page-level source viewing
+            page_num = idx + 1
+            page_img_bytes = save_image_as_jpeg_bytes(clean_color)
+            try:
+                self.storage.save(f"{notice_id}_page_{page_num}_color.jpg", page_img_bytes, user_id=user_id, preserve_filename=True)
+            except TypeError:
+                self.storage.save(f"{notice_id}_page_{page_num}_color.jpg", page_img_bytes, user_id=user_id)
+
+        # 1. Compile enhanced images into extraction PDF container
+        enhanced_pdf_bytes = create_pdf_from_images(enhanced_images)
+        try:
+            stored_path_str = self.storage.save(f"{notice_id}.pdf", enhanced_pdf_bytes, user_id=user_id, preserve_filename=True)
+        except TypeError:
+            stored_path_str = self.storage.save(f"{notice_id}.pdf", enhanced_pdf_bytes, user_id=user_id)
+        stored_path = Path(stored_path_str)
+
+        # 2. Compile clean color images into original viewer PDF container
+        color_pdf_bytes = create_pdf_from_images(clean_color_images)
+        try:
+            self.storage.save(f"{notice_id}_color.pdf", color_pdf_bytes, user_id=user_id, preserve_filename=True)
+        except TypeError:
+            self.storage.save(f"{notice_id}_color.pdf", color_pdf_bytes, user_id=user_id)
+
         return notice_id, stored_path
 
     def create_pending_notice(
@@ -246,12 +361,21 @@ class NoticeService:
                     db.add(checklist_item)
 
             elif pipe_status == "needs_clearer_document":
+                is_photo = (
+                    notice.original_filename.lower().endswith((".jpg", ".jpeg", ".png", ".webp"))
+                    or (Path(notice.stored_path).parent / f"{notice.id}_color.pdf").exists()
+                )
+                msg = (
+                    "We couldn't clearly read text from this photo. Please retake a sharper, well-lit photo of the notice."
+                    if is_photo
+                    else "We couldn't read text from this PDF. Try a clearer scan."
+                )
                 notice.status = "failed"
                 notice.stage = "done"
                 notice.progress = 100
-                notice.error = "We couldn't read text from this PDF. Try a clearer scan."
+                notice.error = msg
                 notice.error_code = "UNREADABLE_DOCUMENT"
-                notice.message = "We couldn't read text from this PDF. Try a clearer scan."
+                notice.message = msg
 
             elif pipe_status == "out_of_scope":
                 notice.status = "failed"
@@ -415,7 +539,10 @@ class NoticeService:
     def get_notice_file_path(
         self, db: Session, notice_id: str, user_id: str | None = None
     ) -> tuple[Path, str] | None:
-        """Return the on-disk file path and original filename for a notice scoped to user_id."""
+        """Return the on-disk file path and original filename for a notice scoped to user_id.
+
+        If a camera photo color compilation PDF exists, returns the original color document.
+        """
         query = db.query(NoticeModel).filter(NoticeModel.id == notice_id)
         if user_id:
             query = query.filter(NoticeModel.user_id == user_id)
@@ -423,16 +550,57 @@ class NoticeService:
         if not notice:
             return None
 
+        # Prefer original color PDF if notice was uploaded from camera photos
+        color_pdf = Path(notice.stored_path).parent / f"{notice_id}_color.pdf"
+        if color_pdf.exists():
+            return color_pdf, f"{notice_id}_original_photos.pdf"
+
         path = self.storage.get_local_path(notice.stored_path)
         if not path.exists():
             return None
 
         return path, notice.original_filename
 
+    def get_notice_page_image_path(
+        self, db: Session, notice_id: str, page_number: int, user_id: str | None = None
+    ) -> tuple[Path, str] | None:
+        """Return the original color photo or rendered page image for source evidence inspection."""
+        query = db.query(NoticeModel).filter(NoticeModel.id == notice_id)
+        if user_id:
+            query = query.filter(NoticeModel.user_id == user_id)
+        notice = query.first()
+        if not notice:
+            return None
+
+        p = self.storage.get_local_path(notice.stored_path)
+
+        # 1. Check for original color photo of this page
+        page_photo = p.parent / f"{notice_id}_page_{page_number}_color.jpg"
+        if page_photo.exists():
+            return page_photo, "image/jpeg"
+
+        # 2. For standard PDF notices, render page at 150 DPI to a cached JPEG image
+        if p.exists() and p.is_file():
+            try:
+                doc = pymupdf.open(p)
+                if 1 <= page_number <= len(doc):
+                    page = doc[page_number - 1]
+                    rendered_path = p.parent / f"{notice_id}_page_{page_number}_rendered.jpg"
+                    if not rendered_path.exists():
+                        pix = page.get_pixmap(dpi=150)
+                        pix.save(str(rendered_path))
+                    doc.close()
+                    return rendered_path, "image/jpeg"
+                doc.close()
+            except Exception:
+                pass
+
+        return None
+
     def delete_notice(
         self, db: Session, notice_id: str, user_id: str | None = None
     ) -> bool:
-        """Delete notice and on-disk file scoped to user_id."""
+        """Delete notice and on-disk files scoped to user_id."""
         query = db.query(NoticeModel).filter(NoticeModel.id == notice_id)
         if user_id:
             query = query.filter(NoticeModel.user_id == user_id)
@@ -444,9 +612,17 @@ class NoticeService:
             p = self.storage.get_local_path(notice.stored_path)
             if p.exists() and p.is_file():
                 try:
-                    p.unlink()
+                    p.unlink(missing_ok=True)
                 except Exception:
                     pass
+            # Clean up all companion files (_color.pdf, _page_*_color.jpg, etc.)
+            parent = p.parent
+            if parent.exists():
+                for comp in parent.glob(f"{notice_id}*"):
+                    try:
+                        comp.unlink(missing_ok=True)
+                    except Exception:
+                        pass
 
         db.delete(notice)
         db.commit()

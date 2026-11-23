@@ -14,7 +14,7 @@ class Settings(BaseSettings):
 
     # Server binding
     HOST: str = "0.0.0.0"
-    PORT: int = 8000
+    PORT: int = 8001
 
     # CORS configuration
     ALLOWED_ORIGINS: str | list[str] = [

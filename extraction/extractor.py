@@ -273,6 +273,7 @@ def extract_pages(
                     )
                 elif active_ocr_mode == "tesseract":
                     ocr_text, err = ocr_page_tesseract(page, dpi=DEFAULT_TESSERACT_DPI)
+                    fallback_used = False
                     if ocr_text:
                         is_usable, reason = check_ocr_quality(ocr_text)
                         if is_usable:
@@ -290,6 +291,68 @@ def extract_pages(
                                 }
                             )
                         else:
+                            # Tesseract output is poor; attempt Gemini Vision OCR fallback if client available
+                            if client is not None:
+                                logger.info(
+                                    "Tesseract output quality poor (%s); attempting Gemini Vision fallback for page %d.",
+                                    reason,
+                                    page_num,
+                                )
+                                v_text, _ = ocr_page_gemini_vision(page, client=client, dpi=DEFAULT_GEMINI_DPI)
+                                if v_text:
+                                    v_usable, _ = check_ocr_quality(v_text)
+                                    if v_usable:
+                                        cleaned_v = normalize_whitespace(v_text)
+                                        repaired_v = repair_ocr_spacing(cleaned_v)
+                                        ocr_chars += len(cleaned_v)
+                                        pages.append(
+                                            {
+                                                "page_number": page_num,
+                                                "text": cleaned_v,
+                                                "display_text": repaired_v,
+                                                "method": "ocr",
+                                                "char_count": len(cleaned_v),
+                                                "status": "ok",
+                                            }
+                                        )
+                                        fallback_used = True
+                            if not fallback_used:
+                                pages.append(
+                                    {
+                                        "page_number": page_num,
+                                        "text": "",
+                                        "method": "unreadable",
+                                        "char_count": 0,
+                                        "status": "needs a clearer document",
+                                        "ocr_error": reason,
+                                    }
+                                )
+                    else:
+                        # Tesseract returned empty; attempt Gemini Vision fallback if client available
+                        if client is not None:
+                            logger.info(
+                                "Tesseract returned empty output; attempting Gemini Vision fallback for page %d.",
+                                page_num,
+                            )
+                            v_text, _ = ocr_page_gemini_vision(page, client=client, dpi=DEFAULT_GEMINI_DPI)
+                            if v_text:
+                                v_usable, _ = check_ocr_quality(v_text)
+                                if v_usable:
+                                    cleaned_v = normalize_whitespace(v_text)
+                                    repaired_v = repair_ocr_spacing(cleaned_v)
+                                    ocr_chars += len(cleaned_v)
+                                    pages.append(
+                                        {
+                                            "page_number": page_num,
+                                            "text": cleaned_v,
+                                            "display_text": repaired_v,
+                                            "method": "ocr",
+                                            "char_count": len(cleaned_v),
+                                            "status": "ok",
+                                        }
+                                    )
+                                    fallback_used = True
+                        if not fallback_used:
                             pages.append(
                                 {
                                     "page_number": page_num,
@@ -297,20 +360,9 @@ def extract_pages(
                                     "method": "unreadable",
                                     "char_count": 0,
                                     "status": "needs a clearer document",
-                                    "ocr_error": reason,
+                                    "ocr_error": err or "Tesseract extraction returned empty output.",
                                 }
                             )
-                    else:
-                        pages.append(
-                            {
-                                    "page_number": page_num,
-                                "text": "",
-                                "method": "unreadable",
-                                "char_count": 0,
-                                "status": "needs a clearer document",
-                                "ocr_error": err or "Tesseract extraction returned empty output.",
-                            }
-                        )
                 elif active_ocr_mode == "gemini_vision":
                     if vision_pages_count >= max_vision_pages:
                         cap_msg = (

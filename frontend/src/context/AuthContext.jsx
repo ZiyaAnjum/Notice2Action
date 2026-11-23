@@ -96,6 +96,15 @@ export function AuthProvider({ children }) {
       });
       if (data?.user) {
         setUser(data.user);
+      } else {
+        setUser({
+          id: "demo-user-seed-000000000001",
+          email: "demo@notice2action.com",
+          full_name: "Demo User",
+          is_verified: true,
+          preferred_language: "en",
+          is_demo: true,
+        });
       }
     } catch {
       // Offline / mock fallback for tests

@@ -22,9 +22,106 @@ settings = get_settings()
 init_db()
 
 
+def _get_system_diagnostics(db: Session | None = None) -> dict[str, Any]:
+    """Collect comprehensive system health and dependency diagnostics."""
+    warnings: list[str] = []
+
+    # 1. Database check
+    db_status = "connected"
+    if db is not None:
+        try:
+            db.execute(text("SELECT 1"))
+        except Exception as exc:
+            db_status = f"disconnected: {exc}"
+            warnings.append(f"Database unavailable: {exc}")
+
+    # 2. Tesseract check
+    from extraction.ocr import is_tesseract_installed
+
+    tess_avail, tess_msg = is_tesseract_installed()
+    tess_info: dict[str, Any] = {
+        "available": tess_avail,
+        "path": None,
+        "version": None,
+        "message": tess_msg,
+    }
+    if tess_avail:
+        try:
+            import pytesseract
+
+            tess_info["path"] = getattr(pytesseract.pytesseract, "tesseract_cmd", "tesseract")
+            try:
+                tess_info["version"] = str(pytesseract.get_tesseract_version())
+            except Exception:
+                pass
+        except Exception:
+            pass
+    else:
+        warnings.append(
+            "Tesseract OCR is not installed or not on system PATH. "
+            "Scanned PDF notices and paper photos will use Gemini Vision fallback."
+        )
+
+    # 3. Gemini / LLM key check
+    api_key = settings.LLM_API_KEY or ""
+    is_placeholder = (
+        not api_key
+        or api_key in ("mock-llm-key-placeholder", "your_gemini_or_openai_api_key_here")
+        or api_key.startswith("your_")
+    )
+    gemini_info: dict[str, Any] = {
+        "configured": not is_placeholder,
+        "model": settings.LLM_MODEL,
+        "fallback_model": settings.LLM_FALLBACK_MODEL,
+    }
+    if is_placeholder:
+        warnings.append(
+            "LLM_API_KEY is not configured or using default placeholder. "
+            "Set a valid Gemini API key in your .env to enable AI extraction."
+        )
+
+    return {
+        "database": db_status,
+        "tesseract": tess_info,
+        "gemini": gemini_info,
+        "warnings": warnings,
+    }
+
+
+def _print_startup_diagnostics() -> None:
+    """Print clean startup diagnostics and friendly warnings to console."""
+    diag = _get_system_diagnostics()
+    print("=" * 64)
+    print(f"[{settings.APP_NAME}] Startup Diagnostics (v{settings.APP_VERSION})")
+    print(f"  * Environment:  {settings.ENV}")
+    print(f"  * Server Port:  {settings.PORT} (API Base: http://localhost:{settings.PORT})")
+    print(f"  * Database:     {diag['database']}")
+    if diag["tesseract"]["available"]:
+        v_str = f" (v{diag['tesseract']['version']})" if diag["tesseract"]["version"] else ""
+        print(f"  * Tesseract:    Available at '{diag['tesseract']['path']}'{v_str}")
+    else:
+        print("  * Tesseract:    NOT FOUND (scanned notices will use Gemini Vision fallback)")
+    if diag["gemini"]["configured"]:
+        fb_str = (
+            f", fallback: {diag['gemini']['fallback_model']}"
+            if diag["gemini"]["fallback_model"]
+            else ""
+        )
+        print(f"  * Gemini AI:    Configured (model: {diag['gemini']['model']}{fb_str})")
+    else:
+        print("  * Gemini AI:    KEY NOT SET (set LLM_API_KEY in .env)")
+
+    if diag["warnings"]:
+        print("\n[Notice2Action] Active Startup Warnings:")
+        for w in diag["warnings"]:
+            print(f"  [!] {w}")
+    print("=" * 64 + "\n")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Application lifespan context managing database and service lifecycle."""
+    _print_startup_diagnostics()
     yield
 
 
@@ -84,29 +181,25 @@ async def health_check(
     db: Annotated[Session, Depends(get_db)],
 ) -> dict[str, Any] | JSONResponse:
     """Health endpoint returning operational status, service metadata, and database connectivity."""
-    db_status = "connected"
-    try:
-        db.execute(text("SELECT 1"))
-    except Exception as exc:
-        db_status = f"disconnected: {exc}"
-        return JSONResponse(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            content={
-                "status": "unhealthy",
-                "database": db_status,
-                "app": settings.APP_NAME,
-                "version": settings.APP_VERSION,
-                "environment": settings.ENV,
-            },
-        )
-
-    return {
-        "status": "healthy",
-        "database": db_status,
+    diag = _get_system_diagnostics(db)
+    is_healthy = not diag["database"].startswith("disconnected")
+    content = {
+        "status": "healthy" if is_healthy else "unhealthy",
+        "database": diag["database"],
         "app": settings.APP_NAME,
         "version": settings.APP_VERSION,
         "environment": settings.ENV,
+        "tesseract": diag["tesseract"],
+        "gemini": diag["gemini"],
+        "warnings": diag["warnings"],
     }
+    if not is_healthy:
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content=content,
+        )
+
+    return content
 
 
 # Include API routers

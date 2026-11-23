@@ -71,11 +71,21 @@ class LocalFileStorage(FileStorage):
         self.upload_dir = Path(upload_dir or settings.UPLOAD_DIR)
         self.upload_dir.mkdir(parents=True, exist_ok=True)
 
-    def save(self, filename: str, contents: bytes, user_id: str | None = None) -> str:
+    def save(
+        self,
+        filename: str,
+        contents: bytes,
+        user_id: str | None = None,
+        preserve_filename: bool = False,
+    ) -> str:
         """Save file bytes with a generated safe UUID filename in a private per-user path."""
-        safe_filename = f"{uuid.uuid4().hex}.pdf"
         target_dir = (self.upload_dir / user_id) if user_id else self.upload_dir
         target_dir.mkdir(parents=True, exist_ok=True)
+        if preserve_filename:
+            safe_filename = Path(filename).name
+        else:
+            suffix = Path(filename).suffix or ".pdf"
+            safe_filename = f"{uuid.uuid4().hex}{suffix}"
         target_path = target_dir / safe_filename
         target_path.write_bytes(contents)
         return str(target_path.resolve())

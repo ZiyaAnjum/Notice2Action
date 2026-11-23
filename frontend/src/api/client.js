@@ -5,7 +5,7 @@
 
 export const API_BASE_URL =
   (typeof import.meta !== "undefined" && import.meta.env && import.meta.env.VITE_API_BASE_URL) ||
-  "http://localhost:8000";
+  "http://localhost:8001";
 
 /**
  * In-memory access token storage (never saved to localStorage per security spec).
@@ -357,25 +357,38 @@ export async function resetPassword(payload) {
 }
 
 /**
- * Upload an official notice PDF for asynchronous AI processing.
- * @param {File} file - PDF file to upload.
+ * Upload an official notice PDF or multiple captured photos for asynchronous AI processing.
+ * @param {File|File[]} fileOrFiles - Single PDF file or array of captured image files.
  * @returns {Promise<{ id: string, status: string, message: string }>}
  */
-export async function uploadNotice(file) {
-  if (!file) {
-    throw new ApiError("Please select a valid PDF file to upload.", 400, "INVALID_FILE");
+export async function uploadNotice(fileOrFiles) {
+  if (!fileOrFiles) {
+    throw new ApiError("Please select a valid PDF file or take photos to upload.", 400, "INVALID_FILE");
   }
 
   const formData = new FormData();
-  formData.append("file", file);
-
-    const response = await safeFetch(`${API_BASE_URL}/api/notices`, {
-      method: "POST",
-      body: formData,
-    });
-
-    return await handleResponse(response);
+  if (Array.isArray(fileOrFiles)) {
+    if (fileOrFiles.length === 0) {
+      throw new ApiError("Please provide at least one photo or file to upload.", 400, "INVALID_FILE");
+    }
+    if (fileOrFiles.length === 1) {
+      formData.append("file", fileOrFiles[0]);
+    } else {
+      for (const f of fileOrFiles) {
+        formData.append("files", f);
+      }
+    }
+  } else {
+    formData.append("file", fileOrFiles);
   }
+
+  const response = await safeFetch(`${API_BASE_URL}/api/notices`, {
+    method: "POST",
+    body: formData,
+  });
+
+  return await handleResponse(response);
+}
 
 /**
  * Retrieve a list of all notices sorted newest first.
@@ -426,6 +439,16 @@ export async function getNoticePage(noticeId, pageNumber) {
      */
     export function getNoticeFileUrl(noticeId) {
       return `${API_BASE_URL}/api/notices/${noticeId}/file`;
+    }
+
+    /**
+     * Construct URL to view original page image (original color photo or rendered page).
+     * @param {string} noticeId - Notice ID.
+     * @param {number} [pageNumber=1] - 1-indexed page number.
+     * @returns {string} URL to page image.
+     */
+    export function getNoticePageImageUrl(noticeId, pageNumber = 1) {
+      return `${API_BASE_URL}/api/notices/${noticeId}/pages/${pageNumber}/image`;
     }
 
     /**
