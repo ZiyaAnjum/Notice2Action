@@ -3,9 +3,17 @@
  * Centralizes all backend network requests with unified error handling and typing.
  */
 
+const rawBaseUrl =
+  typeof import.meta !== "undefined" &&
+  import.meta.env &&
+  import.meta.env.VITE_API_BASE_URL;
+
 export const API_BASE_URL =
-  (typeof import.meta !== "undefined" && import.meta.env && import.meta.env.VITE_API_BASE_URL) ||
-  "http://localhost:8000";
+  (typeof rawBaseUrl === "string" && rawBaseUrl.trim()
+    ? rawBaseUrl.trim().replace(/\/+$/, "")
+    : "") || "http://localhost:8000";
+
+const DEFAULT_TIMEOUT_MS = 8000;
 
 /**
  * Custom error class for API errors providing error code and friendly message.
@@ -73,12 +81,30 @@ async function handleResponse(response) {
 }
 
 /**
- * Internal safe fetch wrapper converting raw network drops into friendly ApiError.
+ * Internal safe fetch wrapper with automatic timeout and error transformation.
  */
-async function safeFetch(url, options) {
+async function safeFetch(url, options = {}) {
+  const timeoutMs = options.timeout || DEFAULT_TIMEOUT_MS;
+  const controller = new AbortController();
+  const timer = setTimeout(() => {
+    controller.abort();
+  }, timeoutMs);
+
+  const fetchOptions = { ...options };
+  delete fetchOptions.timeout;
+  fetchOptions.signal = options.signal || controller.signal;
+
   try {
-    return await fetch(url, options);
+    return await fetch(url, fetchOptions);
   } catch (err) {
+    if (err.name === "AbortError" || controller.signal.aborted) {
+      throw new ApiError(
+        `Unable to reach backend service (${timeoutMs / 1000}s timeout). Please verify the server is running at ${API_BASE_URL}.`,
+        0,
+        "BACKEND_TIMEOUT",
+        err
+      );
+    }
     if (
       err instanceof TypeError &&
       (err.message.includes("fetch") ||
@@ -93,6 +119,8 @@ async function safeFetch(url, options) {
       );
     }
     throw err;
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -122,9 +150,10 @@ export async function uploadNotice(file) {
  * @returns {Promise<Array<{ id: string, title: string, category: string|null, status: string, deadline_summary: string|null, needs_verification: boolean, created_at: string }>>}
  */
 export async function listNotices() {
-    const response = await safeFetch(`${API_BASE_URL}/api/notices`);
-    return await handleResponse(response);
-  }
+  const response = await safeFetch(`${API_BASE_URL}/api/notices`);
+  const data = await handleResponse(response);
+  return Array.isArray(data) ? data : [];
+}
 
   /**
    * Retrieve full notice details including extracted result JSON, checklist, and reminders.
@@ -212,19 +241,21 @@ export async function getNoticePage(noticeId, pageNumber) {
  * @returns {Promise<Array>}
  */
 export async function listNoticeReminders(noticeId) {
-        const response = await safeFetch(`${API_BASE_URL}/api/notices/${noticeId}/reminders`);
-        return await handleResponse(response);
-      }
+  const response = await safeFetch(`${API_BASE_URL}/api/notices/${noticeId}/reminders`);
+  const data = await handleResponse(response);
+  return Array.isArray(data) ? data : [];
+}
 
-      /**
-       * Get upcoming reminders across all notices.
-       * @param {number} [days=14] - Horizon in days.
-       * @returns {Promise<Array>}
-       */
-      export async function getUpcomingReminders(days = 14) {
-        const response = await safeFetch(`${API_BASE_URL}/api/reminders/upcoming?days=${days}`);
-        return await handleResponse(response);
-      }
+/**
+ * Get upcoming reminders across all notices.
+ * @param {number} [days=14] - Horizon in days.
+ * @returns {Promise<Array>}
+ */
+export async function getUpcomingReminders(days = 14) {
+  const response = await safeFetch(`${API_BASE_URL}/api/reminders/upcoming?days=${days}`);
+  const data = await handleResponse(response);
+  return Array.isArray(data) ? data : [];
+}
 
       /**
        * Update an existing reminder (done status, note, or remind_on date).

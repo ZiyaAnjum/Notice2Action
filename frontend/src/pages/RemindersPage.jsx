@@ -10,6 +10,7 @@ import {
   Trash2,
   ArrowRight,
   Filter,
+  RefreshCw,
 } from "lucide-react";
 import { getUpcomingReminders, updateReminder, deleteReminder } from "../api/client";
 import { formatDate, getCountdownDetails } from "../utils/text";
@@ -27,7 +28,7 @@ export function RemindersPage() {
     setError(null);
     try {
       const data = await getUpcomingReminders(90);
-      setReminders(data || []);
+      setReminders(Array.isArray(data) ? data : []);
     } catch (err) {
       setError(err.message || "Failed to load reminders.");
     } finally {
@@ -37,6 +38,10 @@ export function RemindersPage() {
 
   useEffect(() => {
     fetchReminders();
+    const timer = setTimeout(() => {
+      setLoading(false);
+    }, 8000);
+    return () => clearTimeout(timer);
   }, []);
 
   const handleToggle = async (rem) => {
@@ -63,6 +68,7 @@ export function RemindersPage() {
   };
 
   const filtered = useMemo(() => {
+    if (!Array.isArray(reminders)) return [];
     return reminders.filter((r) => {
       if (filterMode === "pending") return !r.done;
       if (filterMode === "upcoming") {
@@ -81,12 +87,12 @@ export function RemindersPage() {
     <main className="page-shell space-y-6">
       <PageHeader
         icon={Bell}
-        eyebrow="Stay on top of next steps"
-        title="Action reminders"
-        description="Manage saved actions linked to your documents. This page uses the reminder service’s current 90-day feed; it may not include every extracted date."
+        eyebrow="Personal Action Center"
+        title="Action Reminders"
+        description="Manage your deadline reminders and checklist items linked to official institutional notices. Track what is pending, upcoming, or completed."
         actions={
           <div className="flex flex-wrap items-center gap-1.5" aria-label="Filter reminders">
-            <Filter className="mr-1 h-4 w-4 text-stone-400" aria-hidden="true" />
+            <Filter className="mr-1 h-3.5 w-3.5 text-slate-400" aria-hidden="true" />
             {[
               { key: "all", label: "All" },
               { key: "pending", label: "Pending" },
@@ -101,8 +107,8 @@ export function RemindersPage() {
                 aria-pressed={filterMode === tab.key}
                 className={`focus-ring min-h-9 rounded-xl px-3 text-xs font-bold transition ${
                   filterMode === tab.key
-                    ? "bg-purple-700 text-white shadow-xs"
-                    : "border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                    ? "bg-purple-700 text-white shadow-purple"
+                    : "border border-slate-200 bg-white text-slate-600 hover:bg-purple-50 hover:text-purple-700"
                 }`}
               >
                 {tab.label}
@@ -113,27 +119,35 @@ export function RemindersPage() {
       />
 
       {loading && (
-        <div className="py-16 flex flex-col items-center justify-center gap-3 text-stone-600">
-          <Loader2 className="w-10 h-10 animate-spin text-teal-600" />
-          <p className="font-bold text-sm">Loading action reminders...</p>
+        <div className="surface-card py-20 flex flex-col items-center justify-center gap-3 text-slate-600">
+          <Loader2 className="w-9 h-9 animate-spin text-purple-600" />
+          <p className="font-bold text-xs sm:text-sm">Loading action reminders…</p>
         </div>
       )}
 
       {error && !loading && (
         <div
           role="alert"
-          className="p-5 rounded-2xl bg-amber-50 border border-amber-300 text-amber-950 space-y-2"
+          className="surface-card p-6 border-amber-300 bg-amber-50 text-amber-950 space-y-3 ui-fade-in text-center"
         >
-          <div className="flex items-center gap-2">
+          <div className="flex items-center justify-center gap-2">
             <AlertCircle className="w-5 h-5 text-amber-700" />
-            <h2 className="font-extrabold text-sm">Could not load reminders</h2>
+            <h2 className="font-extrabold text-sm sm:text-base">Could not load reminders</h2>
           </div>
-          <p className="text-xs text-amber-900">{error}</p>
+          <p className="text-xs text-amber-900 max-w-md mx-auto">{error}</p>
+          <button
+            type="button"
+            onClick={fetchReminders}
+            className="btn-primary mt-2"
+          >
+            <RefreshCw className="h-3.5 w-3.5" />
+            <span>Retry</span>
+          </button>
         </div>
       )}
 
       {actionError && (
-        <div role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
+        <div role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-xs sm:text-sm text-rose-800 ui-fade-in">
           {actionError}
         </div>
       )}
@@ -141,15 +155,15 @@ export function RemindersPage() {
       {!loading && !error && (
         <div className="space-y-3">
           {filtered.length === 0 ? (
-            <div className="surface-card space-y-3 p-10 text-center">
-              <CheckCircle2 className="w-12 h-12 text-stone-300 mx-auto" />
-              <h2 className="font-extrabold text-stone-900 text-lg">No Reminders Found</h2>
-              <p className="text-xs text-stone-500 max-w-md mx-auto">
-                No reminders match the selected filter. Reminders can be created on any notice dashboard.
+            <div className="surface-card space-y-3 p-12 text-center">
+              <CheckCircle2 className="w-12 h-12 text-slate-300 mx-auto" />
+              <h2 className="font-extrabold text-navy-950 text-base sm:text-lg">No Reminders Found</h2>
+              <p className="text-xs text-slate-500 max-w-md mx-auto">
+                No reminders match the selected filter. You can set reminders from any notice detail page.
               </p>
               <Link
                 to="/notices"
-                className="focus-ring inline-flex min-h-10 items-center gap-2 rounded-xl bg-purple-700 px-5 py-2.5 text-xs font-bold text-white shadow-xs hover:bg-purple-800"
+                className="btn-primary mt-2"
               >
                 Browse Notices
               </Link>
@@ -159,10 +173,10 @@ export function RemindersPage() {
               {filtered.map((rem) => (
                 <div
                   key={rem.id}
-                  className={`surface-card surface-card-hover flex items-start justify-between gap-3 p-4 ${
+                  className={`surface-card surface-card-hover flex items-start justify-between gap-3 p-4 sm:p-5 ${
                     rem.done
-                      ? "border-stone-200 opacity-60 bg-stone-50/50"
-                      : "border-stone-200/90"
+                      ? "opacity-60 bg-slate-50/50"
+                      : "bg-white"
                   }`}
                 >
                   <div className="flex items-start gap-3 min-w-0 flex-1">
@@ -170,48 +184,50 @@ export function RemindersPage() {
                       type="button"
                       onClick={() => handleToggle(rem)}
                       aria-label={rem.done ? "Mark incomplete" : "Mark completed"}
-                      className="focus-ring mt-0.5 rounded p-0.5 text-stone-400 hover:text-purple-700"
+                      className="focus-ring mt-0.5 rounded p-0.5 text-slate-400 hover:text-purple-700 transition"
                     >
                       {rem.done ? (
                         <CheckCircle2 className="w-5 h-5 text-emerald-600" />
                       ) : (
-                        <Circle className="w-5 h-5 text-stone-400" />
+                        <Circle className="w-5 h-5 text-slate-300" />
                       )}
                     </button>
-                    <div className="space-y-1 min-w-0">
+                    <div className="space-y-1.5 min-w-0">
                       <p
-                        className={`text-sm font-extrabold leading-snug ${
-                          rem.done ? "line-through text-stone-400" : "text-stone-900"
+                        className={`text-xs sm:text-sm font-extrabold leading-snug ${
+                          rem.done ? "line-through text-slate-400" : "text-navy-950"
                         }`}
                       >
                         {rem.note || rem.deadline_ref || "Notice Requirement"}
                       </p>
-                      <div className="flex items-center gap-2 text-xs text-stone-500 font-medium">
-                        <Calendar className="w-3.5 h-3.5 text-stone-400" />
+                      <div className="flex items-center gap-2 text-xs text-slate-500 font-medium">
+                        <Calendar className="w-3.5 h-3.5 text-slate-400" />
                         <span>Remind Date: {formatDate(rem.remind_on)}</span>
                       </div>
                       {!rem.done && (() => {
                         const countdown = getCountdownDetails(rem.remind_on);
                         return countdown ? (
-                          <span className={`mt-1 inline-flex rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                          <span className={`inline-flex rounded-full px-2.5 py-0.5 text-[10px] font-bold ${
                             countdown.urgency === "overdue"
-                              ? "bg-rose-100 text-rose-800"
+                              ? "bg-rose-50 text-rose-800 border border-rose-200"
                               : countdown.urgency === "urgent" || countdown.urgency === "critical"
-                                ? "bg-amber-100 text-amber-900"
-                                : "bg-purple-50 text-purple-800"
+                                ? "bg-amber-100 text-amber-900 border border-amber-300"
+                                : "bg-purple-50 text-purple-800 border border-purple-200"
                           }`}>
                             {countdown.label}
                           </span>
                         ) : null;
                       })()}
                       {rem.notice_id && (
-                        <Link
-                          to={`/notices/${rem.notice_id}`}
-                          className="mt-1 inline-flex items-center gap-1 text-[11px] font-bold text-purple-700 underline hover:text-purple-900"
-                        >
-                          <span>Notice Details</span>
-                          <ArrowRight className="w-3 h-3" />
-                        </Link>
+                        <div>
+                          <Link
+                            to={`/notices/${rem.notice_id}`}
+                            className="inline-flex items-center gap-1 text-[11px] font-bold text-purple-700 hover:text-purple-900 transition"
+                          >
+                            <span>Notice Details</span>
+                            <ArrowRight className="w-3 h-3" />
+                          </Link>
+                        </div>
                       )}
                     </div>
                   </div>
@@ -219,7 +235,7 @@ export function RemindersPage() {
                   <button
                     type="button"
                     onClick={() => handleDelete(rem.id)}
-                    className="focus-ring rounded-lg p-1.5 text-stone-400 transition-colors hover:bg-coral-50 hover:text-coral-600"
+                    className="focus-ring rounded-xl p-1.5 text-slate-400 transition hover:bg-rose-50 hover:text-rose-700 shrink-0"
                     aria-label="Delete reminder"
                   >
                     <Trash2 className="w-4 h-4" />
@@ -233,4 +249,3 @@ export function RemindersPage() {
     </main>
   );
 }
-

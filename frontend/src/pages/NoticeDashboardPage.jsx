@@ -110,7 +110,11 @@ export function NoticeDashboardPage() {
 
   useEffect(() => {
     fetchNoticeData();
+    const timer = setTimeout(() => {
+      setLoading(false);
+    }, 8000);
     return () => {
+      clearTimeout(timer);
       if (pollIntervalRef.current) {
         clearInterval(pollIntervalRef.current);
       }
@@ -174,9 +178,9 @@ export function NoticeDashboardPage() {
   // -------------------------------------------------------------
   if (loading) {
     return (
-      <main className="page-shell max-w-4xl space-y-4 py-10 text-center sm:py-14">
-        <Loader2 className="w-12 h-12 text-indigo-600 animate-spin mx-auto" />
-        <h1 className="text-xl font-bold text-slate-800">Loading document details...</h1>
+      <main className="page-shell max-w-4xl space-y-4 py-16 text-center">
+        <Loader2 className="w-12 h-12 text-purple-600 animate-spin mx-auto" />
+        <h1 className="text-lg font-bold text-navy-950">Loading notice details…</h1>
       </main>
     );
   }
@@ -184,15 +188,17 @@ export function NoticeDashboardPage() {
   if (fetchError || !notice) {
     return (
       <main className="page-shell max-w-3xl space-y-6">
-        <div className="p-6 rounded-2xl bg-rose-50 border-2 border-rose-300 text-rose-950 space-y-3">
-          <h1 className="text-xl font-extrabold">Document not available</h1>
-          <p className="text-sm font-medium">{fetchError || "The requested document could not be found."}</p>
+        <div className="surface-card p-6 sm:p-8 border-2 border-rose-300 text-rose-950 space-y-3 ui-fade-in">
+          <h1 className="text-xl font-extrabold">Document Not Available</h1>
+          <p className="text-xs sm:text-sm text-slate-600 font-medium">
+            {fetchError || "The requested notice document could not be found."}
+          </p>
           <div className="pt-2">
             <Link
               to="/notices"
-              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold bg-rose-600 text-white hover:bg-rose-700 min-h-[44px]"
+              className="btn-primary"
             >
-              Back to document library
+              Back to Document Library
             </Link>
           </div>
         </div>
@@ -207,20 +213,20 @@ export function NoticeDashboardPage() {
   // 1. Processing
   if (notice.status === "processing") {
     return (
-      <main className="page-shell max-w-3xl space-y-6 py-10 text-center sm:py-14">
-        <div className="p-8 sm:p-12 bg-white border-2 border-indigo-200 rounded-3xl shadow-sm space-y-4">
-          <Loader2 className="w-14 h-14 text-indigo-600 animate-spin mx-auto" />
-          <h1 className="text-2xl sm:text-3xl font-black text-slate-950">
-            Processing your document
+      <main className="page-shell max-w-3xl space-y-6 py-12 text-center">
+        <div className="surface-card border-2 border-purple-300 p-8 sm:p-12 shadow-elevated space-y-4 ui-fade-in">
+          <Loader2 className="w-14 h-14 text-purple-600 animate-spin mx-auto" />
+          <h1 className="text-2xl sm:text-3xl font-black text-navy-950">
+            Processing Your Notice
           </h1>
-          <p className="text-base text-slate-600 max-w-md mx-auto">
-            The connected processing service is extracting available information. This view will refresh when it reports a result; extracted details still need review against the original.
+          <p className="text-xs sm:text-sm text-slate-500 max-w-md mx-auto leading-relaxed">
+            The AI engine is currently extracting available dates, requirements, and instructions from this document. This view will refresh automatically once completed.
           </p>
           <div className="pt-2">
             <button
               type="button"
               onClick={fetchNoticeData}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100"
+              className="btn-secondary"
             >
               <RefreshCw className="w-3.5 h-3.5" />
               <span>Refresh Status</span>
@@ -237,21 +243,21 @@ export function NoticeDashboardPage() {
       <main className="page-shell max-w-3xl space-y-6">
         <div
           role="alert"
-          className="bg-white border-2 border-amber-400 rounded-3xl p-6 sm:p-10 shadow-sm space-y-5"
+          className="surface-card border-2 border-amber-300 p-6 sm:p-10 shadow-card space-y-5 ui-fade-in"
         >
           <div className="w-14 h-14 rounded-2xl bg-amber-100 flex items-center justify-center text-amber-800">
             <AlertTriangle className="w-8 h-8" />
           </div>
 
           <div className="space-y-2">
-            <h1 className="text-2xl sm:text-3xl font-black text-slate-950">
+            <h1 className="text-2xl sm:text-3xl font-black text-navy-950">
               Clearer Document Needed
             </h1>
-            <p className="text-base text-slate-700 leading-relaxed font-medium">
-              We could not read the text in this document clearly. The uploaded PDF appears to be a scanned image, blurry, or missing digital text.
+            <p className="text-xs sm:text-sm text-slate-700 leading-relaxed font-medium">
+              We could not read the text in this document clearly. Please upload a higher resolution copy or digital PDF.
             </p>
             {notice.message && (
-              <div className="p-3 bg-amber-50 rounded-xl border border-amber-200 text-sm text-amber-900 font-mono">
+              <div className="p-3 bg-amber-50 rounded-xl border border-amber-200 text-xs text-amber-900 font-mono">
                 {notice.message}
               </div>
             )}
@@ -260,16 +266,16 @@ export function NoticeDashboardPage() {
           <div className="pt-2 flex flex-wrap gap-3">
             <Link
               to="/upload"
-              className="inline-flex items-center gap-2 px-6 py-3 rounded-xl font-black text-white bg-indigo-600 hover:bg-indigo-700 shadow-md min-h-[48px]"
+              className="btn-primary"
             >
-              <Upload className="w-5 h-5" />
+              <Upload className="w-4 h-4" />
               <span>Upload a Clearer File</span>
             </Link>
             <Link
               to="/notices"
-              className="inline-flex items-center gap-2 px-5 py-3 rounded-xl font-bold text-slate-700 bg-white border border-slate-300 hover:bg-slate-100 min-h-[48px]"
+              className="btn-secondary"
             >
-              <span>Back to document library</span>
+              <span>Back to Library</span>
             </Link>
           </div>
         </div>
@@ -283,24 +289,24 @@ export function NoticeDashboardPage() {
       <main className="page-shell max-w-3xl space-y-6">
         <div
           role="alert"
-          className="bg-white border-2 border-slate-300 rounded-3xl p-6 sm:p-10 shadow-sm space-y-6"
+          className="surface-card border-2 border-slate-300 p-6 sm:p-10 shadow-card space-y-6 ui-fade-in"
         >
           <div className="w-14 h-14 rounded-2xl bg-slate-100 flex items-center justify-center text-slate-700">
             <FileText className="w-8 h-8" />
           </div>
 
           <div className="space-y-2">
-            <h1 className="text-2xl sm:text-3xl font-black text-slate-950">
+            <h1 className="text-2xl sm:text-3xl font-black text-navy-950">
               Document Not Yet Classified
             </h1>
-            <p className="text-base text-slate-700 leading-relaxed font-medium">
-              The current processing service did not classify this document, so no extracted action plan is available. Notice2Action is intended for communications from different organisations, but category coverage depends on the connected processing integration.
+            <p className="text-xs sm:text-sm text-slate-600 leading-relaxed font-medium">
+              The processing service could not match this document to a supported category, so an automated action plan is not yet available.
             </p>
           </div>
 
           {/* Supported Categories List */}
           <div className="space-y-3 pt-2 border-t border-slate-200">
-            <h2 className="text-sm font-bold uppercase tracking-wider text-slate-500">
+            <h2 className="text-xs font-bold uppercase tracking-wider text-slate-400">
               Categories currently recognised by the processing service:
             </h2>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -309,8 +315,8 @@ export function NoticeDashboardPage() {
                   key={cat.key}
                   className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-0.5"
                 >
-                  <p className="font-extrabold text-sm text-slate-900">{cat.label}</p>
-                  <p className="text-xs text-slate-600 font-medium">{cat.description}</p>
+                  <p className="font-extrabold text-xs text-navy-950">{cat.label}</p>
+                  <p className="text-[11px] text-slate-500 font-medium">{cat.description}</p>
                 </div>
               ))}
             </div>
@@ -319,16 +325,16 @@ export function NoticeDashboardPage() {
           <div className="pt-2 flex flex-wrap gap-3">
             <Link
               to="/upload"
-              className="inline-flex items-center gap-2 px-6 py-3 rounded-xl font-black text-white bg-indigo-600 hover:bg-indigo-700 min-h-[48px]"
+              className="btn-primary"
             >
-              <Upload className="w-5 h-5" />
+              <Upload className="w-4 h-4" />
               <span>Upload Another Notice</span>
             </Link>
             <Link
               to="/notices"
-              className="inline-flex items-center gap-2 px-5 py-3 rounded-xl font-bold text-slate-700 bg-white border border-slate-300 hover:bg-slate-100 min-h-[48px]"
+              className="btn-secondary"
             >
-              <span>Back to document library</span>
+              <span>Back to Library</span>
             </Link>
           </div>
         </div>
@@ -336,27 +342,27 @@ export function NoticeDashboardPage() {
     );
   }
 
-  // 4. extraction_failed or unconfigured AI service
+  // 4. extraction_failed
   if (notice.status === "extraction_failed") {
     return (
       <main className="page-shell max-w-3xl space-y-6">
         <div
           role="alert"
-          className="bg-white border-2 border-rose-300 rounded-3xl p-6 sm:p-10 shadow-sm space-y-5"
+          className="surface-card border-2 border-rose-300 p-6 sm:p-10 shadow-card space-y-5 ui-fade-in"
         >
           <div className="w-14 h-14 rounded-2xl bg-rose-100 flex items-center justify-center text-rose-700">
             <AlertTriangle className="w-8 h-8" />
           </div>
 
           <div className="space-y-2">
-            <h1 className="text-2xl sm:text-3xl font-black text-slate-950">
-              Document processing could not complete
+            <h1 className="text-2xl sm:text-3xl font-black text-navy-950">
+              Document Processing Could Not Complete
             </h1>
-            <p className="text-base text-slate-700 font-medium">
-              The connected service could not process this document. This might happen if the file is corrupted or the processing service is unavailable.
+            <p className="text-xs sm:text-sm text-slate-600 font-medium leading-relaxed">
+              The connected analysis service could not process this document. This may occur if the file is password-protected or unreadable.
             </p>
             {notice.message && (
-              <div className="p-4 bg-rose-50 rounded-xl border border-rose-200 text-sm text-rose-950 font-medium">
+              <div className="p-3 bg-rose-50 rounded-xl border border-rose-200 text-xs text-rose-950 font-medium">
                 {notice.message}
               </div>
             )}
@@ -365,16 +371,16 @@ export function NoticeDashboardPage() {
           <div className="pt-2 flex flex-wrap gap-3">
             <Link
               to="/upload"
-              className="inline-flex items-center gap-2 px-6 py-3 rounded-xl font-black text-white bg-indigo-600 hover:bg-indigo-700 min-h-[48px]"
+              className="btn-primary"
             >
-              <Upload className="w-5 h-5" />
+              <Upload className="w-4 h-4" />
               <span>Try Uploading Again</span>
             </Link>
             <Link
               to="/notices"
-              className="inline-flex items-center gap-2 px-5 py-3 rounded-xl font-bold text-slate-700 bg-white border border-slate-300 hover:bg-slate-100 min-h-[48px]"
+              className="btn-secondary"
             >
-              <span>Back to document library</span>
+              <span>Back to Library</span>
             </Link>
           </div>
         </div>
@@ -383,7 +389,7 @@ export function NoticeDashboardPage() {
   }
 
   // -------------------------------------------------------------
-  // Processed Status (Core Dashboard View, FR-08)
+  // Processed Status (Core Dashboard View)
   // -------------------------------------------------------------
   const result = notice.result || {};
   const technicalNotes = result.technical_notes || notice.technical_notes || [];
@@ -425,20 +431,20 @@ export function NoticeDashboardPage() {
 
   return (
     <main className="page-shell max-w-6xl space-y-6 sm:space-y-8">
-      {/* Prominent Verification Alert Banner (if needs_verification is true) */}
+      {/* Prominent Verification Alert Banner */}
       {notice.needs_verification && (
         <div
           role="alert"
           aria-live="polite"
-          className="p-5 sm:p-6 bg-amber-50 border-3 border-amber-400 rounded-2xl shadow-sm flex items-start gap-3.5 text-amber-950"
+          className="p-5 sm:p-6 bg-amber-50 border-2 border-amber-300 rounded-3xl shadow-sm flex items-start gap-3.5 text-amber-950 ui-fade-in"
         >
-          <AlertTriangle className="w-7 h-7 text-amber-700 flex-shrink-0 mt-0.5" aria-hidden="true" />
+          <AlertTriangle className="w-6 h-6 text-amber-700 shrink-0 mt-0.5" aria-hidden="true" />
           <div className="space-y-1">
-            <h2 className="text-lg sm:text-xl font-black">
+            <h2 className="text-base sm:text-lg font-black">
               Please check the highlighted items against your notice before acting
             </h2>
-            <p className="text-sm sm:text-base font-medium text-amber-900 leading-relaxed">
-              Certain claims, dates, or requirements in this document could not be verified with complete confidence. Look for the amber &ldquo;Please verify&rdquo; badges throughout this page.
+            <p className="text-xs sm:text-sm font-medium text-amber-900 leading-relaxed">
+              Certain claims, dates, or requirements in this document could not be matched with 100% confidence. Look for amber &ldquo;Please verify&rdquo; badges throughout this page.
             </p>
           </div>
         </div>
@@ -446,16 +452,16 @@ export function NoticeDashboardPage() {
 
       {/* Notice Header Card */}
       <section
-        className="bg-white border-2 border-slate-300 rounded-3xl p-6 sm:p-8 shadow-xs space-y-6"
+        className="surface-card p-6 sm:p-8 space-y-6 shadow-card"
         aria-labelledby="notice-header-title"
       >
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-4">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="px-3.5 py-1 rounded-full text-xs font-black uppercase tracking-wider bg-indigo-100 text-indigo-900">
+            <span className="px-3 py-1 rounded-full text-xs font-black uppercase tracking-wider bg-purple-50 text-purple-700 border border-purple-200">
               {categoryLabel}
             </span>
-            <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-900">
-              <CheckCircle className="w-3.5 h-3.5 text-emerald-700" />
+            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
+              <CheckCircle className="w-3.5 h-3.5 text-emerald-600" />
               Processed
             </span>
           </div>
@@ -464,17 +470,17 @@ export function NoticeDashboardPage() {
             href={pdfFileUrl}
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs sm:text-sm font-bold bg-slate-100 hover:bg-slate-200 text-slate-800 transition-colors focus:outline-hidden focus:ring-2 focus:ring-indigo-600 min-h-[36px]"
+            className="focus-ring inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200 transition"
           >
             <span>Original PDF</span>
-            <ExternalLink className="w-4 h-4 text-slate-600" aria-hidden="true" />
+            <ExternalLink className="w-3.5 h-3.5 text-slate-500" aria-hidden="true" />
           </a>
         </div>
 
         {/* Notice Title */}
         <div className="space-y-2">
           <div className="flex flex-wrap items-center gap-2.5">
-            <h1 id="notice-header-title" className="text-2xl sm:text-4xl font-black text-slate-950 tracking-tight leading-tight">
+            <h1 id="notice-header-title" className="text-2xl sm:text-3xl font-black text-navy-950 tracking-tight leading-tight">
               {noticeTitle}
             </h1>
             {titleUncertain && <UncertainBadge />}
@@ -482,7 +488,7 @@ export function NoticeDashboardPage() {
               <button
                 type="button"
                 onClick={() => handleOpenSource(titlePage, titleQuote)}
-                className="text-xs font-bold text-indigo-600 underline hover:text-indigo-800 self-center"
+                className="focus-ring text-xs font-bold text-purple-700 underline hover:text-purple-900 self-center"
               >
                 Source
               </button>
@@ -491,50 +497,51 @@ export function NoticeDashboardPage() {
 
           {/* Issuing Organisation */}
           <div className="flex flex-wrap items-center gap-2 pt-2 text-slate-700">
-            <div className="p-1.5 bg-slate-100 rounded-lg text-slate-600">
+            <div className="p-1.5 bg-purple-50 text-purple-700 rounded-lg border border-purple-100">
               <Building className="w-4 h-4" aria-hidden="true" />
             </div>
-            <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
-              Source organisation:
+            <span className="text-xs font-bold uppercase tracking-wider text-slate-400">
+              Source Authority:
             </span>
-            <span className="text-base font-extrabold text-slate-900">{issuingOrg}</span>
+            <span className="text-sm font-extrabold text-navy-950">{issuingOrg}</span>
             {issuerUncertain && <UncertainBadge />}
             {issuerPage && (
               <button
                 type="button"
                 onClick={() => handleOpenSource(issuerPage, issuerQuote)}
-                className="text-xs font-bold text-indigo-600 underline hover:text-indigo-800"
+                className="focus-ring text-xs font-bold text-purple-700 underline hover:text-purple-900"
               >
                 Source
               </button>
             )}
           </div>
+
           <dl className="grid gap-3 border-t border-slate-100 pt-4 sm:grid-cols-3">
             <div>
-              <dt className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Document type</dt>
-              <dd className="mt-1 text-xs font-semibold text-slate-700">{documentType || "Not classified by the service"}</dd>
+              <dt className="text-[10px] font-black uppercase tracking-wider text-slate-400">Notice Type</dt>
+              <dd className="mt-0.5 text-xs font-semibold text-slate-700">{documentType || "Standard notice"}</dd>
             </div>
             <div>
-              <dt className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Priority</dt>
-              <dd className="mt-1 text-xs font-semibold capitalize text-slate-700">{priority || "Not rated by the service"}</dd>
+              <dt className="text-[10px] font-black uppercase tracking-wider text-slate-400">Priority Level</dt>
+              <dd className="mt-0.5 text-xs font-semibold capitalize text-slate-700">{priority || "Normal"}</dd>
             </div>
             <div>
-              <dt className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Issue date</dt>
-              <dd className="mt-1 text-xs font-semibold text-slate-700">{issueDate ? formatDate(issueDate) : "Not provided"}</dd>
+              <dt className="text-[10px] font-black uppercase tracking-wider text-slate-400">Issue Date</dt>
+              <dd className="mt-0.5 text-xs font-semibold text-slate-700">{issueDate ? formatDate(issueDate) : "Not listed"}</dd>
             </div>
           </dl>
         </div>
       </section>
 
-      <aside className="flex items-start gap-3 rounded-2xl border border-cyan-100 bg-cyan-50/60 p-4 text-xs leading-5 text-slate-700">
-        <FileText className="mt-0.5 h-4 w-4 shrink-0 text-cyan-800" aria-hidden="true" />
+      {/* Assistive Grounding Ribbon */}
+      <aside className="flex items-start gap-3 rounded-2xl border border-purple-100 bg-purple-50/50 p-4 text-xs leading-relaxed text-slate-700">
+        <FileText className="mt-0.5 h-4 w-4 shrink-0 text-purple-700" aria-hidden="true" />
         <p>
-          These details are extracted from the uploaded document, not independently verified.
-          Compare important dates, instructions, and requirements with the original PDF before acting.
+          These details are extracted by AI from the uploaded notice. Compare important dates, instructions, and requirements with the original PDF before taking formal action.
         </p>
       </aside>
 
-      {/* VISUALLY MOST PROMINENT: Deadlines Section */}
+      {/* VISUALLY PROMINENT: Deadlines Section */}
       <DeadlineCard
         deadlines={result.deadlines || []}
         onRemind={handleOpenReminder}
@@ -547,7 +554,7 @@ export function NoticeDashboardPage() {
       <SummaryQuestions summary={result.plain_language_summary || {}} />
 
       {/* Two-Column Grid: Action Plan & Documents Checklist */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 sm:gap-8 items-start">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
         <ActionStepList
           steps={result.action_steps || []}
           submissionChannel={result.submission_channel}
@@ -581,19 +588,19 @@ export function NoticeDashboardPage() {
       {/* Collapsed Technical Details Section */}
       {technicalNotes && technicalNotes.length > 0 && (
         <section aria-labelledby="technical-details-heading" className="mt-2">
-          <details className="group rounded-2xl bg-slate-50 border border-slate-300 p-4 sm:p-5 text-slate-700">
-            <summary className="cursor-pointer font-extrabold text-sm sm:text-base text-slate-800 hover:text-slate-950 flex items-center justify-between focus:outline-hidden focus:ring-2 focus:ring-indigo-600 rounded p-1">
+          <details className="group rounded-2xl bg-white border border-slate-200 p-4 sm:p-5 text-slate-700 shadow-xs">
+            <summary className="cursor-pointer font-bold text-sm text-navy-950 hover:text-purple-700 flex items-center justify-between focus:outline-hidden focus:ring-2 focus:ring-purple-500 rounded p-1 transition">
               <span id="technical-details-heading">Technical details ({technicalNotes.length})</span>
-              <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider group-open:hidden">
+              <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider group-open:hidden">
                 Show details
               </span>
-              <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider hidden group-open:inline">
+              <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider hidden group-open:inline">
                 Hide details
               </span>
             </summary>
-            <div className="mt-4 space-y-3 pt-3 border-t border-slate-200">
-              <p className="text-xs sm:text-sm text-slate-600">
-                These are technical validation checks and grounding diagnostics recorded during notice processing:
+            <div className="mt-4 space-y-2.5 pt-3 border-t border-slate-100">
+              <p className="text-xs text-slate-500 font-medium">
+                Technical grounding and OCR verification checks recorded during document intake:
               </p>
               <ul className="space-y-2 list-none m-0 p-0">
                 {technicalNotes.map((note, idx) => {
@@ -607,20 +614,20 @@ export function NoticeDashboardPage() {
                   return (
                     <li
                       key={idx}
-                      className="p-3 rounded-xl bg-white border border-slate-200 text-xs sm:text-sm text-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-2"
+                      className="p-3 rounded-xl bg-slate-50 border border-slate-200 text-xs text-navy-950 flex flex-col sm:flex-row sm:items-center justify-between gap-2"
                     >
                       <div className="flex flex-wrap items-center gap-2 flex-1">
                         {code && (
-                          <span className="font-mono text-xs font-bold text-slate-900 bg-slate-100 px-2 py-0.5 rounded border border-slate-300 flex-shrink-0">
+                          <span className="font-mono text-xs font-bold text-slate-700 bg-white px-2 py-0.5 rounded border border-slate-200 shrink-0">
                             [{code}]
                           </span>
                         )}
-                        <span className="text-slate-800 leading-relaxed font-medium">
+                        <span className="font-medium leading-relaxed">
                           {message}
                         </span>
                       </div>
                       {page && (
-                        <span className="text-xs text-slate-500 flex-shrink-0">
+                        <span className="text-[11px] font-semibold text-slate-400 shrink-0">
                           Page {page}
                         </span>
                       )}
@@ -634,8 +641,8 @@ export function NoticeDashboardPage() {
       )}
 
       {/* Disclaimer */}
-      <footer className="p-5 rounded-2xl bg-slate-100 border border-slate-300 text-center space-y-1 text-xs sm:text-sm text-slate-600">
-        <p className="font-extrabold text-slate-800">
+      <footer className="p-5 rounded-2xl bg-white border border-slate-200 text-center space-y-1 text-xs text-slate-500 shadow-xs">
+        <p className="font-extrabold text-navy-950">
           This is a helper, not legal or financial advice. Always check the original notice.
         </p>
         <p>

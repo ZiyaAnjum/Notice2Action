@@ -72,24 +72,24 @@ export function NoticeRemindersList({ reminders = [], onReminderUpdated, onRemin
 
   return (
     <section
-      className="bg-white border border-stone-200/90 rounded-3xl p-6 sm:p-8 shadow-card space-y-5"
+      className="surface-card p-6 sm:p-8 space-y-5"
       aria-labelledby="notice-reminders-heading"
     >
-      <div className="flex items-center justify-between flex-wrap gap-2 border-b border-stone-100 pb-4">
+      <div className="flex items-center justify-between flex-wrap gap-2 border-b border-slate-100 pb-4">
         <div className="flex items-center gap-2.5">
-          <div className="p-2 bg-teal-50 text-teal-700 rounded-xl">
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-purple-50 text-purple-700 border border-purple-100">
             <Bell className="w-5 h-5" aria-hidden="true" />
           </div>
           <div>
-            <span className="text-xs font-bold uppercase tracking-wider text-teal-700 block">
+            <span className="text-[10px] font-black uppercase tracking-wider text-purple-700 block">
               Follow-Up Actions
             </span>
-            <h2 id="notice-reminders-heading" className="text-xl font-black text-stone-950 tracking-tight">
+            <h2 id="notice-reminders-heading" className="text-lg sm:text-xl font-extrabold text-navy-950 tracking-tight">
               Scheduled Reminders for this Notice
             </h2>
           </div>
         </div>
-        <span className="text-xs font-extrabold bg-stone-100 text-stone-800 px-3 py-1 rounded-full border border-stone-200">
+        <span className="text-xs font-bold bg-purple-50 text-purple-800 px-3 py-1 rounded-full border border-purple-200">
           {reminders.filter((r) => !r.done).length} Pending
         </span>
       </div>
@@ -103,26 +103,26 @@ export function NoticeRemindersList({ reminders = [], onReminderUpdated, onRemin
             return (
               <div
                 key={rem.id}
-                className="p-4 rounded-2xl bg-stone-50 border border-teal-300 space-y-3"
+                className="p-4 rounded-2xl bg-purple-50/40 border border-purple-200 space-y-3"
               >
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <div className="sm:col-span-2 space-y-1">
-                    <label className="text-xs font-bold text-stone-700">Reminder Note</label>
+                    <label className="text-xs font-bold text-slate-700">Reminder Note</label>
                     <input
                       type="text"
                       value={editNote}
                       onChange={(e) => setEditNote(e.target.value)}
                       placeholder="Note details..."
-                      className="w-full px-3 py-2 text-xs sm:text-sm bg-white border border-stone-300 rounded-xl text-stone-900 focus:outline-hidden focus:ring-2 focus:ring-teal-600"
+                      className="focus-ring w-full px-3 py-2 text-xs sm:text-sm bg-white border border-slate-200 rounded-xl text-navy-950 focus:border-purple-500"
                     />
                   </div>
                   <div className="space-y-1">
-                    <label className="text-xs font-bold text-stone-700">Remind On Date</label>
+                    <label className="text-xs font-bold text-slate-700">Remind On Date</label>
                     <input
                       type="date"
                       value={editDate}
                       onChange={(e) => setEditDate(e.target.value)}
-                      className="w-full px-3 py-2 text-xs sm:text-sm bg-white border border-stone-300 rounded-xl text-stone-900 focus:outline-hidden focus:ring-2 focus:ring-teal-600"
+                      className="focus-ring w-full px-3 py-2 text-xs sm:text-sm bg-white border border-slate-200 rounded-xl text-navy-950 focus:border-purple-500"
                     />
                   </div>
                 </div>
@@ -132,7 +132,7 @@ export function NoticeRemindersList({ reminders = [], onReminderUpdated, onRemin
                     type="button"
                     disabled={isSaving}
                     onClick={cancelEdit}
-                    className="px-3.5 py-1.5 rounded-xl text-xs font-bold text-stone-600 bg-white border border-stone-300 hover:bg-stone-50"
+                    className="focus-ring px-3.5 py-1.5 rounded-xl text-xs font-bold text-slate-600 bg-white border border-slate-200 hover:bg-slate-50"
                   >
                     Cancel
                   </button>
@@ -140,7 +140,7 @@ export function NoticeRemindersList({ reminders = [], onReminderUpdated, onRemin
                     type="button"
                     disabled={isSaving}
                     onClick={() => saveEdit(rem.id)}
-                    className="px-4 py-1.5 rounded-xl text-xs font-bold text-white bg-teal-600 hover:bg-teal-700 disabled:opacity-50"
+                    className="focus-ring px-4 py-1.5 rounded-xl text-xs font-bold text-white bg-purple-700 hover:bg-purple-800 disabled:opacity-50 shadow-xs"
                   >
                     {isSaving ? "Saving..." : "Save Changes"}
                   </button>
@@ -152,10 +152,10 @@ export function NoticeRemindersList({ reminders = [], onReminderUpdated, onRemin
           return (
             <div
               key={rem.id}
-              className={`p-4 rounded-2xl border transition-colors flex items-start justify-between gap-3 ${
+              className={`p-4 rounded-2xl border transition flex items-start justify-between gap-3 ${
                 rem.done
-                  ? "bg-stone-50/50 border-stone-200 opacity-60"
-                  : "bg-white border-stone-200/90 hover:border-teal-300"
+                  ? "bg-slate-50/60 border-slate-200 opacity-60"
+                  : "bg-white border-slate-200 hover:border-purple-300 shadow-xs"
               }`}
             >
               <div className="flex items-start gap-3 min-w-0 flex-1">
@@ -164,37 +164,37 @@ export function NoticeRemindersList({ reminders = [], onReminderUpdated, onRemin
                   disabled={isSaving}
                   onClick={() => handleToggleDone(rem)}
                   aria-label={rem.done ? "Mark reminder undone" : "Mark reminder done"}
-                  className="mt-0.5 text-stone-400 hover:text-teal-600 focus:outline-hidden focus:ring-2 focus:ring-teal-600 rounded p-0.5"
+                  className="focus-ring mt-0.5 text-slate-400 hover:text-purple-700 rounded p-0.5 transition"
                 >
                   {isSaving ? (
-                    <Loader2 className="w-5 h-5 animate-spin text-teal-600" />
+                    <Loader2 className="w-5 h-5 animate-spin text-purple-600" />
                   ) : rem.done ? (
                     <CheckCircle2 className="w-5 h-5 text-emerald-600" />
                   ) : (
-                    <Circle className="w-5 h-5 text-stone-400" />
+                    <Circle className="w-5 h-5 text-slate-300" />
                   )}
                 </button>
 
                 <div className="space-y-0.5 min-w-0">
                   <p
-                    className={`text-sm font-extrabold leading-snug ${
-                      rem.done ? "line-through text-stone-400" : "text-stone-900"
+                    className={`text-xs sm:text-sm font-extrabold leading-snug ${
+                      rem.done ? "line-through text-slate-400" : "text-navy-950"
                     }`}
                   >
                     {rem.note || rem.deadline_ref || "Notice reminder"}
                   </p>
-                  <div className="flex items-center gap-2 text-xs text-stone-500 font-medium">
-                    <Calendar className="w-3.5 h-3.5 text-stone-400" />
+                  <div className="flex items-center gap-2 text-xs text-slate-500 font-medium">
+                    <Calendar className="w-3.5 h-3.5 text-slate-400" />
                     <span>Scheduled for: {formatDate(rem.remind_on)}</span>
                   </div>
                 </div>
               </div>
 
-              <div className="flex items-center gap-1.5 flex-shrink-0">
+              <div className="flex items-center gap-1.5 shrink-0">
                 <button
                   type="button"
                   onClick={() => startEdit(rem)}
-                  className="p-1.5 rounded-lg text-stone-400 hover:text-teal-700 hover:bg-teal-50"
+                  className="focus-ring p-1.5 rounded-lg text-slate-400 hover:text-purple-700 hover:bg-purple-50 transition"
                   aria-label="Edit reminder"
                 >
                   <Edit2 className="w-4 h-4" />
@@ -202,7 +202,7 @@ export function NoticeRemindersList({ reminders = [], onReminderUpdated, onRemin
                 <button
                   type="button"
                   onClick={() => handleDelete(rem.id)}
-                  className="p-1.5 rounded-lg text-stone-400 hover:text-coral-600 hover:bg-coral-50"
+                  className="focus-ring p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition"
                   aria-label="Delete reminder"
                 >
                   <Trash2 className="w-4 h-4" />
