@@ -130,6 +130,7 @@ def extract_pages(
     ocr_mode: str | None = None,
     start_time: float | None = None,
     total_time_budget: float | None = None,
+    allow_vision_fallback: bool = False,
 ) -> list[dict[str, Any]]:
     """Extract normalized text per page from a PDF document with optional OCR fallback.
 
@@ -291,8 +292,8 @@ def extract_pages(
                                 }
                             )
                         else:
-                            # Tesseract output is poor; attempt Gemini Vision OCR fallback if client available
-                            if client is not None:
+                            # Tesseract output is poor; attempt Gemini Vision OCR fallback if allowed and client available
+                            if allow_vision_fallback and client is not None:
                                 logger.info(
                                     "Tesseract output quality poor (%s); attempting Gemini Vision fallback for page %d.",
                                     reason,
@@ -328,8 +329,8 @@ def extract_pages(
                                     }
                                 )
                     else:
-                        # Tesseract returned empty; attempt Gemini Vision fallback if client available
-                        if client is not None:
+                        # Tesseract returned empty; attempt Gemini Vision fallback if allowed and client available
+                        if allow_vision_fallback and client is not None:
                             logger.info(
                                 "Tesseract returned empty output; attempting Gemini Vision fallback for page %d.",
                                 page_num,

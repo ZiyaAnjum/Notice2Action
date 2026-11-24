@@ -232,15 +232,26 @@ def select_best_ocr_text(
     return chosen_text, chosen_psm
 
 
+def get_installed_tesseract_languages() -> list[str]:
+    """Detect language packs installed in Tesseract (e.g. ['eng', 'kan', 'hin'])."""
+    try:
+        import pytesseract
+
+        return pytesseract.get_languages(config="")
+    except Exception:
+        return ["eng"]
+
+
 def ocr_page_tesseract(
     page: Any,
     dpi: int = DEFAULT_TESSERACT_DPI,
 ) -> tuple[str | None, str | None]:
     """Render page at specified DPI (default 300) and execute Tesseract OCR.
 
-    Runs pytesseract with --psm 6 and --psm 4, evaluates both results based on
-    dictionary token share and alphanumeric ratio, keeps the superior candidate,
-    and logs which PSM was chosen.
+    Runs pytesseract with --oem 3 and --psm 6 / --psm 4, dynamically detecting
+    available language packs (including kan and hin if installed), evaluates both
+    results based on dictionary token share and alphanumeric ratio, keeps the
+    superior candidate, and logs which PSM was chosen.
 
     Never crashes. Returns clear setup instructions if Tesseract binary is missing.
 
@@ -263,12 +274,24 @@ def ocr_page_tesseract(
         pix = page.get_pixmap(dpi=dpi)
         img = Image.open(io.BytesIO(pix.tobytes("png")))
 
-        # Pass 1: Run with PSM 6 (single uniform block)
+        # Detect installed language packs (safely include Kannada / Hindi if present)
+        avail_langs = get_installed_tesseract_languages()
+        target_langs = ["eng"]
+        for extra in ("kan", "hin"):
+            if extra in avail_langs and extra not in target_langs:
+                target_langs.append(extra)
+        lang_spec = "+".join(target_langs)
+
+        # Pass 1: Run with OEM 3 and PSM 6 (single uniform block)
         text_psm6: str | None = None
         try:
-            text_psm6 = pytesseract.image_to_string(img, lang="eng", config="--psm 6")
+            text_psm6 = pytesseract.image_to_string(img, lang=lang_spec, config="--oem 3 --psm 6")
         except Exception as e_psm6:
-            logger.warning("Tesseract --psm 6 attempt failed: %s", e_psm6)
+            logger.warning("Tesseract --oem 3 --psm 6 attempt with lang '%s' failed: %s", lang_spec, e_psm6)
+            try:
+                text_psm6 = pytesseract.image_to_string(img, lang="eng", config="--psm 6")
+            except Exception:
+                pass
 
         # Check if PSM 6 passed quality check; if so, skip second pass
         if text_psm6:
@@ -283,9 +306,13 @@ def ocr_page_tesseract(
         # Pass 2: Fallback to PSM 4 only when PSM 6 failed quality
         text_psm4: str | None = None
         try:
-            text_psm4 = pytesseract.image_to_string(img, lang="eng", config="--psm 4")
+            text_psm4 = pytesseract.image_to_string(img, lang=lang_spec, config="--oem 3 --psm 4")
         except Exception as e_psm4:
-            logger.warning("Tesseract --psm 4 attempt failed: %s", e_psm4)
+            logger.warning("Tesseract --oem 3 --psm 4 attempt with lang '%s' failed: %s", lang_spec, e_psm4)
+            try:
+                text_psm4 = pytesseract.image_to_string(img, lang="eng", config="--psm 4")
+            except Exception:
+                pass
 
         if not text_psm6 and not text_psm4:
             # Fallback to standard pytesseract run if custom configs both failed

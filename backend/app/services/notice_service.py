@@ -329,8 +329,14 @@ class NoticeService:
             notice.progress = 30
             db.commit()
 
-            # Execute pipeline
-            pipeline_res = process_notice(stored_path, client=llm_client)
+            # Execute pipeline (enable Gemini Vision fallback for photo-based notices)
+            is_photo_notice = (
+                notice.original_filename.lower().endswith((".jpg", ".jpeg", ".png", ".webp"))
+                or (Path(notice.stored_path).parent / f"{notice.id}_color.pdf").exists()
+            )
+            pipeline_res = process_notice(
+                stored_path, client=llm_client, allow_vision_fallback=is_photo_notice
+            )
 
             notice = db.query(NoticeModel).filter(NoticeModel.id == notice_id).first()
             if not notice:

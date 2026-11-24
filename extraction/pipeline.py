@@ -1036,6 +1036,7 @@ def process_notice(
     file_path: str | Path,
     client: BaseLLMClient | None = None,
     ocr_mode: str | None = None,
+    allow_vision_fallback: bool = False,
 ) -> dict[str, Any]:
     """Execute the complete end-to-end notice processing pipeline.
 
@@ -1083,6 +1084,7 @@ def process_notice(
             client=client,
             start_time=start_time,
             total_time_budget=total_time_budget,
+            allow_vision_fallback=allow_vision_fallback,
         )
     except ExtractionError as err:
         return {
