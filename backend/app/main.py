@@ -22,8 +22,12 @@ settings = get_settings()
 init_db()
 
 
+_cached_tess_version: str | None = None
+
+
 def _get_system_diagnostics(db: Session | None = None) -> dict[str, Any]:
     """Collect comprehensive system health and dependency diagnostics."""
+    global _cached_tess_version
     warnings: list[str] = []
 
     # 1. Database check
@@ -50,10 +54,12 @@ def _get_system_diagnostics(db: Session | None = None) -> dict[str, Any]:
             import pytesseract
 
             tess_info["path"] = getattr(pytesseract.pytesseract, "tesseract_cmd", "tesseract")
-            try:
-                tess_info["version"] = str(pytesseract.get_tesseract_version())
-            except Exception:
-                pass
+            if _cached_tess_version is None:
+                try:
+                    _cached_tess_version = str(pytesseract.get_tesseract_version())
+                except Exception:
+                    _cached_tess_version = "unknown"
+            tess_info["version"] = _cached_tess_version
         except Exception:
             pass
     else:
@@ -177,7 +183,7 @@ async def generic_exception_handler(request: Request, exc: Exception) -> JSONRes
 # Health check endpoints
 @app.get("/health", response_model=HealthResponse, summary="Health Check (Legacy)", tags=["system"])
 @app.get("/api/health", response_model=HealthResponse, summary="Health Check", tags=["system"])
-async def health_check(
+def health_check(
     db: Annotated[Session, Depends(get_db)],
 ) -> dict[str, Any] | JSONResponse:
     """Health endpoint returning operational status, service metadata, and database connectivity."""

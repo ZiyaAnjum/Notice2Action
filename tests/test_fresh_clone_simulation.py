@@ -57,9 +57,11 @@ def client() -> TestClient:
     init_db()
     fake_client = FakeLLMClient([json.dumps(CANNED_DECISION_CARD)])
     app.dependency_overrides[get_llm] = lambda: fake_client
-    with TestClient(app) as test_client:
+    test_client = TestClient(app)
+    try:
         yield test_client
-    app.dependency_overrides.pop(get_llm, None)
+    finally:
+        app.dependency_overrides.pop(get_llm, None)
 
 
 def test_01_health_check(client: TestClient) -> None:

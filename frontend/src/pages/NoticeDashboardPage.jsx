@@ -326,10 +326,13 @@ export function NoticeDashboardPage() {
     notice.status === "failed" ||
     notice.status === "extraction_failed"
   ) {
-    const friendlyError =
+    let friendlyError =
       notice.error ||
       notice.message ||
       "We couldn't read text from this PDF. Try a clearer scan.";
+    if (/gemini|status\s*\d{3}|proto|api\s*key|syntaxerror|read\s*timeout|exception|httpx/i.test(friendlyError)) {
+      friendlyError = "The AI extraction service encountered an issue analyzing this document. Please try again in a few moments.";
+    }
 
     return (
       <main className="page-shell max-w-3xl space-y-6 py-8">

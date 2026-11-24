@@ -423,6 +423,9 @@ class NoticeService:
                 notice.stage = "done"
                 notice.progress = 100
                 msg = str(pipeline_res.get("message", "Extraction failed."))
+                if any(tech_term in msg.lower() for tech_term in ["gemini", "status 5", "status 4", "proto", "api key", "syntaxerror", "exception", "httpx"]):
+                    logger.error("Raw API error for notice %s logged to backend: %s", notice_id, msg)
+                    msg = "Structured extraction failed. The AI service was unable to analyze this document. Please try again or provide a clearer notice."
                 notice.error = msg
                 notice.error_code = pipeline_res.get("error_code", "EXTRACTION_FAILED")
                 notice.message = msg
@@ -431,15 +434,15 @@ class NoticeService:
 
         except Exception as exc:
             db.rollback()
+            logger.exception("Unexpected error in background pipeline for notice %s: %s", notice_id, exc)
             notice = db.query(NoticeModel).filter(NoticeModel.id == notice_id).first()
             if notice:
                 notice.status = "failed"
                 notice.stage = "done"
                 notice.progress = 100
-                err_msg = str(exc)
-                notice.error = f"Processing error: {err_msg}"
+                notice.error = "An error occurred while processing this document. Please try again."
                 notice.error_code = "PROCESSING_ERROR"
-                notice.message = f"Processing error: {err_msg}"
+                notice.message = "An error occurred while processing this document. Please try again."
                 db.commit()
         finally:
             db.close()

@@ -1375,7 +1375,10 @@ def process_notice(
                     status_code,
                 )
             else:
-                user_message = f"Structured extraction failed: {safe_error}"
+                user_message = (
+                    "Structured extraction failed. The AI service was unable to analyze this document. "
+                    "Please try again or provide a clearer notice."
+                )
                 logger.error(
                     "Pipeline extraction failed: %s (status=%s)",
                     safe_error,

@@ -18,6 +18,8 @@ from typing import Any
 import httpx
 from dotenv import load_dotenv
 
+from extraction.schema_sanitizer import sanitize_gemini_schema
+
 load_dotenv()
 
 logger = logging.getLogger(__name__)
@@ -270,7 +272,7 @@ class GeminiLLMClient(BaseLLMClient):
             "maxOutputTokens": 4096,
         }
         if response_schema is not None:
-            generation_config["responseSchema"] = response_schema
+            generation_config["responseSchema"] = sanitize_gemini_schema(response_schema)
 
         payload = {
             "system_instruction": {"parts": [{"text": system_prompt}]},
