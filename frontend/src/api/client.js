@@ -3,9 +3,18 @@
  * Centralizes all backend network requests with unified error handling and typing.
  */
 
+const rawBaseUrl =
+  typeof import.meta !== "undefined" &&
+  import.meta.env &&
+  import.meta.env.VITE_API_BASE_URL;
+
 export const API_BASE_URL =
-  (typeof import.meta !== "undefined" && import.meta.env && import.meta.env.VITE_API_BASE_URL) ||
-  "http://localhost:8001";
+  (typeof rawBaseUrl === "string" && rawBaseUrl.trim()
+    ? rawBaseUrl.trim().replace(/\/+$/, "")
+    : "") || "http://localhost:8001";
+
+const DEFAULT_TIMEOUT_MS = 8000;
+const UPLOAD_TIMEOUT_MS = 120000;
 
 /**
  * In-memory access token storage (never saved to localStorage per security spec).
@@ -103,16 +112,24 @@ async function handleResponse(response) {
 
 /**
  * Internal safe fetch wrapper with credentials: "include", Authorization header injection,
- * and transparent 401 token refresh retry.
+ * automatic timeout, and transparent 401 token refresh retry.
  */
 async function safeFetch(url, options = {}, isRetry = false) {
+  const timeoutMs = options.timeout || DEFAULT_TIMEOUT_MS;
+  const controller = new AbortController();
+  const timer = setTimeout(() => {
+    controller.abort();
+  }, timeoutMs);
+
   const fetchOptions = {
     ...options,
     credentials: "include",
     headers: {
       ...(options.headers || {}),
     },
+    signal: options.signal || controller.signal,
   };
+  delete fetchOptions.timeout;
 
   // Inject Authorization Bearer token if available and not explicitly provided
   if (currentAccessToken && !fetchOptions.headers.Authorization && !fetchOptions.headers.authorization) {
@@ -129,6 +146,7 @@ async function safeFetch(url, options = {}, isRetry = false) {
       url.includes("/auth/refresh");
 
     if (response.status === 401 && !isRetry && !isAuthRoute) {
+      clearTimeout(timer);
       if (!isRefreshing) {
         isRefreshing = true;
         try {
@@ -154,18 +172,26 @@ async function safeFetch(url, options = {}, isRetry = false) {
         }
       }
 
-      // If a new access token is available, retry the request once
+      // If a new access token is available, retry the request once with fresh timeout
       if (currentAccessToken) {
         const retryHeaders = {
-          ...(fetchOptions.headers || {}),
+          ...(options.headers || {}),
           Authorization: `Bearer ${currentAccessToken}`,
         };
-        return await fetch(url, { ...fetchOptions, headers: retryHeaders });
+        return await safeFetch(url, { ...options, headers: retryHeaders, timeout: timeoutMs }, true);
       }
     }
 
     return response;
   } catch (err) {
+    if (err.name === "AbortError" || controller.signal.aborted) {
+      throw new ApiError(
+        `Unable to reach backend service (${timeoutMs / 1000}s timeout). Please verify the server is running at ${API_BASE_URL}.`,
+        0,
+        "BACKEND_TIMEOUT",
+        err
+      );
+    }
     if (
       err instanceof TypeError &&
       (err.message.includes("fetch") ||
@@ -180,6 +206,8 @@ async function safeFetch(url, options = {}, isRetry = false) {
       );
     }
     throw err;
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -385,6 +413,7 @@ export async function uploadNotice(fileOrFiles) {
   const response = await safeFetch(`${API_BASE_URL}/api/notices`, {
     method: "POST",
     body: formData,
+    timeout: UPLOAD_TIMEOUT_MS,
   });
 
   return await handleResponse(response);
@@ -395,9 +424,10 @@ export async function uploadNotice(fileOrFiles) {
  * @returns {Promise<Array<{ id: string, title: string, category: string|null, status: string, deadline_summary: string|null, needs_verification: boolean, created_at: string }>>}
  */
 export async function listNotices() {
-    const response = await safeFetch(`${API_BASE_URL}/api/notices`);
-    return await handleResponse(response);
-  }
+  const response = await safeFetch(`${API_BASE_URL}/api/notices`);
+  const data = await handleResponse(response);
+  return Array.isArray(data) ? data : [];
+}
 
   /**
    * Retrieve full notice details including extracted result JSON, checklist, and reminders.
@@ -495,19 +525,21 @@ export async function getNoticePage(noticeId, pageNumber) {
  * @returns {Promise<Array>}
  */
 export async function listNoticeReminders(noticeId) {
-        const response = await safeFetch(`${API_BASE_URL}/api/notices/${noticeId}/reminders`);
-        return await handleResponse(response);
-      }
+  const response = await safeFetch(`${API_BASE_URL}/api/notices/${noticeId}/reminders`);
+  const data = await handleResponse(response);
+  return Array.isArray(data) ? data : [];
+}
 
-      /**
-       * Get upcoming reminders across all notices.
-       * @param {number} [days=14] - Horizon in days.
-       * @returns {Promise<Array>}
-       */
-      export async function getUpcomingReminders(days = 14) {
-        const response = await safeFetch(`${API_BASE_URL}/api/reminders/upcoming?days=${days}`);
-        return await handleResponse(response);
-      }
+/**
+ * Get upcoming reminders across all notices.
+ * @param {number} [days=14] - Horizon in days.
+ * @returns {Promise<Array>}
+ */
+export async function getUpcomingReminders(days = 14) {
+  const response = await safeFetch(`${API_BASE_URL}/api/reminders/upcoming?days=${days}`);
+  const data = await handleResponse(response);
+  return Array.isArray(data) ? data : [];
+}
 
       /**
        * Update an existing reminder (done status, note, or remind_on date).

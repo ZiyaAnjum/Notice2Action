@@ -63,9 +63,9 @@ export function AddToCalendarButton({ title, description, dateStr, noticeId, cla
         aria-haspopup="menu"
         aria-expanded={isOpen}
         aria-label="Add to Calendar"
-        className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl text-xs sm:text-sm font-bold bg-white border border-stone-300 text-stone-700 hover:bg-stone-50 hover:text-stone-900 focus:outline-hidden focus:ring-2 focus:ring-teal-600 shadow-xs min-h-[40px] w-full sm:w-auto transition-colors"
+        className="focus-ring inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl text-xs sm:text-sm font-bold bg-white border border-slate-200 text-slate-700 hover:border-purple-300 hover:bg-purple-50 hover:text-purple-900 shadow-xs min-h-[40px] w-full sm:w-auto transition"
       >
-        <CalendarPlus className="w-4 h-4 text-teal-700" aria-hidden="true" />
+        <CalendarPlus className="w-4 h-4 text-purple-600" aria-hidden="true" />
         <span>Add to Calendar</span>
       </button>
 
@@ -73,15 +73,15 @@ export function AddToCalendarButton({ title, description, dateStr, noticeId, cla
         <div
           role="menu"
           aria-orientation="vertical"
-          className="absolute left-0 sm:left-auto sm:right-0 mt-1.5 w-56 rounded-2xl bg-white border border-stone-200 shadow-elevated py-1.5 z-30 focus:outline-hidden animate-in fade-in duration-100"
+          className="absolute left-0 sm:left-auto sm:right-0 mt-1.5 w-56 rounded-2xl bg-white border border-slate-200 shadow-elevated py-1.5 z-30 focus:outline-hidden ui-fade-in"
         >
           <button
             type="button"
             role="menuitem"
             onClick={handleDownloadIcs}
-            className="w-full flex items-center gap-2.5 px-4 py-2.5 text-xs sm:text-sm font-bold text-stone-700 hover:bg-teal-50 hover:text-teal-900 text-left transition-colors min-h-[40px]"
+            className="w-full flex items-center gap-2.5 px-4 py-2.5 text-xs sm:text-sm font-semibold text-slate-700 hover:bg-purple-50 hover:text-purple-900 text-left transition min-h-[40px]"
           >
-            <Download className="w-4 h-4 text-teal-700" aria-hidden="true" />
+            <Download className="w-4 h-4 text-purple-600" aria-hidden="true" />
             <span>Download .ics File</span>
           </button>
 
@@ -89,9 +89,9 @@ export function AddToCalendarButton({ title, description, dateStr, noticeId, cla
             type="button"
             role="menuitem"
             onClick={handleGoogleCalendar}
-            className="w-full flex items-center gap-2.5 px-4 py-2.5 text-xs sm:text-sm font-bold text-stone-700 hover:bg-teal-50 hover:text-teal-900 text-left transition-colors min-h-[40px]"
+            className="w-full flex items-center gap-2.5 px-4 py-2.5 text-xs sm:text-sm font-semibold text-slate-700 hover:bg-purple-50 hover:text-purple-900 text-left transition min-h-[40px]"
           >
-            <ExternalLink className="w-4 h-4 text-teal-700" aria-hidden="true" />
+            <ExternalLink className="w-4 h-4 text-purple-600" aria-hidden="true" />
             <span>Google Calendar</span>
           </button>
         </div>

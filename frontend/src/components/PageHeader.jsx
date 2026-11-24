@@ -13,7 +13,7 @@ export function PageHeader({ icon: Icon, eyebrow, title, description, actions })
           {description && <p className="page-heading-description">{description}</p>}
         </div>
       </div>
-      {actions && <div className="flex flex-wrap items-center gap-2.5">{actions}</div>}
+      {actions && <div className="flex flex-wrap items-center gap-2.5 shrink-0">{actions}</div>}
     </header>
   );
 }
