@@ -1,5 +1,5 @@
-import { useSearchParams } from "react-router-dom";
 import { Globe } from "lucide-react";
+import { useLanguage } from "../context/useLanguage";
 
 export const SUPPORTED_LANGUAGES = [
   { code: "en", label: "EN", fullLabel: "English" },
@@ -8,18 +8,7 @@ export const SUPPORTED_LANGUAGES = [
 ];
 
 export function LanguageToggle({ className = "" }) {
-  const [searchParams, setSearchParams] = useSearchParams();
-  const currentLang = searchParams.get("lang") || "en";
-
-  const handleLanguageChange = (code) => {
-    const nextParams = new URLSearchParams(searchParams);
-    if (code === "en") {
-      nextParams.delete("lang");
-    } else {
-      nextParams.set("lang", code);
-    }
-    setSearchParams(nextParams, { replace: true });
-  };
+  const { language, setLanguage } = useLanguage();
 
   return (
     <div
@@ -30,12 +19,12 @@ export function LanguageToggle({ className = "" }) {
       <Globe className="w-3.5 h-3.5 text-slate-500 ml-1.5 shrink-0" aria-hidden="true" />
       <div className="flex items-center gap-0.5">
         {SUPPORTED_LANGUAGES.map((lang) => {
-          const isActive = currentLang === lang.code;
+          const isActive = language === lang.code;
           return (
             <button
               key={lang.code}
               type="button"
-              onClick={() => handleLanguageChange(lang.code)}
+              onClick={() => setLanguage(lang.code)}
               aria-pressed={isActive}
               title={`Switch language to ${lang.fullLabel}`}
               className={`px-2 py-1 rounded-lg text-xs font-bold transition-all min-h-[32px] sm:min-h-[28px] focus:outline-hidden focus:ring-2 focus:ring-purple-600 ${
@@ -53,4 +42,3 @@ export function LanguageToggle({ className = "" }) {
     </div>
   );
 }
-

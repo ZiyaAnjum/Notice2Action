@@ -10,6 +10,7 @@ import { EvidencePanel } from "../components/EvidencePanel";
 import { ProcessingStepper } from "../components/ProcessingStepper";
 import { LanguageToggle } from "../components/LanguageToggle";
 import * as api from "../api/client";
+import { LanguageProvider } from "../context/LanguageContext";
 
 vi.mock("../api/client", async () => {
   const actual = await vi.importActual("../api/client");
@@ -254,17 +255,22 @@ describe("Notice Detail Redesign Components", () => {
   });
 
   describe("LanguageToggle", () => {
-    it("allows switching language parameter in URL", async () => {
+    it("switches the selected language through the language context", () => {
       render(
         <MemoryRouter initialEntries={["/notices/123"]}>
-          <LanguageToggle />
+          <LanguageProvider>
+            <LanguageToggle />
+          </LanguageProvider>
         </MemoryRouter>
       );
 
       const hindiBtn = screen.getByTitle(/Switch language to हिंदी/i);
-      expect(hindiBtn).toBeInTheDocument();
+      expect(hindiBtn).toHaveAttribute("aria-pressed", "false");
+
       fireEvent.click(hindiBtn);
+
       expect(hindiBtn).toHaveAttribute("aria-pressed", "true");
+      expect(localStorage.getItem("notice2action-language")).toBe("hi");
     });
   });
 });
