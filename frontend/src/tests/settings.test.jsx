@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter } from "react-router-dom";
 import { AuthProvider } from "../context/AuthContext";
 import { WorkspacePreferencesProvider } from "../context/WorkspacePreferencesContext";
+import { LanguageProvider } from "../context/LanguageContext";
 import { SettingsPage } from "../pages/SettingsPage";
 
 afterEach(() => {
@@ -28,9 +29,11 @@ describe("workspace settings", () => {
     render(
       <MemoryRouter>
         <AuthProvider>
-          <WorkspacePreferencesProvider>
-            <SettingsPage />
-          </WorkspacePreferencesProvider>
+          <LanguageProvider>
+            <WorkspacePreferencesProvider>
+              <SettingsPage />
+            </WorkspacePreferencesProvider>
+          </LanguageProvider>
         </AuthProvider>
       </MemoryRouter>
     );

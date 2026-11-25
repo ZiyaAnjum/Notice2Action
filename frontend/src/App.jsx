@@ -11,6 +11,7 @@ import { AuthPage } from "./pages/AuthPage";
 import { AuthProvider } from "./context/AuthContext";
 import { useAuth } from "./context/useAuth";
 import { WorkspacePreferencesProvider } from "./context/WorkspacePreferencesContext";
+import { LanguageProvider } from "./context/LanguageContext";
 
 function RequireAuthentication() {
   const { isAuthenticated } = useAuth();
@@ -26,7 +27,8 @@ export function AppRoutes() {
   const { isAuthenticated } = useAuth();
 
   return (
-    <Routes>
+    <LanguageProvider>
+      <Routes>
       <Route
         path="/"
         element={<Navigate to={isAuthenticated ? "/dashboard" : "/login"} replace />}
@@ -49,7 +51,8 @@ export function AppRoutes() {
       </Route>
 
       <Route path="*" element={<Navigate to="/" replace />} />
-    </Routes>
+      </Routes>
+    </LanguageProvider>
   );
 }
 

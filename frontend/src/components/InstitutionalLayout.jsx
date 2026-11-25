@@ -21,14 +21,15 @@ import {
 } from "lucide-react";
 import { useAuth } from "../context/useAuth";
 import { LanguageToggle } from "./LanguageToggle";
+import { useTranslation } from "../context/useTranslation";
 
 const navItems = [
-  { label: "Dashboard", to: "/dashboard", icon: LayoutDashboard },
-  { label: "Upload Notice", to: "/upload", icon: FileUp },
-  { label: "All Notices", to: "/notices", icon: Files },
-  { label: "Calendar", to: "/calendar", icon: CalendarDays },
-  { label: "Reminders", to: "/reminders", icon: Bell },
-  { label: "Settings", to: "/settings", icon: Settings },
+  { label: "nav.dashboard", to: "/dashboard", icon: LayoutDashboard },
+  { label: "nav.upload", to: "/upload", icon: FileUp },
+  { label: "nav.notices", to: "/notices", icon: Files },
+  { label: "nav.calendar", to: "/calendar", icon: CalendarDays },
+  { label: "nav.reminders", to: "/reminders", icon: Bell },
+  { label: "nav.settings", to: "/settings", icon: Settings },
 ];
 
 export function InstitutionalLayout({ children }) {
@@ -43,6 +44,7 @@ export function InstitutionalLayout({ children }) {
   const navigate = useNavigate();
   const location = useLocation();
   const { user, logout, endDemoSession, resendVerification } = useAuth();
+  const t = useTranslation();
 
   const handleSearchSubmit = (event) => {
     event.preventDefault();
@@ -89,9 +91,9 @@ export function InstitutionalLayout({ children }) {
         type="search"
         value={searchQuery}
         onChange={(event) => setSearchQuery(event.target.value)}
-        placeholder="Search notices, dates, categories..."
+        placeholder={t("search.placeholder")}
         className="focus-ring h-10 w-full rounded-xl border border-slate-200/90 bg-slate-50/80 pl-10 pr-4 text-xs font-medium text-navy-900 placeholder:text-slate-400 transition hover:border-purple-200 focus:border-purple-500 focus:bg-white"
-        aria-label="Search notices"
+        aria-label={t("search.label")}
       />
     </form>
   );
@@ -143,7 +145,7 @@ export function InstitutionalLayout({ children }) {
               type="button"
               onClick={() => setMobileMenuOpen((open) => !open)}
               className="focus-ring inline-flex h-10 w-10 items-center justify-center rounded-xl text-slate-600 transition hover:bg-slate-100 hover:text-navy-900 lg:hidden"
-              aria-label={mobileMenuOpen ? "Close navigation menu" : "Open navigation menu"}
+              aria-label={mobileMenuOpen ? t("menu.close") : t("menu.open")}
               aria-expanded={mobileMenuOpen}
             >
               {mobileMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
@@ -345,7 +347,7 @@ export function InstitutionalLayout({ children }) {
           </div>
 
           {/* Navigation Links */}
-          <nav className="mt-4 space-y-1.5" aria-label="Main navigation">
+          <nav className="mt-4 space-y-1.5" aria-label={t("nav.label")}>
             {navItems.map(({ label, to, icon: Icon }) => {
               const isActive =
                 location.pathname === to ||
@@ -365,7 +367,7 @@ export function InstitutionalLayout({ children }) {
                   }
                 >
                   <Icon className="h-4 w-4 shrink-0 transition-transform group-hover:scale-110" aria-hidden="true" />
-                  <span>{label}</span>
+                  <span>{t(label)}</span>
                 </NavLink>
               );
             })}
