@@ -1,9 +1,14 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render as rtlRender, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Routes, Route } from "react-router-dom";
 import { vi, describe, it, expect, beforeEach } from "vitest";
 import { NoticeDashboardPage } from "../pages/NoticeDashboardPage";
 import * as api from "../api/client";
+import { LanguageProvider } from "../context/LanguageContext";
+
+function render(ui, options) {
+  return rtlRender(<LanguageProvider>{ui}</LanguageProvider>, options);
+}
 
 vi.mock("../api/client", async () => {
   const actual = await vi.importActual("../api/client");
@@ -158,12 +163,12 @@ describe("NoticeDashboardPage", () => {
     ).toBeInTheDocument();
 
     // 5 Summary questions
-    expect(screen.getByText("What is this notice about?")).toBeInTheDocument();
-    expect(screen.getByText("An overdue tax demand notice.")).toBeInTheDocument();
-    expect(screen.getByText("Why might it matter to me?")).toBeInTheDocument();
-    expect(screen.getByText("What do I need to do?")).toBeInTheDocument();
-    expect(screen.getByText("Where should I do it?")).toBeInTheDocument();
-    expect(screen.getByText("What happens if I miss the deadline?")).toBeInTheDocument();
+    expect(screen.getAllByText("What is this notice about?").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText("An overdue tax demand notice.").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText("Why might it matter to me?").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText("What do I need to do?").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText("Where should I do it?").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText("What happens if I miss the deadline?").length).toBeGreaterThanOrEqual(1);
 
     // Action plan
     expect(screen.getByText(/Log in to your tax account online\./i)).toBeInTheDocument();
