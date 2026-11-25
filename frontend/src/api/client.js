@@ -440,6 +440,19 @@ export async function listNotices() {
   }
 
   /**
+   * Retrieve verified factual simple summary in the requested language (en, hi, kn).
+   * @param {string} noticeId - Notice ID.
+   * @param {string} [lang="en"] - Language code: "en" | "hi" | "kn".
+   * @returns {Promise<{ what_is_this: string, what_to_do: string, by_when: string, if_you_ignore: string }>}
+   */
+  export async function getNoticeSummary(noticeId, lang = "en") {
+    const response = await safeFetch(
+      `${API_BASE_URL}/api/notices/${noticeId}/summary?lang=${encodeURIComponent(lang)}`
+    );
+    return await handleResponse(response);
+  }
+
+  /**
    * Permanently delete a notice and its stored files.
    * @param {string} noticeId - Notice ID to delete.
    * @returns {Promise<{ status: string, id: string, message: string }>}

@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import flag_modified
 
 from backend.app.config import get_settings
 from backend.app.database import SessionLocal
@@ -20,6 +21,7 @@ from backend.app.services.image_preprocessor import (
     normalize_and_strip_metadata,
     save_image_as_jpeg_bytes,
 )
+from backend.app.services.summary_service import generate_multilingual_summary
 from backend.app.storage import FileStorage, get_storage
 from extraction.extractor import MAX_FILE_SIZE_BYTES, extract_pages
 from extraction.llm_client import BaseLLMClient
@@ -538,6 +540,50 @@ class NoticeService:
             "checklist": checklist,
             "reminders": reminders,
         }
+
+    def get_notice_summary(
+        self,
+        db: Session,
+        notice_id: str,
+        lang: str = "en",
+        user_id: str | None = None,
+        llm_client: BaseLLMClient | None = None,
+    ) -> dict[str, str] | None:
+        """Fetch or generate multilingual simple summary for notice in requested language."""
+        query = db.query(NoticeModel).filter(NoticeModel.id == notice_id)
+        if user_id:
+            query = query.filter(NoticeModel.user_id == user_id)
+        notice = query.first()
+        if not notice:
+            return None
+
+        if lang not in ("en", "hi", "kn"):
+            lang = "en"
+
+        res_json = notice.result_json if isinstance(notice.result_json, dict) else {}
+        summary_cache = res_json.get("summary_cache")
+        if isinstance(summary_cache, dict) and lang in summary_cache:
+            cached = summary_cache[lang]
+            if isinstance(cached, dict) and any(cached.get(k) for k in ("what_is_this", "what_to_do", "by_when", "if_you_ignore")):
+                return cached
+
+        # Generate fresh summary using verified facts
+        summary = generate_multilingual_summary(res_json, lang=lang, llm_client=llm_client)
+
+        # Cache in notice.result_json under "summary_cache"
+        new_res = dict(res_json)
+        if "summary_cache" not in new_res or not isinstance(new_res["summary_cache"], dict):
+            new_res["summary_cache"] = {}
+        new_res["summary_cache"][lang] = summary
+        notice.result_json = new_res
+        flag_modified(notice, "result_json")
+        try:
+            db.commit()
+            db.refresh(notice)
+        except Exception as e:
+            db.rollback()
+
+        return summary
 
     def get_notice_page_text(
         self, db: Session, notice_id: str, page_number: int, user_id: str | None = None

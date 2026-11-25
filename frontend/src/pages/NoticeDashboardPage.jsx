@@ -660,10 +660,12 @@ export function NoticeDashboardPage() {
         </aside>
       )}
 
-      {/* Grade 6 Plain-Language Simple Summary Card */}
+      {/* Plain-Language Simple Summary Card */}
       <SimpleSummaryCard
+        noticeId={id || notice?.id || notice?.notice_id}
         simpleSummary={result.simple_summary || notice.simple_summary}
         fallbackData={notice}
+        lastUpdated={notice?.status}
       />
 
       {/* 1. Decision Card (Hero) */}

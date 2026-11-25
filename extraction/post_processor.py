@@ -476,19 +476,60 @@ def process_extracted_notice_to_decision_card(
         page = item.get("page")
         quote = item.get("quote") or item.get("evidence_quote") or ""
 
-        # Move non-deadline risk items out of timeline and into consequences
+        # Move non-deadline risk/penalty windows out of timeline and into consequences
         label_lower = label.lower()
         is_risk_window = (
-            "disconnection risk" in label_lower
-            or "disconnection window" in label_lower
+            "disconnect" in label_lower
+            or kind == "disconnection_risk"
             or "risk window" in label_lower
-            or "risk of disconnection" in label_lower
-            or "supply disconnection" in label_lower
+            or "risk of" in label_lower
+            or "penalty period" in label_lower
+            or "penalty window" in label_lower
+            or "penalty start" in label_lower
+            or "late fee period" in label_lower
+            or "late-fee period" in label_lower
+            or "late fee start" in label_lower
+            or "late-fee start" in label_lower
+            or "surcharge period" in label_lower
+            or "surcharge start" in label_lower
+            or "notice period" in label_lower
         )
+        # Real action deadlines (pay by, submit by, appear on) belong in timeline
+        if is_risk_window and re.search(r"\b(pay|payment|submit|submission|appear|hearing|file|respond)\b", label_lower):
+            is_risk_window = False
+
         if is_risk_window:
+            consequence_date_str = date_raw
+            if is_relative and offset_days:
+                comp_d, _ = resolve_relative_date(
+                    int(offset_days), relative_to, explicit_base_dates
+                )
+                if comp_d:
+                    consequence_date_str = (
+                        f"{comp_d} ({date_raw})"
+                        if (date_raw and date_raw != comp_d)
+                        else comp_d
+                    )
+            elif not consequence_date_str:
+                iso_d = parse_iso_date(date_raw) if date_raw else None
+                if iso_d:
+                    consequence_date_str = iso_d
+
+            val_desc = item.get("description") or item.get("value")
+            if val_desc and not str(val_desc).lower().startswith("deadline"):
+                val_str = str(val_desc)
+                if consequence_date_str and consequence_date_str not in val_str:
+                    c_val = f"{val_str} (effective: {consequence_date_str})"
+                else:
+                    c_val = val_str
+            elif consequence_date_str:
+                c_val = f"Risk starts from {consequence_date_str}"
+            else:
+                c_val = "Risk of service disconnection or penalty"
+
             raw_consequences.append({
                 "label": label,
-                "value": f"Risk starts from {date_raw}" if date_raw else "Risk of service disconnection",
+                "value": c_val,
                 "page": page,
                 "quote": quote,
             })
@@ -857,37 +898,66 @@ def process_extracted_notice_to_decision_card(
     else:
         status = "complete"
 
-    # 11. Simple Summary (Grade 6 level, 4 fields)
+    # 11. Simple Summary (factual, 4 fields)
     raw_simple = raw_data.get("simple_summary") or {}
     if not isinstance(raw_simple, dict):
         raw_simple = {}
 
-    what_is_this = str(raw_simple.get("what_is_this") or one_line_summary or "Official notice.").strip()
+    what_is_this = str(raw_simple.get("what_is_this") or "").strip()
+    if not what_is_this:
+        if source_org and notice_date_iso:
+            what_is_this = f"{source_org} sent a {notice_type} notice dated {notice_date_iso}."
+        elif source_org:
+            what_is_this = f"{source_org} sent a {notice_type} notice."
+        elif one_line_summary:
+            what_is_this = one_line_summary
+        else:
+            what_is_this = f"Official {notice_type} notice."
+
     what_to_do = str(raw_simple.get("what_to_do") or "").strip()
     if not what_to_do:
-        if cleaned_steps:
-            what_to_do = str(cleaned_steps[0].get("group_title") or cleaned_steps[0]["text"]).strip()
-            if amount_due and isinstance(amount_due, dict) and amount_due.get("amount") is not None:
-                what_to_do += f" ({amount_due.get('currency', 'Rs.')} {amount_due.get('amount')})"
+        amt_text = None
+        if amount_due and isinstance(amount_due, dict) and amount_due.get("amount") is not None:
+            c = amount_due.get("currency") or "INR"
+            sym = "₹" if c in ("INR", "Rs", "Rs.", "₹") else f"{c} "
+            amt_val = amount_due["amount"]
+            amt_text = f"{sym}{amt_val:,.2f}".replace(".00", "") if isinstance(amt_val, (int, float)) else f"{sym}{amt_val}"
+
+        primary_step_title = str(cleaned_steps[0].get("group_title") or cleaned_steps[0]["text"]).strip() if cleaned_steps else None
+        if primary_step_title and amt_text:
+            what_to_do = f"{primary_step_title} of {amt_text}"
+        elif amt_text:
+            what_to_do = f"Pay outstanding amount of {amt_text}"
+        elif primary_step_title:
+            what_to_do = primary_step_title
         else:
-            what_to_do = "Review the notice details and take action before the deadline."
+            what_to_do = ""
 
     by_when = str(raw_simple.get("by_when") or "").strip()
     if not by_when:
-        if primary_deadline_date:
-            by_when = f"By {primary_deadline_date}"
+        if any(d.get("urgency") == "asap" for d in processed_deadlines) and not primary_deadline_date:
+            by_when = "No fixed date. Do this as soon as possible."
+        elif primary_deadline_date:
+            by_when = f"By {primary_deadline_date}."
         elif processed_deadlines and processed_deadlines[0].get("date_rule_text"):
-            by_when = str(processed_deadlines[0]["date_rule_text"])
+            by_when = f"{processed_deadlines[0]['date_rule_text']}."
         else:
-            by_when = "Check notice for dates"
+            by_when = ""
 
     if_you_ignore = str(raw_simple.get("if_you_ignore") or "").strip()
     if not if_you_ignore:
         if cleaned_consequences:
             c0 = cleaned_consequences[0]
-            if_you_ignore = f"{c0.get('label')}: {c0.get('value')}"
+            val = str(c0.get("value") or "").strip()
+            lbl = str(c0.get("label") or "").strip()
+            if val and lbl and lbl != val:
+                if_you_ignore = f"{lbl}: {val}."
+            elif val:
+                if_you_ignore = f"{val}."
+            elif lbl:
+                if_you_ignore = f"{lbl}."
         else:
-            if_you_ignore = "Late fees or service disruption may apply."
+            if_you_ignore = ""
 
     simple_summary = {
         "what_is_this": what_is_this,

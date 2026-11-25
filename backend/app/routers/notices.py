@@ -29,6 +29,7 @@ from backend.app.schemas import (
     PageTextResponse,
     ReminderCreateRequest,
     ReminderResponse,
+    SimpleSummarySchema,
 )
 from backend.app.security import rate_limiter
 from backend.app.services.notice_service import NoticeServiceError, notice_service
@@ -214,6 +215,33 @@ async def get_notice(
 
 
 @router.get(
+    "/{notice_id}/summary",
+    response_model=SimpleSummarySchema,
+    summary="Get multilingual simple summary",
+    description="Returns a verified factual 4-field simple summary in English (en), Hindi (hi), or Kannada (kn).",
+)
+async def get_notice_summary(
+    notice_id: Annotated[str, FastPath(description="Unique notice ID")],
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[UserModel, Depends(get_current_user)],
+    llm_client: Annotated[BaseLLMClient, Depends(get_llm)],
+    lang: str = "en",
+) -> SimpleSummarySchema:
+    """Retrieve or generate factual summary in requested language (en, hi, kn) for authenticated owner."""
+    if lang not in ("en", "hi", "kn"):
+        lang = "en"
+    summary = notice_service.get_notice_summary(
+        db, notice_id, lang=lang, user_id=current_user.id, llm_client=llm_client
+    )
+    if summary is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"error": "NOTICE_NOT_FOUND", "message": f"Notice '{notice_id}' was not found."},
+        )
+    return SimpleSummarySchema(**summary)
+
+
+@router.get(
     "/{notice_id}/pages/{page}",
     response_model=PageTextResponse,
     summary="Get extracted page text",
@@ -352,6 +380,12 @@ async def retry_notice(
     notice.error = None
     notice.error_code = None
     notice.message = "Extraction re-queued..."
+    if notice.result_json and isinstance(notice.result_json, dict):
+        new_res = dict(notice.result_json)
+        new_res.pop("summary_cache", None)
+        notice.result_json = new_res
+        from sqlalchemy.orm.attributes import flag_modified
+        flag_modified(notice, "result_json")
     db.commit()
     db.refresh(notice)
 

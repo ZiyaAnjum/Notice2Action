@@ -191,9 +191,9 @@ def test_post_processor_relative_date_and_ordered_deadlines() -> None:
     # 1. Amount parsed into structured money
     assert card["headline"]["amount_due"] == {"amount": 4860.0, "currency": "INR"}
 
-    # 2. Ordered deadlines (18 Nov -> 25 Nov -> 10 Dec)
+    # 2. Ordered action deadlines (18 Nov -> 25 Nov)
     deadlines = card["deadlines"]
-    assert len(deadlines) == 3
+    assert len(deadlines) == 2
     assert deadlines[0]["date"] == "2026-11-18"
     assert deadlines[0]["kind"] == "no_penalty_by"
     assert deadlines[0]["date_type"] == "exact"
@@ -201,11 +201,9 @@ def test_post_processor_relative_date_and_ordered_deadlines() -> None:
     assert deadlines[1]["date"] == "2026-11-25"
     assert deadlines[1]["kind"] == "due"
 
-    # Disconnection risk: 25 Nov + 15 days = 10 Dec 2026
-    assert deadlines[2]["date"] == "2026-12-10"
-    assert deadlines[2]["kind"] == "disconnection_risk"
-    assert deadlines[2]["date_type"] == "estimated"
-    assert deadlines[2]["derived_from"] == {"offset_days": 15, "relative_to": "due_date"}
+    # Disconnection risk routed to consequences, NOT deadlines
+    consequences = card.get("consequences", [])
+    assert any("Disconnection" in c.get("label", "") for c in consequences)
 
     # 3. Urgency computed (18 Nov is 8 days from 10 Nov -> "soon")
     assert card["headline"]["urgency"] == "soon"
