@@ -112,6 +112,7 @@ export function DecisionCard({
   pdfUrl = "#",
   noticeId = "",
   onRemind = null,
+  onViewOriginal = null,
 }) {
   const [copied, setCopied] = useState(false);
 
@@ -184,8 +185,18 @@ export function DecisionCard({
           )}
         </div>
 
-        {/* Secondary action: View original PDF */}
-        {pdfUrl && (
+        {/* Secondary action: View original document */}
+        {onViewOriginal ? (
+          <button
+            type="button"
+            onClick={onViewOriginal}
+            aria-label="View original document"
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs sm:text-sm font-bold bg-slate-50 hover:bg-slate-100 text-slate-700 hover:text-slate-900 border border-slate-200 transition-colors focus:outline-hidden focus:ring-2 focus:ring-purple-600 min-h-[44px]"
+          >
+            <FileText className="w-4 h-4 text-slate-600" aria-hidden="true" />
+            <span>View Original</span>
+          </button>
+        ) : pdfUrl ? (
           <a
             href={pdfUrl}
             target="_blank"
@@ -194,10 +205,10 @@ export function DecisionCard({
             className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs sm:text-sm font-bold bg-slate-50 hover:bg-slate-100 text-slate-700 hover:text-slate-900 border border-slate-200 transition-colors focus:outline-hidden focus:ring-2 focus:ring-purple-600 min-h-[44px]"
           >
             <FileText className="w-4 h-4 text-slate-600" aria-hidden="true" />
-            <span>View Original PDF</span>
+            <span>View Original</span>
             <ExternalLink className="w-3.5 h-3.5 text-slate-500" aria-hidden="true" />
           </a>
-        )}
+        ) : null}
       </div>
 
       {/* Hero Headline */}
@@ -240,11 +251,11 @@ export function DecisionCard({
           <button
             type="button"
             onClick={onRemind}
-            aria-label="Remind me about this deadline"
+            aria-label={primaryDeadline?.date ? "Remind me about this deadline" : "Set my own reminder date"}
             className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl font-bold text-sm bg-purple-600 hover:bg-purple-700 text-white shadow-sm transition-all focus:outline-hidden focus:ring-2 focus:ring-purple-600 min-h-[44px]"
           >
             <Bell className="w-4 h-4" aria-hidden="true" />
-            <span>Remind Me</span>
+            <span>{primaryDeadline?.date ? "Remind Me" : "Set my own reminder date"}</span>
           </button>
         )}
 

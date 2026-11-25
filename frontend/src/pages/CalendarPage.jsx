@@ -9,11 +9,13 @@ import {
   Filter,
   Loader2,
   RefreshCw,
+  Bell,
 } from "lucide-react";
 import { getUpcomingReminders, listNotices } from "../api/client";
 import { formatDate, getCountdownDetails } from "../utils/text";
 import { AddToCalendarButton } from "../components/AddToCalendarButton";
 import { PageHeader } from "../components/PageHeader";
+import { ReminderModal } from "../components/ReminderModal";
 
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
@@ -86,36 +88,114 @@ export function CalendarPage() {
     return () => clearTimeout(timer);
   }, [loadCalendarData]);
 
+  const [reminderModal, setReminderModal] = useState({
+    isOpen: false,
+    noticeId: null,
+    deadline: null,
+    noticeDate: null,
+  });
+
   const noticesMap = useMemo(
     () => Object.fromEntries(notices.map((notice) => [notice.id, notice])),
     [notices]
   );
 
-  const filteredReminders = useMemo(
+  // Combine saved reminders and extracted notice deadlines into unified institutional timeline events
+  const allEvents = useMemo(() => {
+    const list = [];
+    const reminderKeys = new Set();
+
+    // 1. Saved reminders in database
+    (reminders || []).forEach((r) => {
+      const key = `${r.notice_id}_${r.remind_on}_${(r.deadline_ref || "").trim().toLowerCase()}`;
+      reminderKeys.add(key);
+      list.push({
+        id: `rem_${r.id}`,
+        rawId: r.id,
+        isReminder: true,
+        notice_id: r.notice_id,
+        date: r.remind_on,
+        remind_on: r.remind_on,
+        label: r.note || r.deadline_ref || "Notice deadline",
+        note: r.note,
+        deadline_ref: r.deadline_ref,
+        done: Boolean(r.done),
+        urgency: "fixed",
+      });
+    });
+
+    // 2. Extracted deadlines from notices
+    (notices || []).forEach((n) => {
+      const dls = Array.isArray(n.deadlines) ? n.deadlines : [];
+      dls.forEach((d, idx) => {
+        const itemDate = d.date || d.iso_date;
+        const itemLabel = d.label || d.description || "Notice deadline";
+        if (itemDate) {
+          const key = `${n.id}_${itemDate}_${itemLabel.trim().toLowerCase()}`;
+          if (!reminderKeys.has(key)) {
+            list.push({
+              id: `dl_${n.id}_${idx}`,
+              isReminder: false,
+              notice_id: n.id,
+              date: itemDate,
+              remind_on: itemDate,
+              label: itemLabel,
+              done: false,
+              urgency: d.urgency || "fixed",
+              date_type: d.date_type || "exact",
+              deadline_item: d,
+            });
+          }
+        }
+      });
+    });
+
+    return list;
+  }, [reminders, notices]);
+
+  // Notices requiring ASAP action without a fixed calendar due date
+  const asapNotices = useMemo(() => {
+    const list = [];
+    (notices || []).forEach((n) => {
+      const dls = Array.isArray(n.deadlines) ? n.deadlines : [];
+      const hasFixed = dls.some((d) => d.date || d.iso_date);
+      const asapItem = dls.find((d) => d.urgency === "asap" || /earliest|immediate|asap/i.test(d.label || ""));
+      if (asapItem || (!hasFixed && dls.length > 0)) {
+        list.push({
+          notice: n,
+          deadline: asapItem || dls[0],
+          noticeDate: n.notice_date,
+        });
+      }
+    });
+    return list;
+  }, [notices]);
+
+  const filteredEvents = useMemo(
     () =>
-      reminders.filter((reminder) => {
-        if (filterMode === "completed") return reminder.done;
-        if (reminder.done && filterMode !== "all") return false;
-        const countdown = reminder.remind_on
-          ? getCountdownDetails(reminder.remind_on)
+      allEvents.filter((event) => {
+        if (filterMode === "completed") return event.done;
+        if (event.done && filterMode !== "all") return false;
+        const countdown = event.date
+          ? getCountdownDetails(event.date)
           : null;
         if (filterMode === "overdue") return countdown?.urgency === "overdue";
         if (filterMode === "upcoming") return countdown?.urgency !== "overdue";
         return true;
       }),
-    [reminders, filterMode]
+    [allEvents, filterMode]
   );
 
   const remindersByDate = useMemo(() => {
     const map = new Map();
-    filteredReminders.forEach((reminder) => {
-      const date = parseLocalDate(reminder.remind_on);
+    filteredEvents.forEach((event) => {
+      const date = parseLocalDate(event.date);
       if (!date) return;
       const key = dateKey(date);
-      map.set(key, [...(map.get(key) || []), reminder]);
+      map.set(key, [...(map.get(key) || []), event]);
     });
     return map;
-  }, [filteredReminders]);
+  }, [filteredEvents]);
 
   const calendarDays = useMemo(() => {
     const firstOfMonth = new Date(
@@ -150,14 +230,14 @@ export function CalendarPage() {
 
   const orderedDeadlines = useMemo(
     () =>
-      [...filteredReminders]
-        .filter((reminder) => reminder.remind_on)
+      [...filteredEvents]
+        .filter((event) => event.date)
         .sort(
           (first, second) =>
-            new Date(first.remind_on).getTime() - new Date(second.remind_on).getTime()
+            new Date(first.date).getTime() - new Date(second.date).getTime()
         )
         .slice(0, 5),
-    [filteredReminders]
+    [filteredEvents]
   );
 
   const changeMonth = (amount) => {
@@ -333,7 +413,7 @@ export function CalendarPage() {
                       {dayReminders.slice(0, 2).map((reminder) => {
                         const overdue =
                           !reminder.done &&
-                          getCountdownDetails(reminder.remind_on)?.urgency === "overdue";
+                          getCountdownDetails(reminder.date || reminder.remind_on)?.urgency === "overdue";
                         return (
                           <span
                             key={reminder.id}
@@ -342,10 +422,12 @@ export function CalendarPage() {
                                 ? "bg-slate-100 text-slate-400 line-through"
                                 : overdue
                                   ? "bg-rose-100 text-rose-800"
-                                  : "bg-purple-50 text-purple-800 border border-purple-100"
+                                  : reminder.isReminder
+                                    ? "bg-purple-50 text-purple-800 border border-purple-100"
+                                    : "bg-sky-50 text-sky-800 border border-sky-100"
                             }`}
                           >
-                            {reminder.note || reminder.deadline_ref || "Deadline"}
+                            {reminder.label || reminder.note || reminder.deadline_ref || "Deadline"}
                           </span>
                         );
                       })}
@@ -390,31 +472,42 @@ export function CalendarPage() {
               </div>
               {selectedReminders.length === 0 ? (
                 <p className="py-4 text-xs text-slate-500 leading-relaxed font-medium">
-                  No saved deadlines for this date. Click on any active date cell to inspect scheduled actions.
+                  No scheduled deadlines for this date. Click on any active date cell to inspect milestones.
                 </p>
               ) : (
                 <div className="space-y-3">
                   {selectedReminders.map((reminder) => {
                     const notice = noticesMap[reminder.notice_id];
-                    const countdown = getCountdownDetails(reminder.remind_on);
+                    const countdown = getCountdownDetails(reminder.date || reminder.remind_on);
                     return (
                       <article key={reminder.id} className="rounded-2xl border border-slate-200 bg-slate-50/70 p-3.5 space-y-2">
                         <div className="flex flex-wrap items-center justify-between gap-2">
-                          <span className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold ${
-                            reminder.done
-                              ? "bg-slate-200 text-slate-600"
-                              : countdown?.urgency === "overdue"
-                                ? "bg-rose-100 text-rose-800"
-                                : "bg-purple-100 text-purple-800"
-                          }`}>
-                            {reminder.done ? "Completed" : countdown?.label || "Upcoming"}
-                          </span>
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold ${
+                              reminder.done
+                                ? "bg-slate-200 text-slate-600"
+                                : countdown?.urgency === "overdue"
+                                  ? "bg-rose-100 text-rose-800"
+                                  : "bg-purple-100 text-purple-800"
+                            }`}>
+                              {reminder.done ? "Completed" : countdown?.label || "Upcoming"}
+                            </span>
+                            {reminder.isReminder ? (
+                              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-50 text-purple-700 border border-purple-200">
+                                Saved Reminder
+                              </span>
+                            ) : (
+                              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-sky-50 text-sky-800 border border-sky-200">
+                                {reminder.date_type === "calculated" ? "Calculated Deadline" : "Notice Deadline"}
+                              </span>
+                            )}
+                          </div>
                           <span className="text-[11px] font-semibold text-slate-500">
-                            {formatDate(reminder.remind_on)}
+                            {formatDate(reminder.date || reminder.remind_on)}
                           </span>
                         </div>
                         <h3 className="text-xs sm:text-sm font-extrabold text-navy-950 leading-snug">
-                          {reminder.note || reminder.deadline_ref || "Official deadline"}
+                          {reminder.label || reminder.note || reminder.deadline_ref || "Official deadline"}
                         </h3>
                         {notice && (
                           <p className="text-xs text-slate-500 font-medium">
@@ -422,12 +515,31 @@ export function CalendarPage() {
                           </p>
                         )}
                         <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-200 pt-2.5">
-                          <AddToCalendarButton
-                            title={reminder.note || reminder.deadline_ref || "Notice deadline"}
-                            description={notice ? `Deadline from notice: ${notice.title}` : ""}
-                            dateStr={reminder.remind_on}
-                            noticeId={reminder.notice_id}
-                          />
+                          <div className="flex items-center gap-2">
+                            <AddToCalendarButton
+                              title={reminder.label || reminder.note || reminder.deadline_ref || "Notice deadline"}
+                              description={notice ? `Deadline from notice: ${notice.title}` : ""}
+                              dateStr={reminder.date || reminder.remind_on}
+                              noticeId={reminder.notice_id}
+                            />
+                            {!reminder.isReminder && (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setReminderModal({
+                                    isOpen: true,
+                                    noticeId: reminder.notice_id,
+                                    deadline: reminder.deadline_item,
+                                    noticeDate: notice?.notice_date,
+                                  })
+                                }
+                                className="inline-flex items-center gap-1 text-xs font-bold text-purple-700 hover:text-purple-900 px-2 py-1 rounded-lg border border-purple-200 bg-white hover:bg-purple-50 transition min-h-[32px]"
+                              >
+                                <Bell className="w-3.5 h-3.5 text-purple-700" />
+                                <span>Set reminder</span>
+                              </button>
+                            )}
+                          </div>
                           {reminder.notice_id && (
                             <Link
                               to={`/notices/${reminder.notice_id}`}
@@ -443,6 +555,66 @@ export function CalendarPage() {
                 </div>
               )}
             </section>
+
+            {/* As Soon As Possible Notices (Action needed without fixed calendar date) */}
+            {asapNotices.length > 0 && (
+              <section className="surface-card p-5 sm:p-6 space-y-3" aria-labelledby="asap-notices-title">
+                <div className="flex items-center gap-2 border-b border-slate-100 pb-3">
+                  <AlertCircle className="h-4 w-4 text-amber-600" aria-hidden="true" />
+                  <h2 id="asap-notices-title" className="text-sm font-extrabold text-navy-950">
+                    Action Needed: As Soon As Possible
+                  </h2>
+                </div>
+                <p className="text-xs text-slate-600 font-medium leading-relaxed">
+                  These notices require action at the earliest without a fixed calendar due date.
+                </p>
+                <div className="space-y-3">
+                  {asapNotices.map(({ notice, deadline, noticeDate }) => (
+                    <article key={notice.id} className="p-3.5 rounded-2xl border border-amber-200 bg-amber-50/70 space-y-2">
+                      <div className="flex items-center justify-between gap-2 flex-wrap">
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wide bg-amber-600 text-white">
+                          As Soon As Possible
+                        </span>
+                        {noticeDate && (
+                          <span className="text-[11px] font-semibold text-slate-600">
+                            Notice date: {formatDate(noticeDate)}
+                          </span>
+                        )}
+                      </div>
+                      <h3 className="text-xs sm:text-sm font-extrabold text-navy-950 leading-snug">
+                        {deadline?.label || "Complete notice process"}
+                      </h3>
+                      <p className="text-xs text-slate-600 font-medium">
+                        From: <span className="font-bold text-navy-950">{notice.title}</span>
+                      </p>
+                      <div className="flex items-center justify-between gap-2 pt-2 border-t border-amber-200/60">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setReminderModal({
+                              isOpen: true,
+                              noticeId: notice.id,
+                              deadline,
+                              noticeDate,
+                            })
+                          }
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-bold text-xs bg-purple-700 hover:bg-purple-800 text-white shadow-xs transition min-h-[32px]"
+                        >
+                          <Bell className="w-3.5 h-3.5" aria-hidden="true" />
+                          <span>Set my own reminder date</span>
+                        </button>
+                        <Link
+                          to={`/notices/${notice.id}`}
+                          className="text-xs font-bold text-purple-700 hover:text-purple-900 transition"
+                        >
+                          Open notice →
+                        </Link>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              </section>
+            )}
 
             {/* Deadline Overview */}
             <section className="surface-card p-5 sm:p-6" aria-labelledby="deadline-overview-title">
@@ -462,7 +634,7 @@ export function CalendarPage() {
                     <li key={reminder.id} className="flex items-start justify-between gap-3 text-xs">
                       <div className="min-w-0">
                         <p className="truncate font-bold text-navy-950">
-                          {reminder.note || reminder.deadline_ref || "Notice deadline"}
+                          {reminder.label || reminder.note || reminder.deadline_ref || "Notice deadline"}
                         </p>
                         {reminder.notice_id && (
                           <Link
@@ -474,7 +646,7 @@ export function CalendarPage() {
                         )}
                       </div>
                       <time className="shrink-0 text-[11px] font-semibold text-slate-500">
-                        {formatDate(reminder.remind_on)}
+                        {formatDate(reminder.date || reminder.remind_on)}
                       </time>
                     </li>
                   ))}
@@ -483,6 +655,18 @@ export function CalendarPage() {
             </section>
           </aside>
         </div>
+      )}
+
+      {/* Reminder Modal for setting reminders directly from the calendar */}
+      {reminderModal.isOpen && (
+        <ReminderModal
+          noticeId={reminderModal.noticeId}
+          deadline={reminderModal.deadline}
+          noticeDate={reminderModal.noticeDate}
+          isOpen={reminderModal.isOpen}
+          onClose={() => setReminderModal({ isOpen: false, noticeId: null, deadline: null, noticeDate: null })}
+          onReminderCreated={loadCalendarData}
+        />
       )}
     </main>
   );

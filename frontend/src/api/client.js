@@ -472,6 +472,41 @@ export async function getNoticePage(noticeId, pageNumber) {
     }
 
     /**
+     * Re-queue background extraction pipeline for an existing notice.
+     * @param {string} noticeId - Notice ID.
+     * @returns {Promise<any>}
+     */
+    export async function retryNoticeExtraction(noticeId) {
+      const response = await safeFetch(`${API_BASE_URL}/api/notices/${noticeId}/retry`, {
+        method: "POST",
+      });
+      return await handleResponse(response);
+    }
+
+    /**
+     * Authenticated fetch of the original notice PDF or photo file, returned as a temporary Blob URL.
+     * The caller MUST revoke the Blob URL (URL.revokeObjectURL) when closing the viewer.
+     * @param {string} noticeId - Notice ID.
+     * @returns {Promise<{ blobUrl: string, isImage: boolean, mimeType: string, blob: Blob }>}
+     */
+    export async function fetchNoticeFileBlob(noticeId) {
+      const response = await safeFetch(`${API_BASE_URL}/api/notices/${noticeId}/file`);
+      if (!response.ok) {
+        if (response.status === 404) {
+          const err = new Error("Original document file is unavailable for this sample/notice.");
+          err.code = "FILE_NOT_FOUND";
+          throw err;
+        }
+        throw new Error(`Failed to load document file (HTTP ${response.status})`);
+      }
+      const blob = await response.blob();
+      const mimeType = blob.type || "application/pdf";
+      const isImage = mimeType.startsWith("image/");
+      const blobUrl = URL.createObjectURL(blob);
+      return { blobUrl, isImage, mimeType, blob };
+    }
+
+    /**
      * Construct URL to view original page image (original color photo or rendered page).
      * @param {string} noticeId - Notice ID.
      * @param {number} [pageNumber=1] - 1-indexed page number.

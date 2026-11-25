@@ -34,6 +34,8 @@ class NoticeListItem(BaseModel):
     deadline_summary: str | None = Field(None, description="Summary of upcoming deadlines")
     needs_verification: bool = Field(False, description="Verification caution flag")
     created_at: str = Field(..., description="ISO 8601 creation timestamp")
+    notice_date: str | None = Field(None, description="Issue date of the notice")
+    deadlines: list[dict[str, Any]] = Field(default_factory=list, description="Extracted deadlines")
 
 
 class ChecklistItemResponse(BaseModel):
@@ -84,6 +86,41 @@ class ReminderResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class SimpleSummarySchema(BaseModel):
+    """Plain-language Grade 6 summary of notice."""
+
+    what_is_this: str = ""
+    what_to_do: str = ""
+    by_when: str = ""
+    if_you_ignore: str = ""
+
+
+class ActionStepSchema(BaseModel):
+    """Structured action step with grouping and condition metadata."""
+
+    order: int
+    text: str
+    action_type: str = "required"  # "required" | "alternative" | "conditional"
+    group_id: str | None = None
+    group_title: str | None = None
+    condition: str | None = None
+    evidence: dict[str, Any] | None = None
+
+
+class DeadlineItemSchema(BaseModel):
+    """Timeline deadline or rule item."""
+
+    id: str
+    label: str
+    date: str | None = None
+    date_type: str = "exact"
+    urgency: str = "none"
+    anchor_date: str | None = None
+    date_rule_text: str | None = None
+    derived_from: dict[str, Any] | None = None
+    evidence: dict[str, Any] | None = None
+
+
 class NoticeDetailResponse(BaseModel):
     """Complete notice record including extracted JSON, checklist, and reminders."""
 
@@ -99,6 +136,7 @@ class NoticeDetailResponse(BaseModel):
     created_at: str
     needs_verification: bool = False
     message: str | None = None
+    notice_date: str | None = None
     result: dict[str, Any] | None = None
     checklist: list[ChecklistItemResponse] = []
     reminders: list[ReminderResponse] = []

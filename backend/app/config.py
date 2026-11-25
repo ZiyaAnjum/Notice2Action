@@ -1,7 +1,12 @@
 from functools import lru_cache
+from pathlib import Path
+from typing import ClassVar
 
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+_ENV_FILE = _PROJECT_ROOT / ".env"
 
 
 class Settings(BaseSettings):
@@ -48,7 +53,7 @@ class Settings(BaseSettings):
 
     # LLM & Extraction Services
     LLM_API_KEY: str = "mock-llm-key-placeholder"
-    LLM_MODEL: str = "gemini-1.5-pro"
+    LLM_MODEL: str = "gemini-3.1-flash-lite"
     LLM_FALLBACK_MODEL: str | None = None
 
     # File uploads & storage
@@ -64,7 +69,7 @@ class Settings(BaseSettings):
         return v
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=str(_ENV_FILE) if _ENV_FILE.exists() else ".env",
         env_file_encoding="utf-8",
         extra="ignore",
     )

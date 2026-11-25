@@ -296,11 +296,79 @@ async def get_notice_file(
         )
 
     file_path, original_filename = file_info
-    media_type = "image/jpeg" if original_filename.lower().endswith((".jpg", ".jpeg")) else "application/pdf"
+    fn_lower = original_filename.lower()
+    if fn_lower.endswith((".jpg", ".jpeg")):
+        media_type = "image/jpeg"
+    elif fn_lower.endswith(".png"):
+        media_type = "image/png"
+    elif fn_lower.endswith(".webp"):
+        media_type = "image/webp"
+    else:
+        media_type = "application/pdf"
+
     return FileResponse(
         path=file_path,
         media_type=media_type,
         filename=original_filename,
+        content_disposition_type="inline",
+    )
+
+
+@router.post(
+    "/{notice_id}/retry",
+    response_model=NoticeUploadResponse,
+    summary="Retry notice extraction",
+    description="Re-queue background processing pipeline for an existing notice belonging to current user.",
+)
+async def retry_notice(
+    notice_id: Annotated[str, FastPath(description="Unique notice ID")],
+    background_tasks: BackgroundTasks,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[UserModel, Depends(get_current_user)],
+    llm_client: Annotated[BaseLLMClient, Depends(get_llm)],
+) -> NoticeUploadResponse:
+    """Re-run the extraction pipeline for an existing notice."""
+    notice = db.query(NoticeModel).filter(
+        NoticeModel.id == notice_id,
+        NoticeModel.user_id == current_user.id,
+    ).first()
+    if not notice:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"error": "NOT_FOUND", "message": f"Notice '{notice_id}' not found."},
+        )
+
+    stored_path = Path(notice.stored_path)
+    if not stored_path.exists():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"error": "FILE_NOT_FOUND", "message": "Original stored file for notice no longer exists."},
+        )
+
+    # Reset notice state for retry
+    notice.status = "processing"
+    notice.stage = "reading_text"
+    notice.progress = 10
+    notice.error = None
+    notice.error_code = None
+    notice.message = "Extraction re-queued..."
+    db.commit()
+    db.refresh(notice)
+
+    background_tasks.add_task(
+        notice_service.run_background_pipeline,
+        notice_id=notice.id,
+        stored_path=str(stored_path.resolve()),
+        llm_client=llm_client,
+    )
+
+    return NoticeUploadResponse(
+        id=notice.id,
+        notice_id=notice.id,
+        status=notice.status,
+        stage=notice.stage or "reading_text",
+        progress=notice.progress or 10,
+        message=notice.message or "Extraction re-queued.",
     )
 
 

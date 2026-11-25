@@ -2,23 +2,29 @@ import { useEffect, useState } from "react";
 import { Bell, X, Calendar, Loader2, AlertCircle } from "lucide-react";
 import { createReminder } from "../api/client";
 
-export function ReminderModal({ noticeId, deadline, isOpen, onClose, onReminderCreated }) {
+export function ReminderModal({ noticeId, deadline, noticeDate, isOpen, onClose, onReminderCreated }) {
   const [remindOn, setRemindOn] = useState("");
   const [note, setNote] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
+  const hasFixedDate = Boolean(deadline?.date || deadline?.iso_date);
+
   useEffect(() => {
     if (!isOpen) return;
 
     setError(null);
-    const deadlineDesc = deadline?.description || deadline?.original_wording || "Notice deadline";
+    const deadlineDesc = deadline?.label || deadline?.description || deadline?.original_wording || "Notice deadline";
     setNote(`Reminder: ${deadlineDesc}`);
 
-    // Compute default reminder date: 3 days before deadline, or today
+    // Compute default reminder date:
+    // If deadline has a date: 3 days before deadline, or today
+    // If no date (or ASAP): notice_date + 7 days (or today + 7 days)
     let defaultDate = new Date();
-    if (deadline?.iso_date) {
-      const d = new Date(deadline.iso_date);
+    const targetDateStr = deadline?.date || deadline?.iso_date;
+
+    if (targetDateStr) {
+      const d = new Date(targetDateStr);
       if (!isNaN(d.getTime())) {
         d.setDate(d.getDate() - 3);
         const today = new Date();
@@ -29,10 +35,22 @@ export function ReminderModal({ noticeId, deadline, isOpen, onClose, onReminderC
           defaultDate = new Date();
         }
       }
+    } else {
+      let baseDate = new Date();
+      if (noticeDate) {
+        const nd = new Date(noticeDate);
+        if (!isNaN(nd.getTime())) {
+          baseDate = nd;
+        }
+      }
+      const d = new Date(baseDate);
+      d.setDate(d.getDate() + 7);
+      defaultDate = d;
     }
+
     const isoString = defaultDate.toISOString().split("T")[0];
     setRemindOn(isoString);
-  }, [isOpen, deadline]);
+  }, [isOpen, deadline, noticeDate]);
 
   useEffect(() => {
     const handleKeyDown = (e) => {
@@ -113,6 +131,16 @@ export function ReminderModal({ noticeId, deadline, isOpen, onClose, onReminderC
           >
             <AlertCircle className="w-4 h-4 text-rose-600 flex-shrink-0 mt-0.5" />
             <span>{error}</span>
+          </div>
+        )}
+
+        {!hasFixedDate && (
+          <div
+            role="status"
+            className="p-3.5 rounded-2xl bg-amber-50 border border-amber-200 text-amber-950 flex items-center gap-2.5 text-xs font-semibold"
+          >
+            <Calendar className="w-4 h-4 text-amber-700 shrink-0" />
+            <span>your reminder date, not from the notice</span>
           </div>
         )}
 

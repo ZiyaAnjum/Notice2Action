@@ -18,8 +18,19 @@ import unicodedata
 from datetime import date, timedelta
 from typing import Any
 
-# Standard month name mapping
+# Indic numeral digit translation mapping
+INDIC_DIGIT_MAP = str.maketrans({
+    # Hindi numerals ०-९
+    "०": "0", "१": "1", "२": "2", "३": "3", "४": "4",
+    "५": "5", "६": "6", "७": "7", "८": "8", "९": "9",
+    # Kannada numerals ೦-೯
+    "೦": "0", "೧": "1", "೨": "2", "೩": "3", "೪": "4",
+    "೫": "5", "೬": "6", "೭": "7", "೮": "8", "೯": "9",
+})
+
+# Standard and multilingual month name mapping
 MONTH_MAP = {
+    # English
     "jan": 1, "january": 1,
     "feb": 2, "february": 2,
     "mar": 3, "march": 3,
@@ -32,6 +43,14 @@ MONTH_MAP = {
     "oct": 10, "october": 10,
     "nov": 11, "november": 11,
     "dec": 12, "december": 12,
+    # Hindi
+    "जनवरी": 1, "फ़रवरी": 2, "फरवरी": 2, "मार्च": 3, "अप्रैल": 4, "मई": 5,
+    "जून": 6, "जुलाई": 7, "अगस्त": 8, "सितंबर": 9, "सितम्बर": 9,
+    "अक्टूबर": 10, "अक्तूबर": 10, "नवंबर": 11, "नवम्बर": 11, "दिसंबर": 12, "दिसम्बर": 12,
+    # Kannada
+    "ಜನವರಿ": 1, "ಫೆಬ್ರವರಿ": 2, "ಮಾರ್ಚ್": 3, "ಏಪ್ರಿಲ್": 4, "ಮೇ": 5,
+    "ಜೂನ್": 6, "ಜುಲೈ": 7, "ಆಗಸ್ಟ್": 8, "ಸೆಪ್ಟೆಂಬರ್": 9, "ಅಕ್ಟೋಬರ್": 10,
+    "ನವೆಂಬರ್": 11, "ಡಿಸೆಂಬರ್": 12,
 }
 
 CURRENCY_SYMBOLS = {
@@ -64,11 +83,11 @@ def normalize_text_for_quote_match(text: str) -> str:
 
 
 def parse_iso_date(date_str: str | None, default_year: int = 2026) -> str | None:
-    """Parse various human-readable and standard date representations into ISO YYYY-MM-DD format."""
+    """Parse various human-readable, standard, and Indic date representations into ISO YYYY-MM-DD format."""
     if not date_str or not isinstance(date_str, str):
         return None
 
-    clean = date_str.strip()
+    clean = unicodedata.normalize("NFKC", str(date_str)).translate(INDIC_DIGIT_MAP).strip()
     # 1. Already ISO format YYYY-MM-DD
     iso_match = re.search(r"\b(\d{4})-(\d{1,2})-(\d{1,2})\b", clean)
     if iso_match:
@@ -78,9 +97,9 @@ def parse_iso_date(date_str: str | None, default_year: int = 2026) -> str | None
         except ValueError:
             pass
 
-    # 2. Textual dates like "18 November 2026", "3 Nov 2026", "November 18, 2026"
+    # 2. Textual dates like "18 November 2026", "3 Nov 2026", "१५ नवंबर २०२६", "೨೦ ನವೆಂಬರ್ ೨೦೨೬"
     textual_match = re.search(
-        r"\b(\d{1,2})\s+([A-Za-z]+)(?:,)?\s+(\d{4})\b", clean
+        r"\b(\d{1,2})\s+([^\s\d,;./\-]+)(?:,)?\s+(\d{4})\b", clean
     )
     if textual_match:
         d = int(textual_match.group(1))
@@ -93,7 +112,7 @@ def parse_iso_date(date_str: str | None, default_year: int = 2026) -> str | None
                 pass
 
     textual_match2 = re.search(
-        r"\b([A-Za-z]+)\s+(\d{1,2})(?:st|nd|rd|th)?(?:,)?\s+(\d{4})\b", clean
+        r"\b([^\s\d,;./\-]+)\s+(\d{1,2})(?:st|nd|rd|th)?(?:,)?\s+(\d{4})\b", clean
     )
     if textual_match2:
         m_str = textual_match2.group(1).lower()
@@ -105,7 +124,7 @@ def parse_iso_date(date_str: str | None, default_year: int = 2026) -> str | None
             except ValueError:
                 pass
 
-    # 3. Numeric dates like DD-MM-YYYY or DD/MM/YYYY
+    # 3. Numeric dates like DD-MM-YYYY or DD/MM/YYYY or DD.MM.YYYY
     dmy_match = re.search(r"\b(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})\b", clean)
     if dmy_match:
         d, m, y = int(dmy_match.group(1)), int(dmy_match.group(2)), int(dmy_match.group(3))
@@ -117,7 +136,7 @@ def parse_iso_date(date_str: str | None, default_year: int = 2026) -> str | None
             pass
 
     # 4. Partial textual like "18 November" without year
-    partial_match = re.search(r"\b(\d{1,2})\s+([A-Za-z]+)\b", clean)
+    partial_match = re.search(r"\b(\d{1,2})\s+([^\s\d,;./\-]+)\b", clean)
     if partial_match:
         d = int(partial_match.group(1))
         m_str = partial_match.group(2).lower()
@@ -152,8 +171,8 @@ def resolve_relative_date(
 
     if "due" in norm_rel:
         target_date_str = base_dates.get("due") or base_dates.get("due_date")
-    elif "notice" in norm_rel or "issue" in norm_rel:
-        target_date_str = base_dates.get("notice_date") or base_dates.get("issue_date")
+    elif "notice" in norm_rel or "issue" in norm_rel or "bill" in norm_rel:
+        target_date_str = base_dates.get("notice_date") or base_dates.get("issue_date") or base_dates.get("bill_date")
     elif "surcharge" in norm_rel or "no_penalty" in norm_rel:
         target_date_str = base_dates.get("no_penalty_by")
 
@@ -268,12 +287,83 @@ def verify_quote(
 
     norm_quote = normalize_text_for_quote_match(quote)
     norm_page = normalized_pages[page - 1]
-    return norm_quote in norm_page
+    if norm_quote in norm_page:
+        return True
+    clean_q = re.sub(r"[^\w\s]", "", norm_quote).strip()
+    clean_p = re.sub(r"[^\w\s]", "", norm_page).strip()
+    return bool(clean_q and clean_q in clean_p)
+
+
+def ground_quote_against_page(
+    quote: str | None,
+    page: int | None,
+    raw_pages: list[dict[str, Any]] | None,
+    normalized_pages: list[str],
+) -> tuple[bool, str]:
+    """Verify and ground quote against page text.
+
+    If exact match or normalized match is found on page: returns (True, quote).
+    If verbatim match is missing but a sentence/clause on the page has >= 70% word overlap:
+      replaces quote with the verbatim sentence from the page text, returning (True, matched_sentence).
+    Otherwise returns (False, quote).
+    """
+    if not quote or not str(quote).strip():
+        return False, quote or ""
+    if page is None or not (1 <= page <= len(normalized_pages)):
+        return False, str(quote)
+
+    norm_quote = normalize_text_for_quote_match(quote)
+    norm_page = normalized_pages[page - 1]
+
+    # 1. Direct or normalized containment
+    if norm_quote in norm_page:
+        return True, str(quote)
+
+    # 2. Relaxed punctuation containment
+    clean_q = re.sub(r"[^\w\s]", "", norm_quote).strip()
+    clean_p = re.sub(r"[^\w\s]", "", norm_page).strip()
+    if clean_q and clean_q in clean_p:
+        return True, str(quote)
+
+    # 3. Sentence / clause fuzzy overlap from raw page text
+    raw_page_text = raw_pages[page - 1].get("text", "") if raw_pages and (page - 1 < len(raw_pages)) else ""
+    if not raw_page_text:
+        return False, str(quote)
+
+    lines = [l.strip() for l in re.split(r"\r?\n", raw_page_text) if l.strip()]
+    clauses: list[str] = []
+    for l in lines:
+        for s in re.split(r"(?<=[.!?])\s+", l):
+            s = s.strip()
+            if s:
+                clauses.append(s)
+
+    q_words = set(re.sub(r"[^\w\s]", "", norm_quote).split())
+    if not q_words:
+        return False, str(quote)
+
+    best_match = None
+    best_overlap = 0.0
+
+    for c in clauses:
+        norm_c = normalize_text_for_quote_match(c)
+        c_words = set(re.sub(r"[^\w\s]", "", norm_c).split())
+        if not c_words:
+            continue
+        overlap = len(q_words & c_words) / len(q_words)
+        if overlap > best_overlap:
+            best_overlap = overlap
+            best_match = c
+
+    if best_overlap >= 0.70 and best_match:
+        return True, best_match
+
+    return False, str(quote)
 
 
 def process_extracted_notice_to_decision_card(
     raw_data: dict[str, Any],
-    pages: list[dict[str, Any]],
+    pages: list[dict[str, Any]] | None = None,
     reference_date: date | None = None,
 ) -> dict[str, Any]:
     """Transform raw LLM extraction into the new Decision Card schema (STEP 4).
@@ -287,6 +377,8 @@ def process_extracted_notice_to_decision_card(
     6. Drops empty action steps and omits empty optional arrays.
     7. Emits warnings for unverified or repaired fields.
     """
+    if pages is None:
+        pages = []
     warnings: list[str] = []
     normalized_pages = [
         normalize_text_for_quote_match(p.get("text", "")) for p in pages
@@ -311,8 +403,33 @@ def process_extracted_notice_to_decision_card(
     # 2. Amount Due computation
     amount_due = parse_money(raw_data.get("amount_due"), text_fallback=raw_text_full)
 
+    # 2.5 Extract and parse notice date (issue date)
+    notice_date_raw = raw_data.get("notice_date")
+    notice_date_iso = parse_iso_date(str(notice_date_raw)) if notice_date_raw else None
+    if not notice_date_iso:
+        nd_match = re.search(
+            r"(?:notice\s*date|bill\s*date|issue\s*date|date\s*of\s*issue|\bdate)\s*[:\-]\s*([^\n,;]+?(?:20\d\d|19\d\d))",
+            raw_text_full,
+            re.IGNORECASE,
+        )
+        if nd_match:
+            notice_date_iso = parse_iso_date(nd_match.group(1))
+        else:
+            nd_match2 = re.search(
+                r"(?:notice\s*date|bill\s*date|issue\s*date|date\s*of\s*issue|\bdate)\s*[:\-]\s*([0-9\u0966-\u096F\u0CE6-\u0CEF]{1,2}[\s\/\-.][^\n,;]+)",
+                raw_text_full,
+                re.IGNORECASE,
+            )
+            if nd_match2:
+                notice_date_iso = parse_iso_date(nd_match2.group(1))
+
     # 3. First pass: Collect explicit dates to serve as relative date anchors
     explicit_base_dates: dict[str, str] = {}
+    if notice_date_iso:
+        explicit_base_dates["notice_date"] = notice_date_iso
+        explicit_base_dates["issue_date"] = notice_date_iso
+        explicit_base_dates["bill_date"] = notice_date_iso
+
     raw_deadlines = raw_data.get("deadlines") or []
     if not isinstance(raw_deadlines, list):
         warnings.append(f"Invalid deadlines field type '{type(raw_deadlines).__name__}'; defaulted to empty list.")
@@ -322,7 +439,7 @@ def process_extracted_notice_to_decision_card(
         if not isinstance(item, dict):
             continue
         kind = item.get("kind", "other")
-        date_raw = item.get("date_raw") or item.get("date")
+        date_raw = item.get("date_raw") or item.get("date") or item.get("iso_date")
         is_rel = bool(item.get("is_relative")) or kind == "relative"
         if not is_rel and date_raw:
             iso_d = parse_iso_date(str(date_raw))
@@ -343,18 +460,39 @@ def process_extracted_notice_to_decision_card(
     processed_deadlines: list[dict[str, Any]] = []
     seen_roles: dict[str, list[dict[str, Any]]] = {}
 
+    # Initialize raw_consequences early so risk windows from deadlines can be routed here
+    raw_consequences = list(raw_data.get("consequences") or raw_data.get("penalties") or [])
+
     for idx, item in enumerate(raw_deadlines):
         if not isinstance(item, dict):
             continue
 
         label = str(item.get("label") or item.get("description") or f"Deadline {idx+1}").strip()
         kind = str(item.get("kind") or "other").strip()
-        date_raw = str(item.get("date_raw") or item.get("date") or "").strip()
+        date_raw = str(item.get("date_raw") or item.get("date") or item.get("iso_date") or "").strip()
         is_relative = bool(item.get("is_relative")) or (kind == "relative")
         offset_days = item.get("offset_days")
         relative_to = str(item.get("relative_to") or "due_date").strip()
         page = item.get("page")
         quote = item.get("quote") or item.get("evidence_quote") or ""
+
+        # Move non-deadline risk items out of timeline and into consequences
+        label_lower = label.lower()
+        is_risk_window = (
+            "disconnection risk" in label_lower
+            or "disconnection window" in label_lower
+            or "risk window" in label_lower
+            or "risk of disconnection" in label_lower
+            or "supply disconnection" in label_lower
+        )
+        if is_risk_window:
+            raw_consequences.append({
+                "label": label,
+                "value": f"Risk starts from {date_raw}" if date_raw else "Risk of service disconnection",
+                "page": page,
+                "quote": quote,
+            })
+            continue
 
         # Map kind to valid contract enum
         if kind not in ("no_penalty_by", "due", "disconnection_risk", "other", "ambiguous"):
@@ -367,22 +505,54 @@ def process_extracted_notice_to_decision_card(
             else:
                 kind = "other"
 
+        # Detect ASAP phrases
+        is_asap = (
+            item.get("urgency") == "asap"
+            or bool(re.search(
+                r"\b(earliest|immediate|immediately|as\s*soon\s*as\s*possible|asap|without\s*delay|promptly)\b",
+                f"{label} {date_raw}",
+                re.IGNORECASE,
+            ))
+        )
+
+        date_rule_text = str(item.get("date_rule_text") or ("" if not is_relative else date_raw)).strip() or None
         derived_from = None
         iso_date = None
         date_type = "exact"
+        urgency = "none"
+        anchor_date = None
 
-        if is_relative and offset_days:
+        if is_asap:
+            urgency = "asap"
+            iso_date = None
+            date_type = "exact"
+            date_rule_text = date_rule_text or "At the earliest"
+        elif is_relative and offset_days:
             computed_date, derived_from = resolve_relative_date(
                 int(offset_days), relative_to, explicit_base_dates
             )
             iso_date = computed_date
-            date_type = "estimated"
+            date_type = "calculated" if computed_date else "estimated"
+            urgency = "relative"
+            norm_rel_key = relative_to.lower()
+            if "bill" in norm_rel_key or "issue" in norm_rel_key or "notice" in norm_rel_key:
+                anchor_date = explicit_base_dates.get("notice_date")
+            elif "due" in norm_rel_key:
+                anchor_date = explicit_base_dates.get("due")
+            else:
+                anchor_date = next(iter(explicit_base_dates.values()), None)
         else:
             iso_date = parse_iso_date(date_raw)
             date_type = "exact" if iso_date else "estimated"
+            urgency = "fixed" if iso_date else (item.get("urgency") or "none")
 
-        # Quote verification in code
-        verified = verify_quote(quote, page, normalized_pages)
+        # Post-processor drop rule: only drop if no date AND no date_rule_text AND urgency is not "asap"
+        if not iso_date and not date_rule_text and not is_relative and urgency != "asap":
+            continue
+
+        # Quote verification and grounding in code
+        verified, grounded_quote = ground_quote_against_page(quote, page, pages, normalized_pages)
+        quote = grounded_quote
         evidence_dict: dict[str, Any] = {
             "page": page if isinstance(page, int) else 1,
             "quote": quote,
@@ -395,11 +565,14 @@ def process_extracted_notice_to_decision_card(
             )
 
         deadline_record = {
-            "id": f"dl-{idx+1}",
+            "id": item.get("id") or f"dl-{idx+1}",
             "label": label,
             "kind": kind,
             "date": iso_date,
             "date_type": date_type,
+            "urgency": urgency,
+            "anchor_date": anchor_date,
+            "date_rule_text": date_rule_text,
             "derived_from": derived_from,
             "evidence": evidence_dict,
             "status": "found" if verified else "uncertain",
@@ -422,9 +595,12 @@ def process_extracted_notice_to_decision_card(
                     f"Ambiguous conflicting dates found for role '{role}': {sorted(unique_dates)}."
                 )
 
-    # Sort deadlines timeline by date (null dates go to end)
+    # Sort deadlines timeline by date (null dates / asap go after fixed dates)
     processed_deadlines.sort(
-        key=lambda d: (0, d["date"]) if d["date"] else (1, "9999-99-99")
+        key=lambda d: (
+            0 if d.get("date") else (1 if d.get("urgency") == "asap" else 2),
+            d.get("date") or "9999-99-99",
+        )
     )
     # Re-assign deterministic sequential IDs: dl-1, dl-2, ...
     for i, d in enumerate(processed_deadlines):
@@ -454,7 +630,7 @@ def process_extracted_notice_to_decision_card(
     # 6. Urgency computation in code
     urgency = compute_urgency(primary_deadline_date, reference_date=reference_date)
 
-    # 7. Action steps processing (drop steps with empty text, re-order 1..N)
+    # 7. Action steps processing (group alternatives and mark conditionals)
     raw_steps = raw_data.get("action_steps") or []
     if not isinstance(raw_steps, list):
         warnings.append("Action steps was not a list; defaulted to empty.")
@@ -462,6 +638,8 @@ def process_extracted_notice_to_decision_card(
 
     cleaned_steps: list[dict[str, Any]] = []
     step_order = 1
+    option_regex = re.compile(r"^(?:Option|Method|Way)\s*\d+[:.-]?\s*", re.IGNORECASE)
+
     for step in raw_steps:
         if not isinstance(step, dict):
             continue
@@ -472,7 +650,8 @@ def process_extracted_notice_to_decision_card(
 
         p = step.get("page")
         q = step.get("quote") or step.get("evidence_quote") or ""
-        v = verify_quote(q, p, normalized_pages)
+        v, grounded_q = ground_quote_against_page(q, p, pages, normalized_pages)
+        q = grounded_q
         ev: dict[str, Any] = {
             "page": p if isinstance(p, int) else 1,
             "quote": q,
@@ -482,18 +661,60 @@ def process_extracted_notice_to_decision_card(
             ev["needs_verification"] = True
             warnings.append(f"Evidence quote for action step {step_order} could not be verified.")
 
+        action_type = str(step.get("action_type") or "").lower()
+        group_id = step.get("group_id")
+        group_title = step.get("group_title")
+        condition = step.get("condition")
+
+        # Fallback grouping logic if model didn't group
+        is_opt = bool(option_regex.search(step_text))
+        is_cond = (
+            bool(re.search(r"^(?:If you have already paid|In case already paid|If paid|If this applies to you)", step_text, re.IGNORECASE))
+            or bool(condition)
+        )
+
+        if action_type not in ("required", "alternative", "conditional"):
+            if is_cond:
+                action_type = "conditional"
+            elif is_opt:
+                action_type = "alternative"
+            else:
+                action_type = "required"
+
+        if action_type == "alternative":
+            if not group_id:
+                group_id = "group_payment_options"
+            if not group_title:
+                group_title = "Pay the bill / choose payment method"
+        elif action_type == "conditional":
+            if not condition:
+                if "already paid" in step_text.lower():
+                    condition = "Only if you have already paid"
+                else:
+                    condition = "Conditional step"
+            if not group_id:
+                group_id = f"group_cond_{step_order}"
+            if not group_title:
+                group_title = condition
+        else:
+            action_type = "required"
+            if not group_id:
+                group_id = f"group_{step_order}"
+            if not group_title:
+                group_title = step_text
+
         cleaned_steps.append({
             "order": step_order,
             "text": step_text,
+            "action_type": action_type,
+            "group_id": str(group_id),
+            "group_title": str(group_title),
+            "condition": str(condition) if condition else None,
             "evidence": ev,
         })
         step_order += 1
 
     # 8. Consequences processing
-    raw_consequences = raw_data.get("consequences") or raw_data.get("penalties") or []
-    if not isinstance(raw_consequences, list):
-        raw_consequences = []
-
     cleaned_consequences: list[dict[str, Any]] = []
     for c in raw_consequences:
         if not isinstance(c, dict):
@@ -502,7 +723,8 @@ def process_extracted_notice_to_decision_card(
         c_val = str(c.get("value") or c.get("amount") or c.get("description") or "").strip()
         p = c.get("page")
         q = c.get("quote") or c.get("evidence_quote") or ""
-        v = verify_quote(q, p, normalized_pages)
+        v, grounded_q = ground_quote_against_page(q, p, pages, normalized_pages)
+        q = grounded_q
         ev_c: dict[str, Any] = {
             "page": p if isinstance(p, int) else 1,
             "quote": q,
@@ -527,11 +749,20 @@ def process_extracted_notice_to_decision_card(
             doc_name = str(doc.get("name") or "").strip()
             if not doc_name:
                 continue
+            doc_cond = doc.get("condition")
+            is_cond = bool(doc.get("is_conditional") or doc_cond)
+            if not doc_cond and "receipt" in doc_name.lower():
+                doc_cond = "Only if you have already paid"
+                is_cond = True
+
             p = doc.get("page")
             q = doc.get("quote") or doc.get("evidence_quote") or ""
-            v = verify_quote(q, p, normalized_pages)
+            v, grounded_q = ground_quote_against_page(q, p, pages, normalized_pages)
+            q = grounded_q
             cleaned_docs.append({
                 "name": doc_name,
+                "condition": doc_cond,
+                "is_conditional": is_cond,
                 "evidence": {"page": p if isinstance(p, int) else 1, "quote": q, "verified": v},
                 "status": "found" if v else "uncertain",
             })
@@ -549,7 +780,8 @@ def process_extracted_notice_to_decision_card(
                 continue
             p = ch.get("page")
             q = ch.get("quote") or ch.get("evidence_quote") or ""
-            v = verify_quote(q, p, normalized_pages)
+            v, grounded_q = ground_quote_against_page(q, p, pages, normalized_pages)
+            q = grounded_q
             cleaned_channels.append({
                 "channel": c_name or "Submission Point",
                 "details": c_det,
@@ -560,7 +792,8 @@ def process_extracted_notice_to_decision_card(
         c_det = str(raw_channels.get("details") or raw_channels.get("value") or "").strip()
         p = raw_channels.get("page")
         q = raw_channels.get("quote") or raw_channels.get("evidence_quote") or ""
-        v = verify_quote(q, p, normalized_pages)
+        v, grounded_q = ground_quote_against_page(q, p, pages, normalized_pages)
+        q = grounded_q
         cleaned_channels.append({
             "channel": c_name,
             "details": c_det,
@@ -579,7 +812,8 @@ def process_extracted_notice_to_decision_card(
                 continue
             p = cond.get("page")
             q = cond.get("quote") or cond.get("evidence_quote") or ""
-            v = verify_quote(q, p, normalized_pages)
+            v, grounded_q = ground_quote_against_page(q, p, pages, normalized_pages)
+            q = grounded_q
             cleaned_conditions.append({
                 "condition": c_text,
                 "evidence": {"page": p if isinstance(p, int) else 1, "quote": q, "verified": v},
@@ -623,17 +857,58 @@ def process_extracted_notice_to_decision_card(
     else:
         status = "complete"
 
+    # 11. Simple Summary (Grade 6 level, 4 fields)
+    raw_simple = raw_data.get("simple_summary") or {}
+    if not isinstance(raw_simple, dict):
+        raw_simple = {}
+
+    what_is_this = str(raw_simple.get("what_is_this") or one_line_summary or "Official notice.").strip()
+    what_to_do = str(raw_simple.get("what_to_do") or "").strip()
+    if not what_to_do:
+        if cleaned_steps:
+            what_to_do = str(cleaned_steps[0].get("group_title") or cleaned_steps[0]["text"]).strip()
+            if amount_due and isinstance(amount_due, dict) and amount_due.get("amount") is not None:
+                what_to_do += f" ({amount_due.get('currency', 'Rs.')} {amount_due.get('amount')})"
+        else:
+            what_to_do = "Review the notice details and take action before the deadline."
+
+    by_when = str(raw_simple.get("by_when") or "").strip()
+    if not by_when:
+        if primary_deadline_date:
+            by_when = f"By {primary_deadline_date}"
+        elif processed_deadlines and processed_deadlines[0].get("date_rule_text"):
+            by_when = str(processed_deadlines[0]["date_rule_text"])
+        else:
+            by_when = "Check notice for dates"
+
+    if_you_ignore = str(raw_simple.get("if_you_ignore") or "").strip()
+    if not if_you_ignore:
+        if cleaned_consequences:
+            c0 = cleaned_consequences[0]
+            if_you_ignore = f"{c0.get('label')}: {c0.get('value')}"
+        else:
+            if_you_ignore = "Late fees or service disruption may apply."
+
+    simple_summary = {
+        "what_is_this": what_is_this,
+        "what_to_do": what_to_do,
+        "by_when": by_when,
+        "if_you_ignore": if_you_ignore,
+    }
+
     result: dict[str, Any] = {
         "status": status,
         "warnings": warnings,
+        "notice_date": notice_date_iso,
         "headline": headline,
+        "simple_summary": simple_summary,
         "deadlines": processed_deadlines,
         "action_steps": cleaned_steps,
         "consequences": cleaned_consequences,
         "summary_plain": summary_plain,
         "raw_text_ref": raw_text_full[:2000],
         # Backward-compatible metadata keys
-        "schema_version": "2.0",
+        "schema_version": "2.2",
         "category": notice_type,
     }
 

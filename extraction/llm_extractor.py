@@ -42,15 +42,29 @@ COMPACT_EXTRACTION_SCHEMA = {
         "source_organisation": {"type": "string"},
         "one_line_summary": {"type": "string"},
         "summary_plain": {"type": "string"},
+        "simple_summary": {
+            "type": "object",
+            "properties": {
+                "what_is_this": {"type": "string"},
+                "what_to_do": {"type": "string"},
+                "by_when": {"type": "string"},
+                "if_you_ignore": {"type": "string"},
+            },
+        },
+        "notice_date": {"type": ["string", "null"]},
         "amount_due": {"type": ["string", "null"]},
         "deadlines": {
             "type": "array",
             "items": {
                 "type": "object",
-                "required": ["label", "date_raw", "page", "quote"],
+                "required": ["label", "page", "quote"],
                 "properties": {
                     "label": {"type": "string"},
-                    "date_raw": {"type": "string"},
+                    "date": {"type": ["string", "null"]},
+                    "date_raw": {"type": ["string", "null"]},
+                    "date_rule_text": {"type": ["string", "null"]},
+                    "anchor_date": {"type": ["string", "null"]},
+                    "urgency": {"type": "string", "enum": ["fixed", "relative", "asap", "none"]},
                     "kind": {"type": "string"},
                     "is_relative": {"type": "boolean"},
                     "offset_days": {"type": ["integer", "null"]},
@@ -68,6 +82,10 @@ COMPACT_EXTRACTION_SCHEMA = {
                 "properties": {
                     "order": {"type": "integer"},
                     "text": {"type": "string"},
+                    "action_type": {"type": "string", "enum": ["required", "alternative", "conditional"]},
+                    "group_id": {"type": ["string", "null"]},
+                    "group_title": {"type": ["string", "null"]},
+                    "condition": {"type": ["string", "null"]},
                     "page": {"type": "integer"},
                     "quote": {"type": "string"},
                 },
@@ -93,6 +111,8 @@ COMPACT_EXTRACTION_SCHEMA = {
                 "required": ["name", "page", "quote"],
                 "properties": {
                     "name": {"type": "string"},
+                    "condition": {"type": ["string", "null"]},
+                    "is_conditional": {"type": ["boolean", "null"]},
                     "page": {"type": "integer"},
                     "quote": {"type": "string"},
                 },
@@ -141,24 +161,33 @@ def build_system_prompt() -> str:
         "STRICT EXTRACTION RULES:\n"
         "1. ZERO HALLUCINATION / NULL ON ABSENCE: Extract ONLY facts stated explicitly in the text. "
         "Never invent dates, amounts, or steps. For optional documents, label them 'Suggested, not required'.\n"
-        "2. VERBATIM EVIDENCE GROUNDING: For all extracted items, copy the exact quote verbatim from the text. "
+        "2. VERBATIM EVIDENCE GROUNDING: evidence quotes must be copied verbatim from the page text, never paraphrased. "
         "Every quote must be ONE contiguous passage copied character-for-character from a single page with NO ellipsis ('...'), "
         "NO joining of separate sentences, and NO paraphrase. Cite the exact 1-indexed page number. "
         "For action steps that combine several facts, the evidence_quote must be the single sentence that states the action itself.\n"
-        "3. DEADLINES & RELATIVE DATES: Extract date as written in 'date_raw'. If relative ('within 7 days of due date'), "
-        "set is_relative=true, offset_days=7, relative_to='due_date'. Assign kind: 'no_penalty_by' | 'due' | 'disconnection_risk' | 'other' | 'relative'.\n"
+        "3. DATES & DEADLINES: Capture EVERY date mentioned in the document:\n"
+        "   - Extract the document's issue or notice date into top-level 'notice_date' in ISO format YYYY-MM-DD (e.g. '2026-11-01' from '1 November 2026' or 'Date: 1 Nov 2026').\n"
+        "   - Extract all due dates, last dates, hearing dates, validity periods, and submission deadlines into 'deadlines'.\n"
+        "   - For fixed calendar dates, provide 'date' in ISO format (YYYY-MM-DD), 'date_raw' as printed, and set urgency='fixed'.\n"
+        "   - For relative deadlines (e.g. 'within 15 days of bill date'), set is_relative=true, date_rule_text='within 15 days of bill date', offset_days=15, relative_to='bill_date', urgency='relative'.\n"
+        "   - For open-urgency or non-fixed phrases (e.g. 'at the earliest', 'immediately', 'as soon as possible', 'urgent'), DO NOT drop them: emit a deadline item with date=null, urgency='asap', and copy the verbatim quote.\n"
+        "   - Assign kind: 'no_penalty_by' | 'due' | 'other' | 'relative'.\n"
+        "   - CRITICAL: Non-deadline risk windows or punitive outcomes (e.g. 'Disconnection risk window', 'Risk of disconnection after 27 Nov') "
+        "must NOT be extracted as deadlines; place them under 'consequences'.\n"
         "4. MONEY & AMOUNTS: Extract the stated amount in amount_due (e.g. 'Rs. 4,860.00').\n"
-        "5. ACTION STEPS, ELIGIBILITY, AND ALTERNATIVES: Extract concrete actions. Never leave text empty. "
-        "If the notice states eligibility conditions, add ONE action step at the start: 'Check that you meet the conditions in the notice'. "
-        "When action steps are alternative ways to do one task, label them 'Option 1', 'Option 2', 'Option 3'. "
-        "Keep any conditional step as its own labelled step starting with 'If this applies to you'.\n"
-        "6. PLAIN LANGUAGE SUMMARY: Write a concise one-line summary and a plain summary. "
-        "if_deadline_missed must only state a consequence the notice explicitly ties to missing a deadline. "
-        "Otherwise write 'The notice does not state what happens if you miss the deadline.'\n"
+        "5. ACTION STEPS & ALTERNATIVES GROUPING: Extract concrete actions. Never leave text empty. "
+        "CRITICAL: When action steps are alternative ways to do ONE single task (e.g. 'Option 1: Pay online', 'Option 2: Pay at counter', 'Option 3: Pay by cheque'), "
+        "group them under one task: set action_type='alternative', assign the same shared group_id (e.g. 'group_pay_bill') and group_title (e.g. 'Pay electricity bill'). "
+        "NEVER emit Option 1, Option 2, Option 3 as separate independent required to-do steps. "
+        "For conditional steps (e.g. 'If you have already paid, send the receipt'), set action_type='conditional' and provide condition (e.g. 'Only if you have already paid'). "
+        "For standard required steps, set action_type='required'.\n"
+        "6. SIMPLE SUMMARY: Provide a simple_summary object written at roughly a Grade 6 reading level without legal jargon. "
+        "It must have 4 fields: what_is_this (1 clear sentence), what_to_do (single main action with amount if any), "
+        "by_when (the deadline or rule in plain words), and if_you_ignore (main consequence if ignored).\n"
         "7. USER-FACING WARNINGS ONLY: The 'warnings' list must contain ONLY explicit cautionary conditions or warnings "
         "stated directly in the notice text for the user (for example 'Cash payments above Rs. 10,000 are not accepted').\n"
-        "8. MULTILINGUAL AND NON-ENGLISH NOTICES: If the notice is written in a language other than English, "
-        "write summaries and steps in English, but keep all evidence quotes in original verbatim script.\n"
+        "8. MULTILINGUAL NOTICES: If the notice is in Hindi or Kannada, write simple_summary, summary_plain, and action steps "
+        "in that same language (Hindi or Kannada) at Grade 6 reading level. Keep quotes verbatim in their original script.\n"
         "9. STRICT JSON OUTPUT: Return ONLY valid JSON adhering strictly to the schema."
     )
 

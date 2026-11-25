@@ -145,11 +145,22 @@ def validate_v2_notice(
         ev = s.get("evidence")
         if not isinstance(ev, dict):
             ev = {"page": 1, "quote": "", "verified": False}
-        cleaned_steps.append({
+        step_obj: dict[str, Any] = {
             "order": len(cleaned_steps) + 1,
             "text": s_text,
             "evidence": ev,
-        })
+        }
+        if "action_type" in s and s["action_type"] in ("required", "alternative", "conditional"):
+            step_obj["action_type"] = s["action_type"]
+        else:
+            step_obj["action_type"] = "required"
+        if "group_id" in s and s["group_id"]:
+            step_obj["group_id"] = str(s["group_id"])
+        if "group_title" in s and s["group_title"]:
+            step_obj["group_title"] = str(s["group_title"])
+        if "condition" in s:
+            step_obj["condition"] = str(s["condition"]) if s["condition"] else None
+        cleaned_steps.append(step_obj)
     notice_copy["action_steps"] = cleaned_steps
 
     # 3. Deadlines Repair
@@ -170,8 +181,16 @@ def validate_v2_notice(
             dl_kind = "other"
         dl_date = dl.get("date")
         dl_date_type = dl.get("date_type")
-        if dl_date_type not in ("exact", "estimated"):
+        if dl_date_type not in ("exact", "calculated", "estimated"):
             dl_date_type = "exact" if dl_date else "estimated"
+        dl_urgency = dl.get("urgency")
+        if dl_urgency not in ("fixed", "relative", "asap", "none"):
+            dl_urgency = (
+                "asap"
+                if (not dl_date and ("earliest" in dl_label.lower() or "immediate" in dl_label.lower() or "asap" in dl_label.lower()))
+                else ("fixed" if dl_date else "none")
+            )
+        anchor_date = str(dl.get("anchor_date")) if dl.get("anchor_date") else None
         ev = dl.get("evidence")
         if not isinstance(ev, dict):
             ev = {"page": 1, "quote": "", "verified": False}
@@ -181,10 +200,18 @@ def validate_v2_notice(
             "kind": dl_kind,
             "date": dl_date,
             "date_type": dl_date_type,
+            "urgency": dl_urgency,
+            "anchor_date": anchor_date,
+            "date_rule_text": str(dl.get("date_rule_text")) if dl.get("date_rule_text") else None,
             "derived_from": dl.get("derived_from"),
             "evidence": ev,
         })
     notice_copy["deadlines"] = cleaned_deadlines
+
+    # Preserve top-level notice_date if present
+    if "notice_date" in notice_copy:
+        nd = notice_copy.get("notice_date")
+        notice_copy["notice_date"] = str(nd) if nd else None
 
     # 4. Consequences Repair
     raw_consequences = notice_copy.get("consequences")
@@ -297,6 +324,15 @@ def validate_v2_notice(
         status = "partial"
     else:
         status = "complete"
+
+    if "simple_summary" in notice_copy and isinstance(notice_copy["simple_summary"], dict):
+        ss = notice_copy["simple_summary"]
+        notice_copy["simple_summary"] = {
+            "what_is_this": str(ss.get("what_is_this") or "").strip(),
+            "what_to_do": str(ss.get("what_to_do") or "").strip(),
+            "by_when": str(ss.get("by_when") or "").strip(),
+            "if_you_ignore": str(ss.get("if_you_ignore") or "").strip(),
+        }
 
     notice_copy["status"] = status
     notice_copy["warnings"] = warnings

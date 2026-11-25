@@ -4,7 +4,7 @@ import { LanguageContext } from "./language-context";
 function useLanguageContext() {
   const context = useContext(LanguageContext);
   if (!context) {
-    throw new Error("Language hooks must be used within LanguageProvider");
+    return { language: "en", setLanguage: () => {} };
   }
   return context;
 }

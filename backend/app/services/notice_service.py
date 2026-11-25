@@ -464,16 +464,23 @@ class NoticeService:
         for n in notices:
             title = n.original_filename
             deadline_summary = None
+            notice_date = None
+            deadlines_list = []
 
             if n.result_json and isinstance(n.result_json, dict):
                 extracted_title = n.result_json.get("notice_title", {}).get("text")
                 if extracted_title and extracted_title != "not_found":
                     title = extracted_title
 
+                notice_date = n.result_json.get("notice_date")
                 deadlines = n.result_json.get("deadlines") or []
-                if deadlines:
-                    first_dl = deadlines[0].get("date")
-                    count = len(deadlines)
+                if isinstance(deadlines, list):
+                    deadlines_list = deadlines
+                if deadlines_list:
+                    first_dl = deadlines_list[0].get("date") or (
+                        "ASAP" if deadlines_list[0].get("urgency") == "asap" else deadlines_list[0].get("date_rule_text")
+                    )
+                    count = len(deadlines_list)
                     deadline_summary = f"{count} deadline(s), next: {first_dl}"
 
             items.append(
@@ -485,6 +492,8 @@ class NoticeService:
                     "deadline_summary": deadline_summary,
                     "needs_verification": n.needs_verification,
                     "created_at": n.created_at.isoformat() if n.created_at else "",
+                    "notice_date": notice_date,
+                    "deadlines": deadlines_list,
                 }
             )
         return items
@@ -507,6 +516,9 @@ class NoticeService:
         stage = "done" if is_finished else (notice.stage or "uploading")
         progress = 100 if is_finished else (notice.progress if notice.progress is not None else 10)
 
+        res_json = notice.result_json if isinstance(notice.result_json, dict) else {}
+        notice_date = res_json.get("notice_date")
+
         return {
             "id": notice.id,
             "notice_id": notice.id,
@@ -521,6 +533,7 @@ class NoticeService:
             "created_at": notice.created_at.isoformat() if notice.created_at else "",
             "needs_verification": notice.needs_verification,
             "message": notice.message,
+            "notice_date": notice_date,
             "result": notice.result_json,
             "checklist": checklist,
             "reminders": reminders,

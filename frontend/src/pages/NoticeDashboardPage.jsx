@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { useParams, Link, useSearchParams } from "react-router-dom";
 import {
+  Calendar,
   AlertTriangle,
   Upload,
   Loader2,
@@ -14,13 +15,16 @@ import {
   FileCheck,
   CheckCircle2,
 } from "lucide-react";
-import { getNotice, getNoticeFileUrl } from "../api/client";
+import { getNotice, getNoticeFileUrl, retryNoticeExtraction } from "../api/client";
+import { formatDate } from "../utils/text";
 import { DecisionCard } from "../components/DecisionCard";
 import { ActionChecklist } from "../components/ActionChecklist";
 import { DeadlineTimeline } from "../components/DeadlineTimeline";
 import { EvidencePanel } from "../components/EvidencePanel";
 import { ProcessingStepper } from "../components/ProcessingStepper";
 import { ReminderModal } from "../components/ReminderModal";
+import { SimpleSummaryCard } from "../components/SimpleSummaryCard";
+import { SourceViewerModal } from "../components/SourceViewerModal";
 
 // Import mock fixtures for testing and fallback
 import sampleElectricityNotice from "../mocks/sample_electricity_notice.json";
@@ -76,7 +80,61 @@ export function NoticeDashboardPage() {
     deadline: null,
   });
 
+  // Source viewer modal state
+  const [sourceViewerModal, setSourceViewerModal] = useState({
+    isOpen: false,
+    page: 1,
+    quote: null,
+    initialView: "document",
+  });
+
+  const [isRetrying, setIsRetrying] = useState(false);
+
   const pollIntervalRef = useRef(null);
+
+  const handleRetry = async () => {
+    if (!id) return;
+    setIsRetrying(true);
+    try {
+      await retryNoticeExtraction(id);
+      setNotice((prev) => ({
+        ...(prev || {}),
+        status: "processing",
+        stage: "reading_text",
+        progress: 15,
+      }));
+
+      const pollStart = Date.now();
+      if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+      pollIntervalRef.current = setInterval(async () => {
+        if (Date.now() - pollStart > 45000) {
+          clearInterval(pollIntervalRef.current);
+          pollIntervalRef.current = null;
+          setIsRetrying(false);
+          setNotice((prev) => ({
+            ...(prev || {}),
+            status: "failed",
+            error: "Processing reached the time limit. Please try again.",
+          }));
+          return;
+        }
+        try {
+          const refreshed = await getNotice(id);
+          if (refreshed.status !== "processing") {
+            clearInterval(pollIntervalRef.current);
+            pollIntervalRef.current = null;
+            setIsRetrying(false);
+            setNotice(refreshed);
+          }
+        } catch {
+          // ignore transient errors
+        }
+      }, 1500);
+    } catch (err) {
+      setIsRetrying(false);
+      setFetchError(err.message || "Failed to trigger retry.");
+    }
+  };
 
   const fetchNoticeData = useCallback(async () => {
     // If fixture query param or mock id is requested, load local fixture immediately
@@ -385,12 +443,32 @@ export function NoticeDashboardPage() {
           )}
 
           <div className="pt-2 flex flex-wrap gap-3">
+            {id && !MOCK_FIXTURES[id] && (
+              <button
+                type="button"
+                onClick={handleRetry}
+                disabled={isRetrying}
+                className="inline-flex items-center gap-2 px-6 py-3 rounded-xl font-black text-white bg-purple-600 hover:bg-purple-700 shadow-md min-h-[48px] focus:outline-hidden focus:ring-2 focus:ring-purple-600 disabled:opacity-50"
+              >
+                {isRetrying ? (
+                  <>
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                    <span>Retrying extraction...</span>
+                  </>
+                ) : (
+                  <>
+                    <RefreshCw className="w-5 h-5" />
+                    <span>Retry extraction</span>
+                  </>
+                )}
+              </button>
+            )}
             <Link
               to="/upload"
-              className="inline-flex items-center gap-2 px-6 py-3 rounded-xl font-black text-white bg-purple-600 hover:bg-purple-700 shadow-md min-h-[48px] focus:outline-hidden focus:ring-2 focus:ring-purple-600"
+              className="inline-flex items-center gap-2 px-6 py-3 rounded-xl font-black text-slate-700 bg-white border border-slate-300 hover:bg-slate-100 min-h-[48px]"
             >
               <Upload className="w-5 h-5" />
-              <span>Try again</span>
+              <span>Upload another file</span>
             </Link>
             <Link
               to="/notices"
@@ -427,19 +505,27 @@ export function NoticeDashboardPage() {
     urgency: notice.urgency || "soon",
   };
 
-  const deadlines = Array.isArray(notice.deadlines)
+  const noticeDate = notice.notice_date || result.notice_date || null;
+
+  const rawDeadlinesList = Array.isArray(notice.deadlines)
     ? notice.deadlines
     : Array.isArray(result.deadlines)
-    ? result.deadlines.map((d, i) => ({
-        id: d.id || `dl_${i}`,
-        label: d.label || d.description || "Deadline",
-        kind: d.kind || "due",
-        date: d.iso_date || d.date,
-        date_type: d.date_type || "exact",
-        derived_from: d.derived_from || null,
-        evidence: d.evidence || null,
-      }))
+    ? result.deadlines
     : [];
+
+  const deadlines = rawDeadlinesList.map((d, i) => ({
+    id: d.id || `dl_${i + 1}`,
+    label: d.label || d.description || "Deadline",
+    kind: d.kind || "due",
+    date: d.date || d.iso_date || null,
+    date_type: d.date_type || "exact",
+    urgency: d.urgency || (d.date || d.iso_date ? "fixed" : "none"),
+    anchor_date: d.anchor_date || null,
+    date_rule_text: d.date_rule_text || null,
+    derived_from: d.derived_from || null,
+    evidence: d.evidence || null,
+    status: d.status || "found",
+  }));
 
   // Determine primary deadline for the decision card countdown
   const primaryDeadline =
@@ -453,6 +539,10 @@ export function NoticeDashboardPage() {
     ? result.action_steps.map((s, i) => ({
         order: s.order || i + 1,
         text: typeof s === "string" ? s : s.text || s.action || "",
+        action_type: s.action_type || "required",
+        group_id: s.group_id || null,
+        group_title: s.group_title || null,
+        condition: s.condition || null,
         evidence: s.evidence || null,
       }))
     : [];
@@ -492,28 +582,89 @@ export function NoticeDashboardPage() {
 
   return (
     <main className="page-shell max-w-5xl space-y-6 sm:space-y-8">
+      {/* Top Header Actions Bar: Back Link + Notice Date Badge + View Original Button */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-3 flex-wrap">
+          <Link
+            to="/notices"
+            className="inline-flex items-center gap-1.5 text-xs sm:text-sm font-bold text-slate-600 hover:text-navy-950 transition-colors"
+          >
+            ← Back to all notices
+          </Link>
+          {noticeDate && (
+            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-slate-100 text-slate-700 border border-slate-200 shadow-2xs">
+              <Calendar className="w-3.5 h-3.5 text-purple-700" aria-hidden="true" />
+              <span>Notice date: {formatDate(noticeDate)}</span>
+            </span>
+          )}
+        </div>
+        <button
+          type="button"
+          onClick={() =>
+            setSourceViewerModal({
+              isOpen: true,
+              page: 1,
+              quote: null,
+              initialView: "document",
+            })
+          }
+          className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-bold bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 hover:text-purple-700 shadow-xs transition-colors min-h-[40px] focus:outline-hidden focus:ring-2 focus:ring-purple-600"
+        >
+          <FileText className="w-4 h-4 text-purple-600" aria-hidden="true" />
+          <span>View original</span>
+        </button>
+      </div>
+
       {/* Slim Inline Notice for Partial Extraction (No huge page-wide banner) */}
       {notice.status === "partial" && (
         <aside
           role="status"
           aria-live="polite"
-          className="flex items-start gap-3 rounded-2xl border border-amber-300 bg-amber-50/90 p-4 text-xs sm:text-sm text-amber-950 shadow-xs"
+          className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-2xl border border-amber-300 bg-amber-50/90 p-4 text-xs sm:text-sm text-amber-950 shadow-xs"
         >
-          <AlertTriangle className="h-5 w-5 shrink-0 text-amber-800 mt-0.5" aria-hidden="true" />
-          <div className="space-y-1">
-            <p className="font-extrabold text-amber-950">
-              Partial extraction: Some sections could not be completely read
-            </p>
-            {warnings.length > 0 && (
-              <ul className="list-disc list-inside space-y-0.5 text-amber-900 font-medium">
-                {warnings.map((w, idx) => (
-                  <li key={idx}>{typeof w === "string" ? w : w.message || JSON.stringify(w)}</li>
-                ))}
-              </ul>
-            )}
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="h-5 w-5 shrink-0 text-amber-800 mt-0.5" aria-hidden="true" />
+            <div className="space-y-1">
+              <p className="font-extrabold text-amber-950">
+                Partial extraction: Some sections could not be completely read
+              </p>
+              {warnings.length > 0 && (
+                <ul className="list-disc list-inside space-y-0.5 text-amber-900 font-medium">
+                  {warnings.map((w, idx) => (
+                    <li key={idx}>{typeof w === "string" ? w : w.message || JSON.stringify(w)}</li>
+                  ))}
+                </ul>
+              )}
+            </div>
           </div>
+          {id && !MOCK_FIXTURES[id] && (
+            <button
+              type="button"
+              onClick={handleRetry}
+              disabled={isRetrying}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl font-bold bg-amber-700 hover:bg-amber-800 text-white shrink-0 self-start sm:self-center transition-colors disabled:opacity-50 min-h-[38px]"
+            >
+              {isRetrying ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span>Retrying...</span>
+                </>
+              ) : (
+                <>
+                  <RefreshCw className="w-4 h-4" />
+                  <span>Retry extraction</span>
+                </>
+              )}
+            </button>
+          )}
         </aside>
       )}
+
+      {/* Grade 6 Plain-Language Simple Summary Card */}
+      <SimpleSummaryCard
+        simpleSummary={result.simple_summary || notice.simple_summary}
+        fallbackData={notice}
+      />
 
       {/* 1. Decision Card (Hero) */}
       <DecisionCard
@@ -521,6 +672,14 @@ export function NoticeDashboardPage() {
         primaryDeadline={primaryDeadline}
         pdfUrl={pdfUrl}
         noticeId={id}
+        onViewOriginal={() =>
+          setSourceViewerModal({
+            isOpen: true,
+            page: 1,
+            quote: null,
+            initialView: "document",
+          })
+        }
         onRemind={() =>
           setReminderModal({
             isOpen: true,
@@ -542,6 +701,12 @@ export function NoticeDashboardPage() {
         deadlines={deadlines}
         consequences={consequences}
         onShowSource={handleOpenSource}
+        onRemind={(dl) =>
+          setReminderModal({
+            isOpen: true,
+            deadline: dl,
+          })
+        }
       />
 
       {/* 4. Plain-Language Summary (2-3 sentences replacing 5 Questions) */}
@@ -582,13 +747,21 @@ export function NoticeDashboardPage() {
                 {requiredDocuments.map((doc, idx) => {
                   const name = typeof doc === "string" ? doc : doc.name;
                   const hasSource = doc.evidence && (doc.evidence.page || doc.evidence.quote);
+                  const condition = typeof doc === "object" ? doc.condition : null;
 
                   return (
                     <li
                       key={idx}
                       className="p-3 rounded-xl bg-slate-50 border border-slate-200 text-xs sm:text-sm font-semibold flex items-center justify-between gap-2"
                     >
-                      <span className="text-navy-950">{name}</span>
+                      <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2">
+                        <span className="text-navy-950">{name}</span>
+                        {condition && (
+                          <span className="text-xs font-normal text-amber-800 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200">
+                            (only if {condition})
+                          </span>
+                        )}
+                      </div>
                       {hasSource && (
                         <button
                           type="button"
@@ -711,8 +884,26 @@ export function NoticeDashboardPage() {
       <ReminderModal
         noticeId={id}
         deadline={reminderModal.deadline}
+        noticeDate={noticeDate}
         isOpen={reminderModal.isOpen}
         onClose={() => setReminderModal({ isOpen: false, deadline: null })}
+      />
+
+      {/* Full Document & Transcript Modal */}
+      <SourceViewerModal
+        noticeId={id}
+        page={sourceViewerModal.page}
+        quote={sourceViewerModal.quote}
+        isOpen={sourceViewerModal.isOpen}
+        initialView={sourceViewerModal.initialView}
+        onClose={() =>
+          setSourceViewerModal({
+            isOpen: false,
+            page: 1,
+            quote: null,
+            initialView: "document",
+          })
+        }
       />
     </main>
   );

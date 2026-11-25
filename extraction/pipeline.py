@@ -1437,10 +1437,24 @@ def process_notice(
     t0_post = time.perf_counter()
     grounded_notice = post_process_notice(extracted_data, pages, validation_report)
 
-    # Enrich with Decision Card (v2) fields: headline, normalized money, ISO relative dates, raw_text_ref
+    # Enrich with Decision Card (v2) fields: headline, normalized money, ISO relative dates, raw_text_ref, notice_date
     decision_card = process_extracted_notice_to_decision_card(grounded_notice, pages)
     for k, v in decision_card.items():
-        if k in ("headline", "summary_plain", "raw_text_ref") or k not in grounded_notice:
+        if k in (
+            "headline",
+            "summary_plain",
+            "raw_text_ref",
+            "deadlines",
+            "action_steps",
+            "consequences",
+            "notice_date",
+            "simple_summary",
+            "status",
+            "warnings",
+            "required_documents",
+            "where_to_submit",
+            "conditions_that_apply",
+        ) or k not in grounded_notice:
             grounded_notice[k] = v
 
     post_duration = time.perf_counter() - t0_post

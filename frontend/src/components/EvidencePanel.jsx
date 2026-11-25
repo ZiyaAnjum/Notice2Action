@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import {
   X,
   FileText,
@@ -10,7 +10,7 @@ import {
   Check,
   Image as ImageIcon,
 } from "lucide-react";
-import { getNoticePage, getNoticeFileUrl, getNoticePageImageUrl } from "../api/client";
+import { getNoticePage, fetchNoticeFileBlob, getNoticePageImageUrl, getNoticeFileUrl } from "../api/client";
 import { findQuoteHighlight } from "../utils/text";
 
 export function EvidencePanel({
@@ -23,6 +23,9 @@ export function EvidencePanel({
   const [pageData, setPageData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [fileBlobUrl, setFileBlobUrl] = useState(null);
+  const [fileError, setFileError] = useState(null);
+  const blobUrlRef = useRef(null);
   const [copied, setCopied] = useState(false);
   const [viewMode, setViewMode] = useState("text"); // "text" | "image"
 
@@ -51,6 +54,33 @@ export function EvidencePanel({
       isCancelled = true;
     };
   }, [isOpen, noticeId, page]);
+
+  useEffect(() => {
+    if (!isOpen || !noticeId) return;
+    let isCancelled = false;
+    fetchNoticeFileBlob(noticeId)
+      .then(({ blobUrl }) => {
+        if (!isCancelled) {
+          blobUrlRef.current = blobUrl;
+          setFileBlobUrl(blobUrl);
+        } else {
+          URL.revokeObjectURL(blobUrl);
+        }
+      })
+      .catch((err) => {
+        if (!isCancelled) {
+          setFileError(err.message);
+        }
+      });
+
+    return () => {
+      isCancelled = true;
+      if (blobUrlRef.current) {
+        URL.revokeObjectURL(blobUrlRef.current);
+        blobUrlRef.current = null;
+      }
+    };
+  }, [isOpen, noticeId]);
 
   useEffect(() => {
     const handleKeyDown = (e) => {
@@ -120,14 +150,14 @@ export function EvidencePanel({
           </div>
 
           <div className="flex items-center gap-2">
-            {pdfUrl && (
+            {(fileBlobUrl || pdfUrl) && (
               <a
-                href={pdfUrl}
+                href={fileBlobUrl || pdfUrl}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 min-h-[36px]"
               >
-                <span>Original PDF</span>
+                <span>Original Document</span>
                 <ExternalLink className="w-3.5 h-3.5 text-slate-500" aria-hidden="true" />
               </a>
             )}
@@ -176,15 +206,20 @@ export function EvidencePanel({
 
             {/* Verification status badge */}
             <div className="pt-1">
-              {highlightResult?.found ? (
+              {highlightResult?.found && !highlightResult?.isApproximate ? (
                 <div className="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-800 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200">
                   <CheckCircle2 className="w-4 h-4 text-emerald-600" aria-hidden="true" />
                   <span>Verified verbatim on page {page}</span>
                 </div>
+              ) : highlightResult?.found && highlightResult?.isApproximate ? (
+                <div className="inline-flex items-center gap-1.5 text-xs font-bold text-sky-900 bg-sky-50 px-2.5 py-1 rounded-lg border border-sky-200">
+                  <CheckCircle2 className="w-4 h-4 text-sky-600" aria-hidden="true" />
+                  <span>Approximate match on page {page}</span>
+                </div>
               ) : (
                 <div className="inline-flex items-center gap-1.5 text-xs font-bold text-amber-800 bg-amber-50 px-2.5 py-1 rounded-lg border border-amber-200">
                   <AlertTriangle className="w-4 h-4 text-amber-700" aria-hidden="true" />
-                  <span>Check original scan: quote matched with fuzzy spacing</span>
+                  <span>Check original scan: quote not located precisely</span>
                 </div>
               )}
             </div>
