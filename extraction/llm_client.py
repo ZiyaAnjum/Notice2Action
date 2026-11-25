@@ -24,9 +24,10 @@ load_dotenv()
 
 logger = logging.getLogger(__name__)
 
-RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
-NON_RETRYABLE_STATUS_CODES = {400, 401, 403, 404}
+RETRYABLE_STATUS_CODES = {500, 502, 503, 504}
+NON_RETRYABLE_STATUS_CODES = {400, 401, 403, 404, 429}
 FRIENDLY_BUSY_MESSAGE = "The AI service is busy right now. Please try again in a few minutes."
+FRIENDLY_QUOTA_MESSAGE = "The AI service is busy or its daily limit was reached. Please try again later."
 
 
 def sanitize_message(message: str, secret: str | None = None) -> str:
@@ -217,7 +218,7 @@ class GeminiLLMClient(BaseLLMClient):
 
     DEFAULT_MODEL = "gemini-1.5-flash"
     DEFAULT_CALL_TIMEOUT_SEC = 25.0
-    DEFAULT_BACKOFF_DELAYS = (2.0, 4.0)
+    DEFAULT_BACKOFF_DELAYS = (1.0, 2.0)
     DEFAULT_VISION_PROMPT = (
         "Transcribe the complete, verbatim text of this official notice page image exactly as written. "
         "Do not summarize, explain, or interpret. Output only the verbatim extracted text."
@@ -286,6 +287,16 @@ class GeminiLLMClient(BaseLLMClient):
 
         if response.status_code != 200:
             safe_body = sanitize_message(response.text, self.api_key)
+            if response.status_code == 429:
+                logger.warning(
+                    "Gemini API returned status 429 (RESOURCE_EXHAUSTED / quota limit) on model '%s': %s",
+                    target_model,
+                    safe_body,
+                )
+                raise LLMError(
+                    FRIENDLY_QUOTA_MESSAGE,
+                    status_code=429,
+                )
             raise LLMError(
                 f"Gemini API returned status {response.status_code}: {safe_body}",
                 status_code=response.status_code,
@@ -349,6 +360,16 @@ class GeminiLLMClient(BaseLLMClient):
 
         if response.status_code != 200:
             safe_body = sanitize_message(response.text, self.api_key)
+            if response.status_code == 429:
+                logger.warning(
+                    "Gemini API returned status 429 (RESOURCE_EXHAUSTED / quota limit) on model '%s': %s",
+                    target_model,
+                    safe_body,
+                )
+                raise LLMError(
+                    FRIENDLY_QUOTA_MESSAGE,
+                    status_code=429,
+                )
             raise LLMError(
                 f"Gemini API returned status {response.status_code}: {safe_body}",
                 status_code=response.status_code,
@@ -423,6 +444,19 @@ class GeminiLLMClient(BaseLLMClient):
                 last_status_code = exc.status_code
                 safe_err = sanitize_message(exc.message, self.api_key)
                 last_err_msg = safe_err
+
+                # 429 RESOURCE_EXHAUSTED / quota limit: fail fast without retries and without fallback
+                if exc.status_code == 429:
+                    logger.warning(
+                        "Gemini API returned status 429 (quota exhausted) on model '%s'. Failing fast without retries or fallback.",
+                        self.model,
+                    )
+                    raise LLMError(
+                        FRIENDLY_QUOTA_MESSAGE,
+                        status_code=429,
+                        is_timeout=False,
+                        retries_exhausted=True,
+                    ) from None
 
                 # Fallback model must also be tried when primary returns 404 (model no longer available)
                 if exc.status_code == 404:
@@ -559,9 +593,10 @@ class GeminiLLMClient(BaseLLMClient):
             max_attempts,
         )
 
-        # Support optional LLM_FALLBACK_MODEL, tried once after retries are used up
+        # Support optional LLM_FALLBACK_MODEL, tried once after retries are used up (never for 429 quota exhaustion)
         if (
-            self.fallback_model
+            last_status_code != 429
+            and self.fallback_model
             and self.fallback_model.strip()
             and self.fallback_model.strip() != self.model
         ):

@@ -54,9 +54,9 @@ def test_gemini_client_success_first_attempt() -> None:
     assert parsed["notice_id"] == "notice-1"
 
 
-@pytest.mark.parametrize("status_code", [429, 500, 502, 503, 504])
+@pytest.mark.parametrize("status_code", [500, 502, 503, 504])
 def test_gemini_client_retry_success_on_retryable_status(status_code: int) -> None:
-    """Verify 429, 500, 502, 503, 504 temporary errors retry and succeed on subsequent attempt."""
+    """Verify 500, 502, 503, 504 temporary errors retry and succeed on subsequent attempt."""
     call_count = 0
     valid_payload = json.dumps({"notice_id": "notice-retry-success"})
     sleep_calls: list[float] = []
@@ -113,9 +113,9 @@ def test_gemini_client_retry_success_on_timeout() -> None:
     assert len(sleep_calls) == 1
 
 
-@pytest.mark.parametrize("status_code", [400, 401, 403, 404])
+@pytest.mark.parametrize("status_code", [400, 401, 403, 404, 429])
 def test_gemini_client_non_retryable_errors_fail_immediately(status_code: int) -> None:
-    """Verify 400, 401, 403, 404 do NOT retry and raise LLMError immediately."""
+    """Verify 400, 401, 403, 404, 429 do NOT retry and raise LLMError immediately."""
     call_count = 0
     sleep_calls: list[float] = []
 
@@ -140,6 +140,82 @@ def test_gemini_client_non_retryable_errors_fail_immediately(status_code: int) -
     # Must have failed immediately on attempt 1 without retry
     assert call_count == 1
     assert len(sleep_calls) == 0
+
+
+def test_gemini_client_429_quota_fails_fast_without_retries_or_fallback() -> None:
+    """Verify 429 RESOURCE_EXHAUSTED daily quota fails fast on attempt 1 with no retries or fallback."""
+    models_called: list[str] = []
+    sleep_calls: list[float] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        url_str = str(request.url)
+        if "gemini-primary" in url_str:
+            models_called.append("gemini-primary")
+        elif "gemini-fallback" in url_str:
+            models_called.append("gemini-fallback")
+        return httpx.Response(
+            429,
+            text='{"error": {"code": 429, "message": "Resource has been exhausted (e.g. check quota).", "status": "RESOURCE_EXHAUSTED"}}',
+        )
+
+    transport = httpx.MockTransport(handler)
+    client = GeminiLLMClient(
+        api_key="test-key",
+        model="gemini-primary",
+        fallback_model="gemini-fallback",
+        backoff_delays=[0.01, 0.02],
+        sleep_fn=sleep_calls.append,
+        transport=transport,
+    )
+
+    with pytest.raises(LLMError) as exc_info:
+        client.generate_json("sys", "usr")
+
+    # 1. Failed fast on primary model on attempt 1
+    assert models_called == ["gemini-primary"]
+    # 2. No retries (no sleeps)
+    assert len(sleep_calls) == 0
+    # 3. Fallback model was NOT invoked
+    assert "gemini-fallback" not in models_called
+    # 4. Status code is 429 and error message is user-friendly quota message
+    assert exc_info.value.status_code == 429
+    assert "daily limit was reached" in exc_info.value.message
+
+
+def test_gemini_client_503_retries_max_2_default_and_tries_fallback_once() -> None:
+    """Verify 503 retries exactly 2 times with default delays, and tries fallback model once."""
+    models_called: list[str] = []
+    sleep_calls: list[float] = []
+    valid_payload = json.dumps({"notice_id": "fallback-recovered"})
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        url_str = str(request.url)
+        if "gemini-primary" in url_str:
+            models_called.append("gemini-primary")
+            return httpx.Response(503, text="Service Unavailable")
+        elif "gemini-fallback" in url_str:
+            models_called.append("gemini-fallback")
+            return httpx.Response(200, json=_make_gemini_response(valid_payload))
+        return httpx.Response(500, text="Unexpected")
+
+    transport = httpx.MockTransport(handler)
+    client = GeminiLLMClient(
+        api_key="test-key",
+        model="gemini-primary",
+        fallback_model="gemini-fallback",
+        # Use default backoff_delays (1.0, 2.0) but mock sleep_fn so tests are instantaneous
+        sleep_fn=sleep_calls.append,
+        transport=transport,
+    )
+
+    res = client.generate_json("sys", "usr")
+    assert json.loads(res)["notice_id"] == "fallback-recovered"
+    # Primary model called: 1 initial + 2 retries = 3 calls
+    assert models_called.count("gemini-primary") == 3
+    # Exactly 2 retries occurred
+    assert len(sleep_calls) == 2
+    # Fallback model tried exactly ONCE
+    assert models_called.count("gemini-fallback") == 1
 
 
 def test_gemini_client_retry_exhaustion_without_fallback() -> None:
@@ -217,7 +293,7 @@ def test_gemini_client_fallback_model_from_env(monkeypatch: pytest.MonkeyPatch) 
         url_str = str(request.url)
         if "gemini-1.5-flash" in url_str:
             models_called.append("gemini-1.5-flash")
-            return httpx.Response(429, text="Rate limit")
+            return httpx.Response(503, text="Service Overloaded")
         elif "gemini-2.0-flash-exp" in url_str:
             models_called.append("gemini-2.0-flash-exp")
             return httpx.Response(200, json=_make_gemini_response(valid_payload))

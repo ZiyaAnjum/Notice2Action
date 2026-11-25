@@ -121,6 +121,22 @@ export function UploadPage() {
         if (detail.status && detail.status !== "processing") {
           clearInterval(pollTimerRef.current);
           pollTimerRef.current = null;
+          if (detail.status === "failed" || detail.status === "extraction_failed") {
+            setIsProcessing(false);
+            let friendlyError =
+              detail.error ||
+              detail.message ||
+              "Document processing failed. Please try again.";
+            if (/gemini|status\s*\d{3}|proto|api\s*key|syntaxerror|read\s*timeout|exception|httpx/i.test(friendlyError)) {
+              if (/429|quota|daily\s*limit|resource_exhausted/i.test(friendlyError)) {
+                friendlyError = "The AI service is busy or its daily limit was reached. Please try again later.";
+              } else {
+                friendlyError = "The AI extraction service encountered an issue analyzing this document. Please try again in a few moments.";
+              }
+            }
+            setErrorMessage(friendlyError);
+            return;
+          }
           setStatusMessage("Reading complete! Opening dashboard...");
           setTimeout(() => navigate(`/notices/${noticeId}`), 400);
         }
@@ -259,31 +275,35 @@ export function UploadPage() {
         </section>
       )}
 
-      {/* Timeout state */}
+      {/* Processing Failed / Timeout State */}
       {pollTimedOut && (
         <section
           role="alert"
-          className="rounded-3xl border-2 border-amber-300 bg-amber-50 p-6 sm:p-8 text-center space-y-4 shadow-card ui-fade-in"
+          className="rounded-3xl border-2 border-rose-300 bg-rose-50 p-6 sm:p-8 text-center space-y-4 shadow-card ui-fade-in"
         >
-          <AlertCircle className="w-10 h-10 text-amber-700 mx-auto" aria-hidden="true" />
+          <AlertCircle className="w-10 h-10 text-rose-600 mx-auto" aria-hidden="true" />
           <div>
-            <h2 className="text-xl sm:text-2xl font-black text-amber-950">
-              Processing is taking longer than expected
+            <h2 className="text-xl sm:text-2xl font-black text-rose-950">
+              Document processing could not complete
             </h2>
-            <p className="text-xs sm:text-sm text-amber-900 mt-1.5 max-w-lg mx-auto leading-relaxed">
-              Your document is still being analyzed in the background. You can open its detail page or check your document library.
+            <p className="text-xs sm:text-sm text-rose-900 mt-1.5 max-w-lg mx-auto leading-relaxed">
+              {errorMessage || "Document processing timed out or encountered an issue. Please try uploading again."}
             </p>
           </div>
           <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
-            {currentNoticeId && (
-              <button
-                type="button"
-                onClick={() => navigate(`/notices/${currentNoticeId}`)}
-                className="btn-primary"
-              >
-                Open Document
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={() => {
+                setPollTimedOut(false);
+                setErrorMessage(null);
+                setSelectedFile(null);
+                setCapturedPhotos([]);
+                setIsProcessing(false);
+              }}
+              className="px-6 py-2.5 rounded-xl font-black text-white bg-purple-600 hover:bg-purple-700 shadow-md min-h-[44px]"
+            >
+              Try again
+            </button>
             <button
               type="button"
               onClick={() => navigate("/notices")}
@@ -301,16 +321,29 @@ export function UploadPage() {
           {errorMessage && (
             <div
               role="alert"
-              className="p-4 rounded-2xl bg-rose-50 border border-rose-200 text-rose-950 flex items-start gap-3 ui-fade-in"
+              className="p-4 rounded-2xl bg-rose-50 border border-rose-200 text-rose-950 flex items-start justify-between gap-3 ui-fade-in"
             >
-              <AlertCircle
-                className="w-5 h-5 text-rose-600 shrink-0 mt-0.5"
-                aria-hidden="true"
-              />
-              <div>
-                <p className="font-bold text-sm">Upload could not proceed</p>
-                <p className="text-xs mt-0.5 text-rose-800 leading-relaxed">{errorMessage}</p>
+              <div className="flex items-start gap-3">
+                <AlertCircle
+                  className="w-5 h-5 text-rose-600 shrink-0 mt-0.5"
+                  aria-hidden="true"
+                />
+                <div>
+                  <p className="font-bold text-sm">Upload or Processing Notice</p>
+                  <p className="text-xs mt-0.5 text-rose-800 leading-relaxed">{errorMessage}</p>
+                </div>
               </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setErrorMessage(null);
+                  setSelectedFile(null);
+                  setCapturedPhotos([]);
+                }}
+                className="shrink-0 px-3 py-1.5 rounded-xl bg-rose-200 hover:bg-rose-300 text-rose-900 font-bold text-xs"
+              >
+                Try again
+              </button>
             </div>
           )}
 

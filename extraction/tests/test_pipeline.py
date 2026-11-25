@@ -24,7 +24,12 @@ from typing import Any
 
 import pytest
 
-from extraction.llm_client import FRIENDLY_BUSY_MESSAGE, FakeLLMClient, LLMError
+from extraction.llm_client import (
+    FRIENDLY_BUSY_MESSAGE,
+    FRIENDLY_QUOTA_MESSAGE,
+    FakeLLMClient,
+    LLMError,
+)
 from extraction.llm_extractor import PROMPT_VERSION, build_system_prompt
 from extraction.pipeline import parse_date_string, post_process_notice, process_notice
 
@@ -238,9 +243,9 @@ def test_pipeline_retry_exhaustion_friendly_message_with_fake_llm() -> None:
     """
     fake_client = FakeLLMClient(
         [
-            LLMError("HTTP 429: Resource has been exhausted (quota exceeded)", status_code=429),
-            LLMError("HTTP 429: Resource has been exhausted (quota exceeded)", status_code=429),
-            LLMError("HTTP 429: Resource has been exhausted (quota exceeded)", status_code=429),
+            LLMError("HTTP 503: The model is overloaded. Please try again later.", status_code=503),
+            LLMError("HTTP 503: The model is overloaded. Please try again later.", status_code=503),
+            LLMError("HTTP 503: The model is overloaded. Please try again later.", status_code=503),
         ]
     )
     pdf_path = FIXTURES_DIR / "scholarship_or_college.pdf"
@@ -254,6 +259,27 @@ def test_pipeline_retry_exhaustion_friendly_message_with_fake_llm() -> None:
     assert res["message"] == FRIENDLY_BUSY_MESSAGE
     assert "The AI service is busy right now" in res["message"]
     # Technical detail must NOT be shown to users in message
+    assert "503" not in res["message"]
+    assert "overloaded" not in res["message"]
+
+
+def test_pipeline_429_quota_exhausted_friendly_message_with_fake_llm() -> None:
+    """Verify 429 daily quota exhaustion returns FRIENDLY_QUOTA_MESSAGE without retries."""
+    fake_client = FakeLLMClient(
+        [
+            LLMError("HTTP 429: Resource has been exhausted (quota exceeded)", status_code=429),
+        ]
+    )
+    pdf_path = FIXTURES_DIR / "scholarship_or_college.pdf"
+
+    res = process_notice(pdf_path, client=fake_client)
+
+    assert res["status"] == "extraction_failed"
+    assert res["result"] is None
+    assert res["needs_verification"] is True
+    assert fake_client.call_count == 1
+    assert res["message"] == FRIENDLY_QUOTA_MESSAGE
+    assert "daily limit" in res["message"]
     assert "429" not in res["message"]
     assert "quota exceeded" not in res["message"]
 

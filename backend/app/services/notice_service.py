@@ -423,11 +423,17 @@ class NoticeService:
                 notice.stage = "done"
                 notice.progress = 100
                 msg = str(pipeline_res.get("message", "Extraction failed."))
-                if any(tech_term in msg.lower() for tech_term in ["gemini", "status 5", "status 4", "proto", "api key", "syntaxerror", "exception", "httpx"]):
+                if "daily limit" in msg.lower() or "quota" in msg.lower() or "resource_exhausted" in msg.lower() or "429" in msg:
+                    logger.error("Raw API quota error for notice %s logged to backend: %s", notice_id, msg)
+                    msg = "The AI service is busy or its daily limit was reached. Please try again later."
+                    notice.error_code = "QUOTA_EXHAUSTED"
+                elif any(tech_term in msg.lower() for tech_term in ["gemini", "status 5", "status 4", "proto", "api key", "syntaxerror", "exception", "httpx"]):
                     logger.error("Raw API error for notice %s logged to backend: %s", notice_id, msg)
                     msg = "Structured extraction failed. The AI service was unable to analyze this document. Please try again or provide a clearer notice."
+                    notice.error_code = pipeline_res.get("error_code", "EXTRACTION_FAILED")
+                else:
+                    notice.error_code = pipeline_res.get("error_code", "EXTRACTION_FAILED")
                 notice.error = msg
-                notice.error_code = pipeline_res.get("error_code", "EXTRACTION_FAILED")
                 notice.message = msg
 
             db.commit()

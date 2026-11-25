@@ -96,10 +96,21 @@ export function NoticeDashboardPage() {
       const data = await getNotice(id);
       setNotice(data);
 
-      // If notice is processing, poll every 1.5s
+      // If notice is processing, poll every 1.5s (with a 45s hard cutoff)
       if (data.status === "processing") {
+        const pollStart = Date.now();
         if (!pollIntervalRef.current) {
           pollIntervalRef.current = setInterval(async () => {
+            if (Date.now() - pollStart > 45000) {
+              clearInterval(pollIntervalRef.current);
+              pollIntervalRef.current = null;
+              setNotice((prev) => ({
+                ...(prev || {}),
+                status: "failed",
+                error: "Processing reached the time limit. Please try again with a clearer or shorter notice.",
+              }));
+              return;
+            }
             try {
               const refreshed = await getNotice(id);
               if (refreshed.status !== "processing") {
@@ -379,7 +390,7 @@ export function NoticeDashboardPage() {
               className="inline-flex items-center gap-2 px-6 py-3 rounded-xl font-black text-white bg-purple-600 hover:bg-purple-700 shadow-md min-h-[48px] focus:outline-hidden focus:ring-2 focus:ring-purple-600"
             >
               <Upload className="w-5 h-5" />
-              <span>Try Uploading Again</span>
+              <span>Try again</span>
             </Link>
             <Link
               to="/notices"

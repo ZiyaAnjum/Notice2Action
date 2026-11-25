@@ -33,6 +33,7 @@ from extraction.language import (
 )
 from extraction.llm_client import (
     FRIENDLY_BUSY_MESSAGE,
+    FRIENDLY_QUOTA_MESSAGE,
     RETRYABLE_STATUS_CODES,
     BaseLLMClient,
     sanitize_message,
@@ -1367,7 +1368,15 @@ def process_notice(
             raw_error = extraction_res.get("error") or "LLM extraction failed."
             safe_error = sanitize_message(raw_error)
 
-            if is_busy or (status_code in RETRYABLE_STATUS_CODES):
+            if (
+                status_code == 429
+                or "429" in raw_error
+                or "daily limit" in raw_error.lower()
+                or "resource_exhausted" in raw_error.lower()
+            ):
+                user_message = FRIENDLY_QUOTA_MESSAGE
+                logger.error("Pipeline extraction failed: quota/rate limit exhausted (429): %s", safe_error)
+            elif is_busy or (status_code in RETRYABLE_STATUS_CODES):
                 user_message = FRIENDLY_BUSY_MESSAGE
                 logger.error(
                     "Pipeline extraction failed due to temporary AI service error: %s (status=%s)",
